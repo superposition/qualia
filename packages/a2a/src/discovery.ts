@@ -1,127 +1,193 @@
 /**
- * Agent discovery
- *
- * Provides in-memory agent registry for local development and testing.
- * In production, plug in on-chain or mDNS-based discovery.
+ * Pluggable agent discovery
  */
 
+/** Agent capability metadata */
 export interface AgentCapability {
   name: string;
   version?: string;
   description?: string;
 }
 
+/** Agent metadata for discovery */
 export interface AgentMetadata {
   did: string;
   name: string;
   capabilities: AgentCapability[];
   endpoints: {
-    a2a?: string; // WebSocket endpoint for A2A communication
-    http?: string; // HTTP endpoint (if available)
+    a2a?: string;
+    http?: string;
   };
 }
 
-/**
- * In-memory agent registry for development and testing
- */
-const agentRegistry: AgentMetadata[] = [];
-
-/**
- * Discover agents by capability
- * @param capability - The capability name to search for, or '*' for all agents
- * @returns Array of agent DIDs
- */
-export async function discover(capability: string): Promise<string[]> {
-  if (capability === '*') {
-    return agentRegistry.map((agent) => agent.did);
-  }
-
-  const matchingAgents = agentRegistry.filter((agent) =>
-    agent.capabilities.some((cap) => cap.name === capability)
-  );
-
-  return matchingAgents.map((agent) => agent.did);
-}
-
-/**
- * Get full agent metadata by DID
- * @param did - The agent's DID
- * @returns Agent metadata or null if not found
- */
-export async function getAgentMetadata(
-  did: string
-): Promise<AgentMetadata | null> {
-  const agent = agentRegistry.find((a) => a.did === did);
-  return agent || null;
-}
-
-/**
- * Register an agent in the discovery registry
- * @param metadata - Agent metadata to register
- */
-export async function registerAgent(metadata: AgentMetadata): Promise<void> {
-  // Remove existing entry if present (update)
-  const idx = agentRegistry.findIndex((a) => a.did === metadata.did);
-  if (idx >= 0) {
-    agentRegistry[idx] = metadata;
-  } else {
-    agentRegistry.push(metadata);
-  }
-}
-
-/**
- * Remove an agent from the registry
- * @param did - The agent's DID to remove
- */
-export async function unregisterAgent(did: string): Promise<void> {
-  const idx = agentRegistry.findIndex((a) => a.did === did);
-  if (idx >= 0) {
-    agentRegistry.splice(idx, 1);
-  }
-}
-
+/** Search criteria for finding agents */
 export interface SearchCriteria {
   capabilities?: string[];
   name?: string;
 }
 
 /**
- * Advanced agent search with multiple criteria
- * @param criteria - Search criteria
- * @returns Array of matching agent DIDs
+ * Discovery provider interface — implement this to plug in custom discovery
  */
-export async function searchAgents(
-  criteria: SearchCriteria
-): Promise<string[]> {
-  let results = agentRegistry;
+export interface DiscoveryProvider {
+  discover(capability: string): Promise<string[]>;
+  getAgentMetadata(did: string): Promise<AgentMetadata | null>;
+  registerAgent(metadata: AgentMetadata): Promise<void>;
+  searchAgents(criteria: SearchCriteria): Promise<string[]>;
+}
 
-  if (criteria.capabilities && criteria.capabilities.length > 0) {
-    results = results.filter((agent) =>
-      criteria.capabilities!.some((cap) =>
-        agent.capabilities.some((agentCap) => agentCap.name === cap)
+/**
+ * In-memory discovery provider — default implementation
+ */
+export class InMemoryDiscovery implements DiscoveryProvider {
+  private registry: AgentMetadata[] = [];
+
+  constructor(initialAgents?: AgentMetadata[]) {
+    if (initialAgents) {
+      this.registry = [...initialAgents];
+    }
+  }
+
+  async discover(capability: string): Promise<string[]> {
+    if (capability === '*') {
+      return this.registry.map((agent) => agent.did);
+    }
+
+    return this.registry
+      .filter((agent) =>
+        agent.capabilities.some((cap) => cap.name === capability),
       )
-    );
+      .map((agent) => agent.did);
   }
 
-  if (criteria.name) {
-    results = results.filter((agent) =>
-      agent.name.toLowerCase().includes(criteria.name!.toLowerCase())
-    );
+  async getAgentMetadata(did: string): Promise<AgentMetadata | null> {
+    return this.registry.find((a) => a.did === did) ?? null;
   }
 
-  return results.map((agent) => agent.did);
+  async registerAgent(metadata: AgentMetadata): Promise<void> {
+    const existing = this.registry.findIndex((a) => a.did === metadata.did);
+    if (existing >= 0) {
+      this.registry[existing] = metadata;
+    } else {
+      this.registry.push(metadata);
+    }
+  }
+
+  async unregisterAgent(did: string): Promise<boolean> {
+    const index = this.registry.findIndex((a) => a.did === did);
+    if (index >= 0) {
+      this.registry.splice(index, 1);
+      return true;
+    }
+    return false;
+  }
+
+  async searchAgents(criteria: SearchCriteria): Promise<string[]> {
+    let results = this.registry;
+
+    if (criteria.capabilities && criteria.capabilities.length > 0) {
+      results = results.filter((agent) =>
+        criteria.capabilities!.some((cap) =>
+          agent.capabilities.some((agentCap) => agentCap.name === cap),
+        ),
+      );
+    }
+
+    if (criteria.name) {
+      const searchName = criteria.name.toLowerCase();
+      results = results.filter((agent) =>
+        agent.name.toLowerCase().includes(searchName),
+      );
+    }
+
+    return results.map((agent) => agent.did);
+  }
+
+  /** Get a copy of the registry (for testing) */
+  getRegistry(): AgentMetadata[] {
+    return [...this.registry];
+  }
+
+  /** Clear the registry */
+  clear(): void {
+    this.registry.length = 0;
+  }
 }
 
-/**
- * Get a copy of the registry (for testing)
- */
-export function getRegistry(): AgentMetadata[] {
-  return [...agentRegistry];
+// ============================================================================
+// Default instance with mock data (backward compatible)
+// ============================================================================
+
+const defaultDiscovery = new InMemoryDiscovery([
+  {
+    did: 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK',
+    name: 'alice-agent',
+    capabilities: [
+      { name: 'obstacle_analysis', version: '1.0' },
+      { name: 'image_processing', version: '1.0' },
+    ],
+    endpoints: {
+      a2a: 'ws://localhost:8080',
+      http: 'http://localhost:8080',
+    },
+  },
+  {
+    did: 'did:key:z6MkkZc5xKBZmNJvMBTMp7kGLjBvHN3qvEsCqcV2p5xKx8uK',
+    name: 'bob-agent',
+    capabilities: [
+      { name: 'data_analysis', version: '1.0' },
+      { name: 'prediction', version: '1.0' },
+    ],
+    endpoints: {
+      a2a: 'ws://localhost:8081',
+    },
+  },
+  {
+    did: 'did:key:z6MkvYzpqzUTfRq3RdCYqNS8KKxX2ZwMhKz6f6g8VjKqGc4R',
+    name: 'hiro-robot',
+    capabilities: [
+      { name: 'navigation', version: '1.0' },
+      { name: 'sensor_fusion', version: '1.0' },
+    ],
+    endpoints: {
+      a2a: 'ws://localhost:8082',
+    },
+  },
+]);
+
+/** Discover agents by capability (uses default discovery) */
+export async function discover(capability: string): Promise<string[]> {
+  return defaultDiscovery.discover(capability);
 }
 
-/**
- * Clear the registry (for testing)
- */
-export function clearRegistry(): void {
-  agentRegistry.length = 0;
+/** Get agent metadata (uses default discovery) */
+export async function getAgentMetadata(
+  did: string,
+): Promise<AgentMetadata | null> {
+  return defaultDiscovery.getAgentMetadata(did);
+}
+
+/** Register agent (uses default discovery) */
+export async function registerAgent(metadata: AgentMetadata): Promise<void> {
+  return defaultDiscovery.registerAgent(metadata);
+}
+
+/** Search agents (uses default discovery) */
+export async function searchAgents(criteria: SearchCriteria): Promise<string[]> {
+  return defaultDiscovery.searchAgents(criteria);
+}
+
+/** Unregister agent (uses default discovery) */
+export async function unregisterAgent(did: string): Promise<boolean> {
+  return defaultDiscovery.unregisterAgent(did);
+}
+
+/** Get mock registry (for testing) */
+export function getMockRegistry(): AgentMetadata[] {
+  return defaultDiscovery.getRegistry();
+}
+
+/** Clear mock registry (for testing) */
+export function clearMockRegistry(): void {
+  defaultDiscovery.clear();
 }

@@ -12,6 +12,18 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
+    "paths": {
+      "@qualia/types": ["./packages/types/src"],
+      "@qualia/passport": ["./packages/passport/src"],
+      "@qualia/a2a": ["./packages/a2a/src"],
+      "@qualia/ros-client": ["./packages/ros-client/src"],
+      "@qualia/motion": ["./packages/motion/src"],
+      "@qualia/events": ["./packages/events/src"],
+      "@qualia/spatial": ["./packages/spatial/src"],
+      "@qualia/swarm": ["./packages/swarm/src"],
+      "@qualia/telemetry": ["./packages/telemetry/src"]
+    }
   }
 }

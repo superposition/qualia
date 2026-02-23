@@ -10,6 +10,7 @@ export type { Passport, DID, KeyPair } from '@qualia/types';
 
 /**
  * Passport data for signing
+ * Contains user-provided fields for passport creation
  */
 export interface PassportData {
   capabilities: string[];
@@ -41,16 +42,37 @@ export {
   verifyMessage,
 } from './signature';
 
-// Passport creation and verification
+// Passport creation, verification, rotation
 export {
   createPassport,
   verifyPassport,
   serializePassport,
   deserializePassport,
+  batchVerify,
+  isExpired,
+  createKeyRotationProof,
+  verifyKeyRotationProof,
+  rotatePassport,
+} from './passport';
+export type {
+  CreatePassportOptions,
+  VerifyPassportOptions,
+  KeyRotationProof,
 } from './passport';
 
-// Hex encoding utilities
+// Encoding utilities
 export { toHex, fromHex } from './utils';
+
+// Passport storage
+export {
+  MemoryPassportStore,
+  FilePassportStore,
+} from './store';
+export type { PassportStore } from './store';
+
+// ============================================================================
+// Convenience API
+// ============================================================================
 
 import { generateKeypair } from './keypair';
 import { publicKeyToDID } from './did';
@@ -80,6 +102,7 @@ export async function signPassport(
   data: PassportData,
   privateKey: Uint8Array
 ): Promise<Passport> {
+  // Derive public key from private key
   const publicKey = ed25519.getPublicKey(privateKey);
 
   const keypair = {

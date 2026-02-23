@@ -23,6 +23,20 @@
         "@types/ws": "^8.5.13",
       },
     },
+    "packages/events": {
+      "name": "@qualia/events",
+      "version": "0.1.0",
+      "dependencies": {
+        "@qualia/types": "workspace:*",
+      },
+    },
+    "packages/motion": {
+      "name": "@qualia/motion",
+      "version": "0.1.0",
+      "dependencies": {
+        "@qualia/types": "workspace:*",
+      },
+    },
     "packages/passport": {
       "name": "@qualia/passport",
       "version": "0.1.0",
@@ -34,6 +48,38 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
+      },
+    },
+    "packages/ros-client": {
+      "name": "@qualia/ros-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@qualia/types": "workspace:*",
+        "ws": "^8.18.0",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.5.13",
+      },
+    },
+    "packages/spatial": {
+      "name": "@qualia/spatial",
+      "version": "0.1.0",
+      "dependencies": {
+        "@qualia/types": "workspace:*",
+      },
+    },
+    "packages/swarm": {
+      "name": "@qualia/swarm",
+      "version": "0.1.0",
+      "dependencies": {
+        "@qualia/types": "workspace:*",
+      },
+    },
+    "packages/telemetry": {
+      "name": "@qualia/telemetry",
+      "version": "0.1.0",
+      "dependencies": {
+        "@qualia/types": "workspace:*",
       },
     },
     "packages/types": {
@@ -49,7 +95,19 @@
 
     "@qualia/a2a": ["@qualia/a2a@workspace:packages/a2a"],
 
+    "@qualia/events": ["@qualia/events@workspace:packages/events"],
+
+    "@qualia/motion": ["@qualia/motion@workspace:packages/motion"],
+
     "@qualia/passport": ["@qualia/passport@workspace:packages/passport"],
+
+    "@qualia/ros-client": ["@qualia/ros-client@workspace:packages/ros-client"],
+
+    "@qualia/spatial": ["@qualia/spatial@workspace:packages/spatial"],
+
+    "@qualia/swarm": ["@qualia/swarm@workspace:packages/swarm"],
+
+    "@qualia/telemetry": ["@qualia/telemetry@workspace:packages/telemetry"],
 
     "@qualia/types": ["@qualia/types@workspace:packages/types"],
 

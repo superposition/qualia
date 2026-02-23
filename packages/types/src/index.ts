@@ -1,8 +1,19 @@
 /**
  * QUALIA Shared Type Definitions
  *
- * Core types used across all packages and applications in the QUALIA system.
+ * Core types used across all packages in the QUALIA robotics framework.
  */
+
+// ============================================================================
+// Module re-exports (for tree-shaking)
+// ============================================================================
+
+export * from './ros';
+export * from './events';
+export * from './motion';
+export * from './grid';
+export * from './swarm';
+export * from './sensor';
 
 // ============================================================================
 // NANDA (Namespace-Addressable Namespace for Decentralized Agents)
@@ -10,7 +21,7 @@
 
 /**
  * NANDA name format: @entity:namespace
- * Examples: @hiro:qualia, @alice:fleet
+ * Examples: @hiro:qualia, @alice:anthropic
  */
 export type NANDAName = `@${string}:${string}`;
 
@@ -70,6 +81,9 @@ export interface Passport {
 
   /** Timestamp when passport was issued (Unix timestamp in seconds) */
   issuedAt: number;
+
+  /** Optional expiration timestamp (Unix timestamp in seconds) */
+  expiresAt?: number;
 }
 
 /**
@@ -125,51 +139,6 @@ export interface A2AMessage {
 }
 
 // ============================================================================
-// ROS (Robot Operating System)
-// ============================================================================
-
-/**
- * Common ROS message types. Use string for custom types.
- */
-export type ROSMessageType =
-  | 'geometry_msgs/Twist'
-  | 'geometry_msgs/PoseStamped'
-  | 'sensor_msgs/Image'
-  | 'sensor_msgs/LaserScan'
-  | 'sensor_msgs/NavSatFix'
-  | 'sensor_msgs/PointCloud2'
-  | 'sensor_msgs/JointState'
-  | 'nav_msgs/Odometry'
-  | 'nav_msgs/OccupancyGrid'
-  | 'std_msgs/String'
-  | 'tf2_msgs/TFMessage'
-  | (string & {});
-
-/**
- * ROS Twist message (velocity command)
- */
-export interface ROSTwist {
-  linear: { x: number; y: number; z: number };
-  angular: { x: number; y: number; z: number };
-}
-
-/**
- * ROS topic subscription
- */
-export interface ROSTopic {
-  name: string;
-  type: ROSMessageType;
-}
-
-/**
- * ROS service call
- */
-export interface ROSServiceCall {
-  service: string;
-  args: unknown;
-}
-
-// ============================================================================
 // Robot & Agent Capabilities
 // ============================================================================
 
@@ -195,25 +164,6 @@ export interface Capability {
 }
 
 // ============================================================================
-// WebRTC Types
-// ============================================================================
-
-/**
- * WebRTC signaling message types
- */
-export type SignalingMessageType = 'offer' | 'answer' | 'ice-candidate';
-
-/**
- * WebRTC signaling message
- */
-export interface SignalingMessage {
-  type: SignalingMessageType;
-  from: string;
-  to: string;
-  payload: RTCSessionDescriptionInit | RTCIceCandidateInit;
-}
-
-// ============================================================================
 // Monitoring & Telemetry
 // ============================================================================
 
@@ -228,11 +178,7 @@ export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 export interface HealthCheck {
   status: HealthStatus;
   timestamp: number;
-  checks: {
-    ros?: boolean;
-    network?: boolean;
-    hardware?: boolean;
-  };
+  checks: Record<string, boolean>;
   error?: string;
 }
 
