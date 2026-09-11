@@ -60,12 +60,12 @@ impl std::fmt::Debug for ShmError {
 impl std::fmt::Display for ShmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::OsError(code) => write!(f, "shared memory OS error {code}"),
-            Self::BadMagic => f.write_str("shared memory header carries a foreign magic number"),
-            Self::SizeMismatch => f.write_str("shared memory backing size mismatch"),
+            Self::OsError(code) => write!(f, "OS error {code}"),
+            Self::BadMagic => f.write_str("bad magic number in shared memory header"),
+            Self::SizeMismatch => f.write_str("shared memory size mismatch"),
             Self::VersionMismatch { expected, found } => write!(
                 f,
-                "shared memory version mismatch: this build speaks {expected}, the region speaks {found}"
+                "shared memory version mismatch: expected {expected}, found {found}"
             ),
             Self::LayoutMismatch => f.write_str("shared memory layout contract mismatch"),
         }
@@ -250,7 +250,7 @@ impl ShmRegion {
 
     /// Ledger row `index`, addressed by its absolute slot in the ring.
     pub fn ledger_entry(&self, index: usize) -> &LedgerEntry {
-        assert!(index < MAX_LEDGER_ENTRIES, "ledger index {index} out of range");
+        assert!(index < MAX_LEDGER_ENTRIES, "ledger index out of range");
         unsafe { self.at(LEDGER_OFFSET + index * std::mem::size_of::<LedgerEntry>()) }
     }
 
@@ -835,17 +835,17 @@ fn errno() -> i32 {
 fn mapping_name_wide(name: &str) -> Result<Vec<u16>, ShmError> {
     let normalised = name.trim_start_matches('/').replace('/', "_");
     if normalised.is_empty() || normalised.contains('\0') {
-        return Err(ShmError::OsError(ERROR_INVALID_PARAMETER));
+        return Err(ShmError::OsError(EINVAL));
     }
     let mut wide: Vec<u16> = normalised.encode_utf16().collect();
     wide.push(0);
     Ok(wide)
 }
 
-/// `ERROR_INVALID_PARAMETER`, the Windows answer for a name that cannot be a
-/// kernel object name.
+/// `EINVAL` (22), the code the reference reports for a name the platform
+/// cannot turn into a kernel object name.
 #[cfg(windows)]
-const ERROR_INVALID_PARAMETER: i32 = 87;
+const EINVAL: i32 = 22;
 
 /// Wall-clock nanoseconds for stamped entries; zero if the clock is before the
 /// epoch, which no correct host clock is.
