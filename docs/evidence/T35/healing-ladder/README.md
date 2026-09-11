@@ -35,17 +35,20 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 8 tests, 8 traced thread windows, **31 ladder decisions** (that is the iteration count this capture
-carries: 17 `next_step` calls and 14 `Ladder::step` calls, one per assertion in the suite). The
-decisions are pure comparisons — no syscall, no clock, no device call — so the trace resolves the
+carries: 17 `next_step` calls and 14 `Ladder::step` calls, one per ladder-call assertion in the suite
+— its 32nd assertion checks the ragged sample's `sample_count`, line 70, and is not a ladder call).
+The decisions are pure comparisons — no syscall, no clock, no device call — so the trace resolves the
 path to one window per test and cannot separate the decisions inside a window. The window bounds are
 the test thread's own first and last `osrt` event; `timeline.csv` gives every decision its window's
 bounds and the parent's create/join end for the same test.
 
 ## Timeline
 
-Timestamps are nanoseconds on the trace clock, whose session start is `2026-09-11T21:23:28Z`; the
-absolute column is the session start plus the window start. Windows are in run order — libtest sorts
-the test names and, with `--test-threads=1`, runs them one at a time in that order, and the trace's
+Timestamps are nanoseconds on the trace clock, whose session start is
+`2026-09-11T21:23:28.511357438Z` (the `utcEpochNs` field of the export's
+`TARGET_INFO_SESSION_START_TIME`; its `utcTime` string is that second, second-precision); the
+absolute column is that epoch plus the window start. Windows are in run order — libtest sorts the
+test names and, with `--test-threads=1`, runs them one at a time in that order, and the trace's
 `pthread_create`/`pthread_join` cycles follow it one for one (so window *i* is test *i* of the order
 above; the names are not interned in the trace, the order is the binding).
 
@@ -67,10 +70,10 @@ lines). Inside a window the ladder's rungs ran in the ticket's order:
 
 | Rung | Decisions | Drift inputs |
 | --- | --- | --- |
-| nothing (healthy) | 6 | `2.0` at attempts 0 and 3, `3.0` at 0, the ragged sample at 0 and 3 |
-| `Recalibrate` | 5 | `4.0` at 0 and 2, `5.0`, `3.000001` |
+| nothing (healthy) | 6 | `2.0` at attempts 0 and 3, `3.0` at 0, the ragged sample at 0 (twice: the plain call and the hold test's `now_ns=5 s` reading) and at 3 |
+| `Recalibrate` | 5 | `4.0` at 0 (twice: the plain call and the hold test's `now_ns=9 s` reading) and at 2, `5.0`, `3.000001` |
 | `RollBack` | 4 | `7.0` at 0 and 2, `8.0`, `5.000001` |
-| `ObserveOnly` | 12 | `12.0` and `8.000001`, `4.0`/`7.0` at attempts 3, and the hold readings |
+| `ObserveOnly` | 12 | `12.0` ×7 (three of them inside a live hold), `8.000001`, `4.0` at attempts 3, `7.0` at attempts 3 ×3 (one held 60 s) |
 | `SafeStop` | 4 | `12.0` with the observe-only hold aged to 10 s, 11 s, 12 s and 20 s |
 
 17 distinct readings fired those 31 decisions: ten squared Mahalanobis values (`2.0`, `3.0`,
@@ -146,8 +149,9 @@ QUALIA_CUDA_BENCH_SHAPE=1024 QUALIA_CUDA_BENCH_ITERS=2 mage profile-exec --backe
 
 10 launches over 3 kernels, 332.36 µs of kernel time, `capture_range: all`, session 40 in
 `~/.mage/profiles.db`: `cutlass::Kernel2<cutlass_80_simt_sgemm_128x64_8x5_nn_align1>` 7 × 44.6–46.3 µs
-(128×128), `at::native::…normal_and_transform` 10.17 µs (768×256) and `at::native::reduce_kernel`
-5.37 µs (1×128). The `--capture-range cuda` failure above is from the same binary.
+(128×128), `at::native::…normal_and_transform` 2 × 4.99–5.18 µs (768×256) and
+`at::native::reduce_kernel` 5.37 µs (1×128). The `--capture-range cuda` failure above is from the
+same binary.
 
 ## Files
 
@@ -156,9 +160,12 @@ home-relative (the profile directory in `profiler_argv` and `error`, the target 
 `command`); `status: "failed"`, `returncode: 0` and the `captured no CUDA kernel launches` error are
 mage's own text. No `kernels.json`/`kernels.csv` exists for it and none is manufactured.
 
-`timeline.csv` is the decision timeline derived from the trace: one row per ladder decision, 31 rows,
-each carrying its window's bounds, absolute start, the parent's create/join ends, the API, the
-reading it was handed and the rung it selected.
+`timeline.csv` binds the suite's call sequence to the trace's windows: one row per ladder decision,
+31 rows, each carrying its window's bounds, absolute start, the parent thread's create/join ends, the
+API, the reading it was handed and the rung it selected. The window bounds, thread ids and UTC start
+are the trace's; the API, reading and rung are the suite's call sequence
+(`crates/braid/tests/heal.rs`), which the trace does not carry — inside a window the decisions are
+not separable, so they take that window's bounds.
 
 `capture.sqlite` is a **trimmed** export of the manual trace — the tables the timeline is read from
 (`OSRT_API`, `ThreadNames`, `StringIds` only as far as those two reference it, and

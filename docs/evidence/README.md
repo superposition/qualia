@@ -39,10 +39,18 @@ plus the export of the backend that ran — never a `capture.sqlite` from a targ
 
 A run that launches no CUDA kernel produces no `kernels.json` and no `kernels.csv`. mage raises
 `captured no CUDA kernel launches`, and the only manifest it writes is `capture.json`, with
-`status: "failed"` and that error string; the raw backend export and `process.log` stay on the
-capturing machine. T35 (#51) is that case — the healing ladder's decision path is a CPU timeline with
-no kernel in it — so its directory commits `capture.json` and `README.md` alone, and the README
-carries the timeline numbers. Do not manufacture a kernel file for it.
+`status: "failed"` and that error string; `process.log` stays on the capturing machine. T35 (#51) is
+that case — the healing ladder's decision path is a CPU timeline with no kernel in it. Do not
+manufacture a kernel file for it. A kernel-less run whose ticket asks for no timeline commits
+`capture.json` and `README.md` alone. A kernel-less run whose ticket asks for a CPU timeline commits
+`capture.json`, the README, a derived table (a `timeline.csv`) and the backend export **trimmed** to
+the tables that timeline is read from; its README carries the timeline numbers, states the trim's
+rule — which tables are kept and which `StringIds` rows are dropped — and names the raw,
+host-bearing export it came from by size and hash as staying off-tree. T35 is the worked example:
+`OSRT_API`, `ThreadNames`, the `StringIds` those two reference and
+`TARGET_INFO_SESSION_START_TIME` kept; the launch's `PATH`, `HOME` and hostname — interned into
+`StringIds` and repeated in `META_DATA_CAPTURE` and `TARGET_INFO_SYSTEM_ENV` — dropped; the raw
+`capture.nsys-rep` left on the capturing machine.
 
 Otherwise the directory README names each kernel, the shape it ran with (grid, block, shared memory)
 and how many launches the run produced, so a later ticket can be compared against it without opening
