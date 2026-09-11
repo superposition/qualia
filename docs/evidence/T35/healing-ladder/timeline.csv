@@ -1,0 +1,32 @@
+decision,window,test,api,input,rung,thread_global_id,window_start_ns,window_end_ns,window_start_utc,window_duration_us,parent_create_end_ns,parent_join_end_ns
+1,1,a_reading_that_leaves_observe_only_restarts_the_hold,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=0,ObserveOnly,281629914309670,36142808,37355519,2026-09-11T21:23:28.547500Z,1212.711,35966465,37547932
+2,1,a_reading_that_leaves_observe_only_restarts_the_hold,Ladder::step,mahalanobis=4.0 sample_count=1 attempts=0 now_ns=9000000000,Recalibrate,281629914309670,36142808,37355519,2026-09-11T21:23:28.547500Z,1212.711,35966465,37547932
+3,1,a_reading_that_leaves_observe_only_restarts_the_hold,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=10000000000,ObserveOnly,281629914309670,36142808,37355519,2026-09-11T21:23:28.547500Z,1212.711,35966465,37547932
+4,1,a_reading_that_leaves_observe_only_restarts_the_hold,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=19000000000,ObserveOnly,281629914309670,36142808,37355519,2026-09-11T21:23:28.547500Z,1212.711,35966465,37547932
+5,1,a_reading_that_leaves_observe_only_restarts_the_hold,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=20000000000,SafeStop,281629914309670,36142808,37355519,2026-09-11T21:23:28.547500Z,1212.711,35966465,37547932
+6,2,exhausted_attempts_hold_observe_only,next_step,mahalanobis=4.0 sample_count=1 attempts=3,ObserveOnly,281629914309671,37686365,38600437,2026-09-11T21:23:28.549043Z,914.072,37635227,38671774
+7,2,exhausted_attempts_hold_observe_only,next_step,mahalanobis=7.0 sample_count=1 attempts=3,ObserveOnly,281629914309671,37686365,38600437,2026-09-11T21:23:28.549043Z,914.072,37635227,38671774
+8,2,exhausted_attempts_hold_observe_only,next_step,mahalanobis=4.0 sample_count=1 attempts=2,Recalibrate,281629914309671,37686365,38600437,2026-09-11T21:23:28.549043Z,914.072,37635227,38671774
+9,2,exhausted_attempts_hold_observe_only,next_step,mahalanobis=7.0 sample_count=1 attempts=2,RollBack,281629914309671,37686365,38600437,2026-09-11T21:23:28.549043Z,914.072,37635227,38671774
+10,2,exhausted_attempts_hold_observe_only,next_step,mahalanobis=2.0 sample_count=1 attempts=3,none,281629914309671,37686365,38600437,2026-09-11T21:23:28.549043Z,914.072,37635227,38671774
+11,3,ladder_escalates_with_drift,next_step,mahalanobis=2.0 sample_count=1 attempts=0,none,281629914309672,38808144,39151011,2026-09-11T21:23:28.550165Z,342.867,38737786,39328655
+12,3,ladder_escalates_with_drift,next_step,mahalanobis=4.0 sample_count=1 attempts=0,Recalibrate,281629914309672,38808144,39151011,2026-09-11T21:23:28.550165Z,342.867,38737786,39328655
+13,3,ladder_escalates_with_drift,next_step,mahalanobis=7.0 sample_count=1 attempts=0,RollBack,281629914309672,38808144,39151011,2026-09-11T21:23:28.550165Z,342.867,38737786,39328655
+14,3,ladder_escalates_with_drift,next_step,mahalanobis=12.0 sample_count=1 attempts=0,ObserveOnly,281629914309672,38808144,39151011,2026-09-11T21:23:28.550165Z,342.867,38737786,39328655
+15,4,no_opinion_leaves_a_live_hold_where_it_was,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=0,ObserveOnly,281629914309673,39570705,40715960,2026-09-11T21:23:28.550928Z,1145.255,39527731,40850593
+16,4,no_opinion_leaves_a_live_hold_where_it_was,Ladder::step,sample_count=0 attempts=0 now_ns=5000000000,none,281629914309673,39570705,40715960,2026-09-11T21:23:28.550928Z,1145.255,39527731,40850593
+17,4,no_opinion_leaves_a_live_hold_where_it_was,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=10000000000,SafeStop,281629914309673,39570705,40715960,2026-09-11T21:23:28.550928Z,1145.255,39527731,40850593
+18,5,no_opinion_selects_nothing,next_step,sample_count=0 attempts=0,none,281629914309674,41000225,41490251,2026-09-11T21:23:28.552357Z,490.026,40946360,41572895
+19,5,no_opinion_selects_nothing,next_step,sample_count=0 attempts=3,none,281629914309674,41000225,41490251,2026-09-11T21:23:28.552357Z,490.026,40946360,41572895
+20,6,safe_stop_follows_a_ten_second_hold_above_eight,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=1000000000,ObserveOnly,281629914309675,41704274,42299672,2026-09-11T21:23:28.553061Z,595.398,41664770,42442041
+21,6,safe_stop_follows_a_ten_second_hold_above_eight,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=10999999999,ObserveOnly,281629914309675,41704274,42299672,2026-09-11T21:23:28.553061Z,595.398,41664770,42442041
+22,6,safe_stop_follows_a_ten_second_hold_above_eight,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=11000000000,SafeStop,281629914309675,41704274,42299672,2026-09-11T21:23:28.553061Z,595.398,41664770,42442041
+23,6,safe_stop_follows_a_ten_second_hold_above_eight,Ladder::step,mahalanobis=12.0 sample_count=1 attempts=0 now_ns=12000000000,SafeStop,281629914309675,41704274,42299672,2026-09-11T21:23:28.553061Z,595.398,41664770,42442041
+24,7,the_band_edges_belong_to_the_lower_rung,next_step,mahalanobis=3.0 sample_count=1 attempts=0,none,281629914309676,42570095,45194575,2026-09-11T21:23:28.553927Z,2624.48,42523680,45260183
+25,7,the_band_edges_belong_to_the_lower_rung,next_step,mahalanobis=5.0 sample_count=1 attempts=0,Recalibrate,281629914309676,42570095,45194575,2026-09-11T21:23:28.553927Z,2624.48,42523680,45260183
+26,7,the_band_edges_belong_to_the_lower_rung,next_step,mahalanobis=8.0 sample_count=1 attempts=0,RollBack,281629914309676,42570095,45194575,2026-09-11T21:23:28.553927Z,2624.48,42523680,45260183
+27,7,the_band_edges_belong_to_the_lower_rung,next_step,mahalanobis=3.000001 sample_count=1 attempts=0,Recalibrate,281629914309676,42570095,45194575,2026-09-11T21:23:28.553927Z,2624.48,42523680,45260183
+28,7,the_band_edges_belong_to_the_lower_rung,next_step,mahalanobis=5.000001 sample_count=1 attempts=0,RollBack,281629914309676,42570095,45194575,2026-09-11T21:23:28.553927Z,2624.48,42523680,45260183
+29,7,the_band_edges_belong_to_the_lower_rung,next_step,mahalanobis=8.000001 sample_count=1 attempts=0,ObserveOnly,281629914309676,42570095,45194575,2026-09-11T21:23:28.553927Z,2624.48,42523680,45260183
+30,8,the_hold_needs_a_drift_still_above_eight,Ladder::step,mahalanobis=7.0 sample_count=1 attempts=3 now_ns=0,ObserveOnly,281629914309677,45433706,45941979,2026-09-11T21:23:28.556791Z,508.273,45380142,46125209
+31,8,the_hold_needs_a_drift_still_above_eight,Ladder::step,mahalanobis=7.0 sample_count=1 attempts=3 now_ns=60000000000,ObserveOnly,281629914309677,45433706,45941979,2026-09-11T21:23:28.556791Z,508.273,45380142,46125209
