@@ -27,6 +27,7 @@ use qualia_jepa_model::train::StepMetrics;
 use qualia_jepa_model::train::TrainerConfig;
 use qualia_jepa_model::train::TransitionExample;
 use qualia_jepa_model::write_candidate_checkpoint;
+use qualia_jepa_model::write_immutable_training_report;
 use qualia_jepa_model::BaselineGate;
 use qualia_jepa_model::GroundingGeometry;
 use qualia_jepa_model::HeldOutMetrics;
@@ -39,8 +40,6 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
-use std::fs::OpenOptions;
-use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 use std::time::SystemTime;
@@ -318,7 +317,7 @@ fn run() -> CliResult<()> {
         grounding_calibration_gate_passed,
         all_gates_passed,
     };
-    let (report_path, report_digest) = write_immutable_report(&args.output_dir, &report)?;
+    let (report_path, report_digest) = write_immutable_training_report(&args.output_dir, &report)?;
     let mut checkpoint = empty_candidate_manifest(
         &args.checkpoint_name,
         &manifest.digest,
@@ -369,27 +368,6 @@ fn preflight(dataset: &DatasetManifest, options: &Args) -> CliResult<()> {
         return Err("epochs must be positive and batch size must be at least two".into());
     }
     Ok(())
-}
-
-/// Write the report under its own digest, never overwriting a previous one.
-fn write_immutable_report(output: &Path, report: &TrainingReport) -> CliResult<(PathBuf, String)> {
-    fs::create_dir_all(output)?;
-    let payload = serde_json::to_vec_pretty(report)?;
-    let digest = format!("{:x}", Sha256::digest(&payload));
-    let target = output.join(format!("jepa-training-report-{digest}.json"));
-    if target.exists() {
-        if fs::read(&target)? == payload {
-            return Ok((target, digest));
-        }
-        return Err("immutable training report collision".into());
-    }
-    let staged = target.with_extension("json.partial");
-    fs::write(&staged, &payload)?;
-    OpenOptions::new().write(true).open(&staged)?.sync_all()?;
-    fs::rename(&staged, &target)?;
-    #[cfg(unix)]
-    OpenOptions::new().read(true).open(output)?.sync_all()?;
-    Ok((target, digest))
 }
 
 /// Per-epoch shuffle key: seed and epoch first, then the sample identity.
