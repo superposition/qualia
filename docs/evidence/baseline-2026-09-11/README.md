@@ -1,8 +1,13 @@
 # Baseline capture — 2026-09-11
 
 The first mage capture of this repository's merged CUDA kernels, taken to prove the tooling and to
-give the `needs:profile` tickets a capture to beat. It is the previous capture T16–T18, T30–T31 and
-T35 have to improve on.
+give the `needs:profile` tickets a capture to beat. It is the previous capture T16–T18, T30–T31, T35
+and T50 have to improve on.
+
+It is an `nsys` capture from the dev host's WSL2 distribution, taken on 2026-09-11 before
+[`decisions.md`](../../decisions.md) D-012 made **Pinkie** the profiling target. It is kept as the
+reference these numbers are measured against; a new capture follows [`../README.md`](../README.md),
+names the host it ran on, and is taken on Pinkie with `--backend ncu` (only the host has `nsys`).
 
 ## What ran
 
@@ -38,7 +43,7 @@ The profiler argv mage built is recorded in `capture.json`:
 
 ```text
 /usr/local/bin/nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false \
-  --export=sqlite --output=<dir>/capture ./target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1
+  --export=sqlite --output=<output-dir>/mage-nsys-<run>/capture ./target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1
 ```
 
 ## Shapes and numbers

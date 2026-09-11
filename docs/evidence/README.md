@@ -14,45 +14,77 @@ docs/evidence/
   T<NN>/<slug>/              one directory per needs:profile ticket
 ```
 
-A capture directory holds:
+`<slug>` is free and names the capture rather than the ticket: the T16 capture is
+`T16/three-kernels/`, while #64's `T16/belief-couple` example is another legal slug for the same
+step. #64's test line, `ls docs/evidence/T*/README.md`, does not match that layout; the satisfiable
+form is
+
+```bash
+ls docs/evidence/T*/*/README.md
+```
+
+## What a capture directory holds
+
+Every capture directory holds `capture.json`, `kernels.json`, `kernels.csv` and its own `README.md`,
+plus the export of the backend that ran — never a `capture.sqlite` from a target that has no `nsys`:
 
 | File | Contents |
 | --- | --- |
-| `capture.json` | The exact profiler argv mage ran, the profiled argv, and the target's return code. |
-| `kernels.json` | One object per CUDA launch, as mage's nsys backend read it out of the export. |
+| `capture.json` | mage's manifest: the profiled argv (`argv`), mage's profiler argv with the absolute output path elided (`profiler_argv`), the target's return code (`returncode`), and `status`/`error` when the run produced no kernels. |
+| `kernels.json` | One object per CUDA launch, as mage read it out of the run's export. |
 | `kernels.csv` | The same rows as CSV. |
-| `capture.sqlite` | The Nsight Systems SQLite export for the run. |
-| `README.md` | The shape, the iteration count and the numbers observed. |
+| `capture.sqlite` | An `nsys` capture's SQLite export. |
+| `capture.ncu-rep` + `metrics.csv` | An `ncu` capture's report and its raw CSV. |
+| `README.md` | The host the capture ran on, the shape, the iteration count and the numbers observed. |
 
-The directory README names each kernel, the shape it ran with (grid, block, shared memory) and how
-many launches the run produced, so a later ticket can be compared against it without opening the
-SQLite. It also states what changed against the previous capture — a number, not a narrative. A
+A run that launches no CUDA kernel produces no `kernels.json` and no `kernels.csv`. mage raises
+`captured no CUDA kernel launches`, and the only manifest it writes is `capture.json`, with
+`status: "failed"` and that error string; the raw backend export and `process.log` stay on the
+capturing machine. T35 (#51) is that case — the healing ladder's decision path is a CPU timeline with
+no kernel in it — so its directory commits `capture.json` and `README.md` alone, and the README
+carries the timeline numbers. Do not manufacture a kernel file for it.
+
+Otherwise the directory README names each kernel, the shape it ran with (grid, block, shared memory)
+and how many launches the run produced, so a later ticket can be compared against it without opening
+the export. It also states what changed against the previous capture — a number, not a narrative. A
 ticket is not `status:done` until its capture is committed here, and the capture is linked from the
 ticket's own comment, so the comment stream says which directory holds the evidence.
 
-Commit `capture.json`, `kernels.json`, `kernels.csv` and the README always. Commit `capture.sqlite`
-while it fits the size the tree already carries: the largest committed file is `Cargo.lock` at about
-196 KiB. When the full export is larger, keep only the two tables mage's nsys backend reads
-(`StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL`), drop the `StringIds` rows the kernel table does not
-reference — the raw export carries the capturing host's `PATH`, `HOME` and distribution name — and
-`VACUUM` the result. Say in the directory README that the committed file is a trimmed export, and
-elide any absolute path the profiler argv embeds, so the committed evidence names no machine.
+Commit `capture.json`, `kernels.json`, `kernels.csv` and the README always, plus the export row for
+the backend that ran. Commit the export while it fits the size the tree already carries: the largest
+committed file is `Cargo.lock` at about 196 KB (191 KiB). When a full export is larger, trim it to
+what mage reads and say in the directory README that it is a trimmed export. For `nsys` that is the
+`StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL` tables with the `StringIds` rows the kernel table does
+not reference dropped — the raw export carries the capturing host's `PATH`, `HOME` and distribution
+name — `VACUUM`ed. For `ncu`, `metrics.csv` is the raw CSV mage parses and `capture.ncu-rep` is the
+report; a report too large to commit is left on the capturing machine and named in the README. Elide
+every absolute path `capture.json` embeds — the output path in `profiler_argv` and the report
+directory in `error` — so the committed evidence names no machine.
 
 ## Running a capture
 
-mage profiles a native executable, so build the test binary first and hand `profile-exec` its path:
+mage profiles a native executable, so build the ticket's binary first and hand `profile-exec` its
+path. The profiling target is **Pinkie**, the Waveshare-carried Jetson Orin NX at
+`jetson@192.168.55.1` ([`decisions.md`](../decisions.md) D-010, D-012): it carries `ncu` at
+`/usr/local/cuda/bin/ncu` and no `nsys`, so a capture there uses `--backend ncu`. Its binary is the
+ticket's aarch64 build — the host's cross-build through the cross image (`Cross.toml`,
+`docker/Dockerfile.cross-aarch64`) or a native build on the board (D-010) — copied to the board,
+which has no DNS.
 
 ```bash
-cargo test -p qualia-cuda --features cuda --no-run -j 4
-BIN=$(find target/debug/deps -maxdepth 1 -type f -name 'gpu-*' -executable | head -1)
-mage profile-exec --backend nsys --capture-range all \
-  --output-dir docs/evidence/T<NN>/<slug> \
-  -- "$BIN" --test-threads=1
+# on Pinkie: mage and the aarch64 binary are copied over first (the board has no DNS, D-010)
+mage profile-exec --backend ncu --capture-range all \
+  --output-dir ~/mage-capture-scratch/T<NN>/<slug> \
+  -- ./gpu-<hash> --test-threads=1
 ```
 
-`mage profile-exec` writes its artifacts into a fresh `mage-nsys-<random>/` directory under
-`--output-dir`; copy the files you want to commit up out of it and drop the directory name, which
-changes on every run.
+`mage profile-exec` writes its artifacts into a fresh `mage-ncu-<random>/` directory under
+`--output-dir`; copy the files you want to commit up into `docs/evidence/T<NN>/<slug>/` and drop the
+directory name, which changes on every run. Keep `--output-dir` outside the tree, as the baseline
+did, so the random directory, `process.log` and the untrimmed export never enter the repository. The
+test binary's name carries a build hash that changes with the dependency graph; recover it with
+`find target/aarch64-unknown-linux-gnu/debug/deps -maxdepth 1 -type f -name 'gpu-*' -executable |
+head -1` after the cross-build, or `target/debug/deps` after a native build on the board.
 
 Capture range: the ticket text in #64 writes `--capture-range cuda`. That range records only the
 window a target opens with `cudaProfilerStart`/`cudaProfilerStop`, and no binary in this repository
@@ -62,22 +94,32 @@ calls either, so a `cuda` capture on today's runners records no kernels and mage
 
 ## Host
 
-mage resolves `triton>=3.0`, which publishes no `win_amd64` wheels, so `uv tool install
-git+https://github.com/superposition/mage` fails on the Windows side of this workstation and the
-capture path runs in the WSL2 Ubuntu-22.04 distribution instead. That distribution already carries
-Nsight Systems, the CUDA toolkit and the Rust toolchain, and `nvidia-smi` there reports the same
-`NVIDIA GeForce RTX 4090`. Build with a Rust toolchain of 1.88 or later: the cached WSL `stable`
-is 1.85.0 and `cudarc 0.19.9` pulls `libloading 0.9`, which refuses to build on it. Point
-`LD_LIBRARY_PATH` at `/usr/local/cuda/lib64` and `/usr/lib/wsl/lib` so `libnvrtc.so.12` and
-`libcuda.so.1` resolve.
+Profiling happens on the target, and per D-012 that target is **Pinkie**; the evidence ships with the
+ticket from there. A capture on the dev host is not the convention. The host's WSL2 Ubuntu-22.04
+distribution is where mage installs on this workstation (`triton>=3.0` publishes no `win_amd64`
+wheel, so `uv tool install git+https://github.com/superposition/mage` cannot resolve on the Windows
+side) and it carries Nsight Systems and the 4090; `baseline-2026-09-11/` was taken there with
+`--backend nsys` before D-012. It stays a diagnostic, not the evidence a capture ticket lands.
 
-The 4090 is shared with other work on this workstation, so captures run one at a time and the
-durations a capture records move with whatever else is running. Compare captures on shape and
-launch count first and on duration second.
+So the backend a target actually carries decides the export, and the file table above follows it:
 
-## Reading the SQLite history
+| Backend | Where it resolves | The export it writes |
+| --- | --- | --- |
+| `ncu` | Pinkie, `/usr/local/cuda/bin/ncu`; the host's WSL2 carries it too | `capture.ncu-rep` and `metrics.csv`; no SQLite |
+| `nsys` | the dev host's WSL2 distribution; Pinkie has none | `capture.sqlite` |
 
-The export next to a capture answers per-launch questions directly:
+Record the backend in `capture.json` and the export in the directory, and never demand a
+`capture.sqlite` from a target that has no `nsys`.
+
+Host GPU work stays serial and bounded (D-011, D-013, D-014): one GPU job at a time, `cargo -j 2` and
+one build at a time while the host logs its corrected machine checks, and the resource guard of
+[`agents.md`](../agents.md) §Host safety. A capture counts as GPU work, so announce one before it
+runs.
+
+## Reading a capture
+
+`kernels.json` and `kernels.csv` carry the parsed launch rows. For an `nsys` capture, the committed
+export answers per-launch questions directly:
 
 ```bash
 sqlite3 docs/evidence/baseline-2026-09-11/capture.sqlite \
@@ -87,6 +129,9 @@ sqlite3 docs/evidence/baseline-2026-09-11/capture.sqlite \
      JOIN StringIds s ON s.id = k.demangledName
     ORDER BY k.start;"
 ```
+
+For an `ncu` capture, `metrics.csv` is the raw `--csv --page raw` output mage parses, and
+`capture.ncu-rep` is the report `ncu --export` wrote.
 
 Unless a capture passes `--no-persist`, mage also appends the same run to its own history database,
 `~/.mage/profiles.db`, as a session plus one `metrics` row per launch:
