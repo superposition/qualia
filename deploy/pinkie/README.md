@@ -104,13 +104,14 @@ Every one of these is measured, not assumed (D-010, D-016, D-018; the T29 smoke 
 - **The manifest's `env` block wins over the shell.** `run-mission.sh` exports the keys the manifest
   lists in a runner's `env_passthrough` (the supervisor applies those after the stack env) —
   `QUALIA_CUDA_SM` for the compute service, the fly mode and prior path for the belief and explore
-  paths, and the agent's port, token, journal, store, TLS directory, MCAP root, arena session,
-  compute socket and Leash URL — plus two inputs `qualia-init` reads directly:
-  `QUALIA_STACK_MANIFEST` (which manifest to run) and `QUALIA_LOG_DIR` (the run's log directory).
-  `QUALIA_LEASH_BASE_URL` is inert on this stack: the zero-motion manifest does not list it in
-  `qualia-agent`'s `env_passthrough` (the default manifest does), so the exported value never reaches
-  the agent, which reads the key directly. If the manifest's runner set or passthrough lists change,
-  those exports are what must move with them.
+  paths, and the agent's port, token, journal, store, TLS directory, MCAP root, arena session and
+  compute socket — plus two inputs `qualia-init` reads directly: `QUALIA_STACK_MANIFEST` (which
+  manifest to run) and `QUALIA_LOG_DIR` (the run's log directory). `--leash-url` sets
+  `QUALIA_LEASH_BASE_URL`, which the agent reads directly: `qualia run` and `qualia-init` spawn their
+  children with the supervisor's environment inherited, and the zero-motion manifest neither lists the
+  key in `qualia-agent`'s `env_passthrough` nor overrides it, so the exported value is what the agent
+  loads. If the manifest's runner set or passthrough lists change, those exports are what must move
+  with them.
 - **The prior** ships inside the archive at `assets/brain/prior` (`graph.bin`, `manifest.json`,
   `attribution.json`). A deployment-scale prior built off the Male CNS dataset is external and is
   shipped alongside with `ship-mission.sh --prior DIR`, which names it in the printed invocation.
