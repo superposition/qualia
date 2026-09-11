@@ -33,14 +33,28 @@ stays legible. Blender is the only rasteriser: nothing here shells out to
 Every value is fixed and the file names are fixed, so two runs write
 byte-identical files; prove it by hashing `psi.glb` and `psi-180.png` before and
 after a second run.
+
+`--entry <slug>` renders one journal entry's hero instead:
+
+    blender --background --factory-startup --python assets/mark/build_mark.py \
+        -- --entry the-connectome-as-a-prior
+
+It writes `docs/figures/<slug>/hero.png` and `hero.webp` (1920x1080, WebP
+quality 82): the mark and one geometric element that encodes the entry's
+subject, on the same fixed 45-degree camera. The element's numbers are read from
+the committed source `entries.json` names for the slug — the connectome
+fixture's CSV, the ladder's committed recording, the console's `VIEWS` table — so
+the picture can only say what the data says.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import pathlib
+import re
 import sys
 
 import bmesh
@@ -95,6 +109,41 @@ RIM_ENERGY = 72.0
 
 FLAT_ORTHO_SCALE = 1.0
 FLAT_DISTANCE = 4.0
+
+# The entry heroes (step 42). The element is built in the mark's own units — the
+# viewBox is 100 units across, so the mark is 0.84 units wide — and placed beside
+# the mark in the camera's image plane, where it cannot be occluded by it. Every
+# value below is fixed, and the camera keeps its fixed elevation and azimuth; the
+# ortho scale is solved from the composition's own silhouette, so the frame is a
+# deterministic function of the committed geometry.
+REPO_ROOT = HERE.parents[1]
+ENTRIES_PATH = HERE / "entries.json"
+ENTRIES_SCHEMA = "qualia.mark-entries.v1"
+FIGURES_DIR = REPO_ROOT / "docs" / "figures"
+COMPOSITION_MARGIN = 0.66
+ELEMENT_OFFSET = (0.46, 0.46, -0.05)
+
+# csr-grid: one block per nonzero (pre_type, post_type) pair on a 5x5 lattice.
+GRID_PITCH = 0.26
+GRID_BLOCK = 0.205
+GRID_BASE_DEPTH = 0.03
+GRID_MIN_HEIGHT = 0.07
+GRID_MAX_HEIGHT = 0.36
+
+# rings: the four ladder bands, drawn at their thresholds times RING_UNIT.
+RING_UNIT = 0.05
+RING_GAP = 0.5
+RING_SEGMENTS = 128
+RING_DEPTH = 0.09
+
+# tiles: the console's five views, staggered like the five floating windows.
+TILE_WIDTH = 0.44
+TILE_HEIGHT = 0.30
+TILE_STEP = 0.15
+TILE_DEPTH = 0.07
+TILE_RISE = 0.012
+SCREEN_INSET = 0.05
+SCREEN_DEPTH = 0.02
 
 WEBP_QUALITY = 82
 PNG_COMPRESSION = 15
@@ -332,12 +381,12 @@ def _join_piece(
     return [vertex, first, second]  # the mitre limit chops it: a bevel join
 
 
-def polygon_solid(name: str, polygon: list[tuple[float, float]], depth: float):
-    """A prism: the polygon at z=0, extruded along `+Z` by `depth`."""
+def polygon_solid(name: str, polygon: list[tuple[float, float]], depth: float, z: float = 0.0):
+    """A prism: the polygon at `z`, extruded along `+Z` by `depth`."""
     mesh = bpy.data.meshes.new(name)
     builder = bmesh.new()
     try:
-        face = builder.faces.new([builder.verts.new((x, y, 0.0)) for x, y in polygon])
+        face = builder.faces.new([builder.verts.new((x, y, z)) for x, y in polygon])
         grown = bmesh.ops.extrude_face_region(builder, geom=[face])
         bmesh.ops.translate(
             builder,
@@ -574,14 +623,292 @@ def flat_camera():
     )
 
 
-def configure_render(scene) -> None:
+def entry_spec(path: pathlib.Path = ENTRIES_PATH) -> dict:
+    """Read `entries.json`: the element each journal entry's hero renders."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise BuildError(f"{path.name}: {error}") from error
+    if document.get("schema") != ENTRIES_SCHEMA:
+        raise BuildError(
+            f"{path.name}: schema is {document.get('schema')!r}, expected {ENTRIES_SCHEMA!r}"
+        )
+    entries = document.get("entries") or []
+    if not entries:
+        raise BuildError(f"{path.name}: no entries")
+    for entry in entries:
+        for key in ("slug", "element", "encodes", "data"):
+            if not entry.get(key):
+                raise BuildError(f"{path.name}: an entry has no {key!r}")
+    return document
+
+
+def element_colour_hex(name: str, spec: dict, palette: dict) -> str:
+    """A colour name's hex: psi.json owns the mark's, entries.json the element's."""
+    if name in spec["palette"]:
+        return spec["palette"][name]
+    if name in palette:
+        return palette[name]
+    raise BuildError(f"unknown colour name {name!r}")
+
+
+def read_csr_pairs(path: pathlib.Path) -> tuple[list[str], list[tuple[str, str, int]]]:
+    """The committed fixture as (types, pairs): the rows summed per type pair."""
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise BuildError(f"{path.name}: no edge rows")
+    totals: dict[tuple[str, str], int] = {}
+    types: set[str] = set()
+    for row in rows:
+        pre, post, weight = row["pre_type"], row["post_type"], int(row["weight"])
+        types.add(pre)
+        types.add(post)
+        totals[(pre, post)] = totals.get((pre, post), 0) + weight
+    return sorted(types), [(pre, post, totals[(pre, post)]) for pre, post in sorted(totals)]
+
+
+def read_ladder(path: pathlib.Path) -> list[float]:
+    """The ladder recording's thresholds, as the plan fixes them."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise BuildError(f"{path.name}: {error}") from error
+    thresholds = [float(value) for value in document.get("thresholds") or []]
+    if len(thresholds) < 2:
+        raise BuildError(f"{path.name}: needs at least two thresholds")
+    if any(later <= earlier for earlier, later in zip(thresholds, thresholds[1:])):
+        raise BuildError(f"{path.name}: thresholds are not increasing")
+    return thresholds
+
+
+def read_views(path: pathlib.Path) -> list[str]:
+    """The console's `VIEWS` table, in the order the console declares it."""
+    text = path.read_text(encoding="utf-8")
+    marker = "pub const VIEWS"
+    if marker not in text:
+        raise BuildError(f"{path.name}: no `{marker}` table")
+    block = text.split(marker, 1)[1].split("];", 1)[0]
+    names = [name.lower() for name in re.findall(r"View::([A-Za-z0-9_]+)", block)]
+    if not names:
+        raise BuildError(f"{path.name}: `{marker}` names no views")
+    return names
+
+
+def rectangle(x: float, y: float, width: float, height: float) -> list[tuple[float, float]]:
+    return [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
+
+
+def translate_solid(obj, offset: tuple[float, float, float]) -> None:
+    """Bake an offset into the mesh: `combine` reads local coordinates only."""
+    builder = bmesh.new()
+    try:
+        builder.from_mesh(obj.data)
+        bmesh.ops.translate(builder, verts=builder.verts[:], vec=offset)
+        builder.to_mesh(obj.data)
+    finally:
+        builder.free()
+    obj.data.validate()
+
+
+def ring_solid(name: str, inner_radius: float, outer_radius: float, depth: float, z: float = 0.0):
+    """A flat annulus: a quad strip between two circles, extruded along `+Z`."""
+    mesh = bpy.data.meshes.new(name)
+    builder = bmesh.new()
+    try:
+        angles = [2.0 * math.pi * index / RING_SEGMENTS for index in range(RING_SEGMENTS)]
+        inner = [
+            builder.verts.new((inner_radius * math.cos(angle), inner_radius * math.sin(angle), z))
+            for angle in angles
+        ]
+        outer = [
+            builder.verts.new((outer_radius * math.cos(angle), outer_radius * math.sin(angle), z))
+            for angle in angles
+        ]
+        faces = []
+        for index in range(RING_SEGMENTS):
+            following = (index + 1) % RING_SEGMENTS
+            faces.append(
+                builder.faces.new((outer[index], outer[following], inner[following], inner[index]))
+            )
+        grown = bmesh.ops.extrude_face_region(builder, geom=faces)
+        bmesh.ops.translate(
+            builder,
+            verts=[element for element in grown["geom"] if isinstance(element, bmesh.types.BMVert)],
+            vec=(0.0, 0.0, depth),
+        )
+        bmesh.ops.recalc_face_normals(builder, faces=builder.faces[:])
+        builder.to_mesh(mesh)
+    finally:
+        builder.free()
+    mesh.validate()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def csr_grid(path: pathlib.Path) -> list[tuple[object, str]]:
+    """The fixture's type-level CSR as raised blocks on a square lattice."""
+    types, pairs = read_csr_pairs(path)
+    index = {name: position for position, name in enumerate(types)}
+    span = (len(types) - 1) * GRID_PITCH
+    limit = max(weight for _, _, weight in pairs)
+    margin = span + GRID_BLOCK + 0.06
+    solids = [
+        (polygon_solid("csr-base", rectangle(-margin / 2, -margin / 2, margin, margin), GRID_BASE_DEPTH), "slate")
+    ]
+    for pre, post, weight in pairs:
+        x = -span / 2 + index[post] * GRID_PITCH - GRID_BLOCK / 2
+        y = span / 2 - index[pre] * GRID_PITCH - GRID_BLOCK / 2
+        height = GRID_MIN_HEIGHT + (GRID_MAX_HEIGHT - GRID_MIN_HEIGHT) * weight / limit
+        solids.append(
+            (
+                polygon_solid(
+                    f"csr-{pre}-{post}",
+                    rectangle(x, y, GRID_BLOCK, GRID_BLOCK),
+                    height,
+                    z=GRID_BASE_DEPTH,
+                ),
+                "blue",
+            )
+        )
+    return solids
+
+
+def ladder_rings(path: pathlib.Path) -> list[tuple[object, str]]:
+    """The ladder's four bands: the three thresholds and the open band above them."""
+    thresholds = read_ladder(path)
+    boundaries = [0.0] + thresholds + [thresholds[-1] + (thresholds[-1] - thresholds[-2])]
+    colours = ("green", "lavender", "blue", "sand")
+    solids = []
+    for band in range(len(boundaries) - 1):
+        inner = (boundaries[band] + RING_GAP) * RING_UNIT
+        outer = (boundaries[band + 1] - RING_GAP) * RING_UNIT
+        solids.append((ring_solid(f"ring-{band}", inner, outer, RING_DEPTH), colours[band % len(colours)]))
+    return solids
+
+
+def console_tiles(path: pathlib.Path) -> list[tuple[object, str]]:
+    """The console's views as staggered, extruded tiles, in `VIEWS` order."""
+    views = read_views(path)
+    start = -TILE_STEP * (len(views) - 1) / 2.0
+    solids = []
+    for position, view in enumerate(views):
+        x = start + position * TILE_STEP
+        y = start + position * TILE_STEP
+        z = position * TILE_RISE
+        solids.append(
+            (
+                polygon_solid(
+                    f"tile-{view}",
+                    rectangle(x - TILE_WIDTH / 2, y - TILE_HEIGHT / 2, TILE_WIDTH, TILE_HEIGHT),
+                    TILE_DEPTH,
+                    z=z,
+                ),
+                "blue",
+            )
+        )
+        solids.append(
+            (
+                polygon_solid(
+                    f"screen-{view}",
+                    rectangle(
+                        x - TILE_WIDTH / 2 + SCREEN_INSET,
+                        y - TILE_HEIGHT / 2 + SCREEN_INSET,
+                        TILE_WIDTH - 2 * SCREEN_INSET,
+                        TILE_HEIGHT - 2 * SCREEN_INSET,
+                    ),
+                    SCREEN_DEPTH,
+                    z=z + TILE_DEPTH,
+                ),
+                "green",
+            )
+        )
+    return solids
+
+
+ELEMENTS = {
+    "csr-grid": csr_grid,
+    "rings": ladder_rings,
+    "tiles": console_tiles,
+}
+
+
+def element_solids(entry: dict) -> list[tuple[object, str]]:
+    """The entry's committed element, placed beside the mark in the image plane."""
+    builder = ELEMENTS.get(entry["element"])
+    if builder is None:
+        raise BuildError(f"{ENTRIES_PATH.name}: unknown element {entry['element']!r}")
+    path = REPO_ROOT / entry["data"]
+    if not path.is_file():
+        raise BuildError(f"{entry['slug']}: {entry['data']} is not committed")
+    solids = builder(path)
+    for obj, _ in solids:
+        translate_solid(obj, ELEMENT_OFFSET)
+    return solids
+
+
+def composition_camera(scene, subject, centre: Vector):
+    """The fixed 45-degree hero camera, framed on mark and element together.
+
+    The elevation and azimuth are the hero's own; only `ortho_scale` and the
+    in-plane slide are solved, from the composition's projected silhouette, so a
+    larger element is framed rather than cropped. `world_to_camera_view` returns
+    fractions of the frame, so the scale that makes the silhouette span
+    `COMPOSITION_MARGIN` is the current scale times the span over the margin.
+    """
+    elevation = math.radians(HERO_ELEVATION)
+    azimuth = math.radians(HERO_AZIMUTH)
+    direction = Vector(
+        (
+            math.sin(azimuth) * math.cos(elevation),
+            -math.cos(azimuth) * math.cos(elevation),
+            math.sin(elevation),
+        )
+    )
+    location = centre + direction * HERO_DISTANCE
+    rotation = (centre - location).to_track_quat("-Z", "Y")
+    camera = add_camera("hero-camera", location, rotation, HERO_ORTHO_SCALE)
+
+    scene.render.resolution_x, scene.render.resolution_y = HERO_RESOLUTION
+    bpy.context.view_layer.update()
+    projected = [world_to_camera_view(scene, camera, vertex.co) for vertex in subject.data.vertices]
+    span = max(
+        max(c.x for c in projected) - min(c.x for c in projected),
+        max(c.y for c in projected) - min(c.y for c in projected),
+    )
+    camera.data.ortho_scale *= span / COMPOSITION_MARGIN
+    bpy.context.view_layer.update()
+
+    projected = [world_to_camera_view(scene, camera, vertex.co) for vertex in subject.data.vertices]
+    width = camera.data.ortho_scale
+    height = width * HERO_RESOLUTION[1] / HERO_RESOLUTION[0]
+    offset = (
+        (min(c.x for c in projected) + max(c.x for c in projected)) / 2.0 - 0.5,
+        (min(c.y for c in projected) + max(c.y for c in projected)) / 2.0 - 0.5,
+    )
+    camera.location = location + rotation.to_matrix() @ Vector((offset[0] * width, offset[1] * height, 0.0))
+    return camera
+
+
+def configure_render(
+    scene,
+    transparent: bool = True,
+    compression: int = PNG_COMPRESSION,
+    dither: float | None = None,
+    samples: int | None = None,
+) -> None:
     scene.render.engine = "BLENDER_EEVEE_NEXT"
-    scene.render.film_transparent = True
+    scene.render.film_transparent = transparent
+    if samples is not None:
+        scene.eevee.taa_render_samples = samples
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
     scene.render.image_settings.color_depth = "8"
-    scene.render.image_settings.compression = PNG_COMPRESSION
+    scene.render.image_settings.compression = compression
+    if dither is not None:
+        scene.render.dither_intensity = dither
     for flag in STAMP_FLAGS:
         setattr(scene.render, flag, False)
     # The mark's colours are the site's palette, so render them straight: the
@@ -641,8 +968,13 @@ def render(
         raise BuildError(f"the renderer wrote no {path.name}")
 
 
-def build() -> None:
-    spec = read_spec()
+def mark_solids(spec: dict) -> tuple[list[object], list[str]]:
+    """The mark as one solid per palette colour, in psi.svg's paint order.
+
+    psi.svg paints the parts in order, so the descender covers the end of the
+    stem; building the accent solid after the ink one keeps that order in the
+    combined mesh.
+    """
     lines = import_centre_lines(spec)
     half = stroke_half_width(spec) * UNIT
     viewbox = float(spec["viewbox"])
@@ -661,10 +993,13 @@ def build() -> None:
         canonicalise(solid)
         bevel_edges(solid, BEVEL, BEVEL_SEGMENTS)
         solids.append(solid)
+    return solids, colours
 
-    # psi.svg paints the parts in order, so the descender covers the end of the
-    # stem. The accent solid is built after the ink one for the same reason.
-    groups = list(zip(solids, range(len(solids))))
+
+def build() -> None:
+    spec = read_spec()
+    solids, colours = mark_solids(spec)
+    groups = list(zip(solids, range(len(colours))))
     materials = [principled(name, spec["palette"][name], ROUGHNESS, METALLIC) for name in colours]
     mark = combine("psi-mark", groups, materials)
 
@@ -686,6 +1021,52 @@ def build() -> None:
         render(scene, flat, path, (size, size), "PNG")
 
 
+def build_entry(slug: str) -> list[pathlib.Path]:
+    """Render one entry's hero: the mark plus the element `entries.json` names."""
+    document = entry_spec()
+    entry = next((item for item in document["entries"] if item["slug"] == slug), None)
+    if entry is None:
+        known = ", ".join(item["slug"] for item in document["entries"])
+        raise BuildError(f"unknown entry {slug!r}; known entries: {known}")
+
+    spec = read_spec()
+    solids, colours = mark_solids(spec)
+    pieces = element_solids(entry)
+
+    names = list(colours)
+    for _, colour in pieces:
+        if colour not in names:
+            names.append(colour)
+    groups = [(obj, names.index(colour)) for obj, colour in zip(solids, colours)]
+    groups += [(obj, names.index(colour)) for obj, colour in pieces]
+    materials = [
+        principled(name, element_colour_hex(name, spec, document["palette"]), ROUGHNESS, METALLIC)
+        for name in names
+    ]
+    subject = combine("psi-mark", groups, materials)
+
+    low, high = bounds(subject)
+    centre = (low + high) / 2.0
+
+    scene = bpy.context.scene
+    scene.unit_settings.system = "METRIC"
+    # The marks' rasters keep the transparent film step 40 fixes; a hero is a
+    # page image, so it renders onto the world background instead. Dither off and
+    # maximum PNG compression keep the 1920x1080 file inside the figure
+    # convention's 400 KiB budget: dithering noise is what a PNG cannot compress.
+    configure_render(scene, transparent=False, compression=100, dither=0.0, samples=512)
+    world_background(scene, (0.020, 0.022, 0.028))
+    three_point_rig(centre)
+    camera = composition_camera(scene, subject, centre)
+
+    directory = FIGURES_DIR / slug
+    directory.mkdir(parents=True, exist_ok=True)
+    paths = [directory / "hero.png", directory / "hero.webp"]
+    render(scene, camera, paths[0], HERO_RESOLUTION, "PNG")
+    render(scene, camera, paths[1], HERO_RESOLUTION, "WEBP", WEBP_QUALITY)
+    return paths
+
+
 def script_args(argv: list[str] | None) -> list[str]:
     """Blender owns `sys.argv`; a script's own flags follow `--`."""
     if argv is not None:
@@ -697,13 +1078,22 @@ def script_args(argv: list[str] | None) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the psi mark's GLB and rasters.")
-    parser.parse_args(script_args(argv))
+    parser.add_argument(
+        "--entry",
+        metavar="SLUG",
+        help="render docs/figures/<slug>/hero.png and hero.webp: the mark plus the entry's element",
+    )
+    args = parser.parse_args(script_args(argv))
     try:
-        build()
+        if args.entry:
+            paths: tuple = tuple(build_entry(args.entry))
+        else:
+            build()
+            paths = (GLB_PATH, HERO_PNG_PATH, HERO_WEBP_PATH) + tuple(path for _, path in ICON_PATHS)
     except BuildError as error:
         print(f"build_mark: {error}", file=sys.stderr)
         return 1
-    for path in (GLB_PATH, HERO_PNG_PATH, HERO_WEBP_PATH) + tuple(path for _, path in ICON_PATHS):
+    for path in paths:
         print(f"build_mark: wrote {path}")
     return 0
 

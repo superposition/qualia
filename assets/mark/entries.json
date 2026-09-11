@@ -1,0 +1,31 @@
+{
+  "schema": "qualia.mark-entries.v1",
+  "note": "The geometric element of step 42's hero render, one per journal entry. `element` names the composition and `data` is the committed source every number in it is read from; nothing in a composition is a value that is not in that source. `palette` is the house palette of docs/figures/_house.py, repeated here because a Blender script cannot import a matplotlib module.",
+  "palette": {
+    "green": "#91dbba",
+    "lavender": "#c9b2ff",
+    "blue": "#93caff",
+    "sand": "#e0a08a",
+    "slate": "#4a5468"
+  },
+  "entries": [
+    {
+      "slug": "the-connectome-as-a-prior",
+      "element": "csr-grid",
+      "encodes": "the type-level CSR of the committed 12-row fixture: one raised block per nonzero (pre_type, post_type) pair, its height the pair's summed weight",
+      "data": "crates/connectome-prior/tests/fixtures/mini-type-edges.csv"
+    },
+    {
+      "slug": "the-ladder",
+      "element": "rings",
+      "encodes": "the healing ladder's four bands, separated at squared Mahalanobis 3, 5 and 8",
+      "data": "docs/figures/the-ladder/ladder.json"
+    },
+    {
+      "slug": "the-front-end-rebuilt-from-lessons",
+      "element": "tiles",
+      "encodes": "the console's five views as five staggered extruded tiles, in `VIEWS` order",
+      "data": "apps/qualia-console/src/lib.rs"
+    }
+  ]
+}

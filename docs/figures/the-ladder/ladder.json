@@ -1,0 +1,22 @@
+{
+  "schema": "qualia.ladder-spec.v1",
+  "note": "The healing ladder as the plan fixes it (epic #11, step 35) and the anchors this repository measures. The thresholds are a specification, not a measurement: no run has compared a drift to them.",
+  "thresholds": [3.0, 5.0, 8.0],
+  "hold_seconds": 10.0,
+  "steps": [
+    {"condition": "mahalanobis <= 3.0", "action": "none"},
+    {"condition": "mahalanobis <= 5.0", "action": "recalibrate"},
+    {"condition": "mahalanobis <= 8.0", "action": "roll back to the previous generation"},
+    {"condition": "mahalanobis > 8.0, or attempts >= 3", "action": "observe-only"},
+    {"condition": "observe-only held 10 s with drift still above 8.0", "action": "request a safe stop"}
+  ],
+  "measured": [
+    {"quantity": "identity-prediction drift", "value": 0.0, "unit": "squared Mahalanobis", "source": "crates/braid/tests/drift.rs (drift_is_zero_for_identity_prediction)"},
+    {"quantity": "drift rule threshold", "value": 3.0, "unit": "squared Mahalanobis", "source": "crates/braid/src/rules.rs (DriftAbove)"},
+    {"quantity": "coupling factor on a failed mission", "value": 0.9, "unit": "factor", "source": "crates/braid/src/rules.rs (LowerCoupling)"}
+  ],
+  "sources": [
+    "https://github.com/superposition/qualia/issues/11 (step 35: the escalation table)",
+    "crates/braid/src/rules.rs, crates/braid/src/drift.rs"
+  ]
+}
