@@ -26,6 +26,10 @@ use qualia_types::{
     JEPA_FLAG_GROUNDING_AVAILABLE, JEPA_FLAG_OUTPUT_FINITE, JEPA_FLAG_SOURCES_COHERENT,
     JEPA_FLAG_VALID, JEPA_ID_BYTES, JEPA_MODE_OBSERVE_ONLY, LEASH_ACTION_SAFETY_COLLISION_CLAMP,
 };
+#[cfg(feature = "sim")]
+use qualia_types::{FlySimPayload, FLY_SIM_MAX_TYPES};
+#[cfg(feature = "sim")]
+use qualia_fly_circuit::{CircuitSim, SIM_ID};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::error::Error;
@@ -192,6 +196,107 @@ struct Counters {
     last_inference_ns: u64,
 }
 
+/// The fly rate model, held at rest and published observe-only.
+///
+/// Built only when `QUALIA_FLY_MODE=sim`, `QUALIA_FLY_PRIOR_PATH` names a
+/// loadable prior artifact and the `sim` feature is compiled in; a missing or
+/// rejected artifact disables the simulator without failing the runner, the
+/// way the belief runners treat the same keys. Nothing in the JEPA path is a
+/// drive for the prior's type graph, so a tick advances the model one fixed
+/// step with a zero drive and publishes the resulting rate vector. The slot is
+/// written only while the active generation pointer carries
+/// `approved_observe_only`, and nothing reads it back into the belief or motor
+/// paths.
+#[cfg(feature = "sim")]
+struct FlySimPublisher {
+    sim: CircuitSim,
+    drive: Vec<f32>,
+    step: u64,
+    producer_epoch: u64,
+}
+
+#[cfg(feature = "sim")]
+impl FlySimPublisher {
+    /// Fixed integration step of one published state, seconds.
+    const STEP_SECONDS: f32 = 0.001;
+
+    /// Build from the fly environment, or `None` when the mode is not `sim`.
+    fn from_env(producer_epoch: u64) -> Option<Self> {
+        Self::from_parts(
+            std::env::var("QUALIA_FLY_MODE").ok().as_deref(),
+            std::env::var("QUALIA_FLY_PRIOR_PATH").ok().as_deref(),
+            producer_epoch,
+        )
+    }
+
+    /// The mode and artifact decision, without reading the environment.
+    fn from_parts(mode: Option<&str>, path: Option<&str>, producer_epoch: u64) -> Option<Self> {
+        if mode != Some("sim") {
+            return None;
+        }
+        let path = path.unwrap_or_default();
+        if path.trim().is_empty() {
+            eprintln!("fly sim: disabled (QUALIA_FLY_PRIOR_PATH is unset)");
+            return None;
+        }
+        let sim = match CircuitSim::load(Path::new(path)) {
+            Ok(sim) => sim,
+            Err(error) => {
+                eprintln!("fly sim: disabled ({error})");
+                return None;
+            }
+        };
+        let type_count = sim.type_count();
+        if type_count > FLY_SIM_MAX_TYPES {
+            eprintln!(
+                "fly sim: disabled (prior carries {type_count} types, the slot holds {FLY_SIM_MAX_TYPES})"
+            );
+            return None;
+        }
+        Some(Self {
+            sim,
+            drive: vec![0.0; type_count],
+            step: 0,
+            producer_epoch,
+        })
+    }
+
+    /// Step the model once and publish the state, if observing is approved.
+    fn tick(
+        &mut self,
+        shm: &ShmRegion,
+        now_ns: u64,
+        approved_observe_only: bool,
+        runner_epoch: u64,
+    ) -> RuntimeResult<()> {
+        if !approved_observe_only {
+            return Ok(());
+        }
+        let rates = self.sim.step(&self.drive, Self::STEP_SECONDS);
+        self.step = self.step.saturating_add(1);
+        let mut payload = FlySimPayload {
+            type_count: rates.len() as u32,
+            producer_epoch: self.producer_epoch,
+            runner_epoch,
+            sim_step: self.step,
+            timestamp_ns: now_ns,
+            dt: Self::STEP_SECONDS,
+            ..FlySimPayload::default()
+        };
+        write_id(&mut payload.sim_id, SIM_ID);
+        let finite = rates.iter().all(|rate| rate.is_finite());
+        if finite {
+            payload.flags = JEPA_FLAG_VALID | JEPA_FLAG_OUTPUT_FINITE;
+        } else {
+            payload.last_error[..15].copy_from_slice(b"non-finite rate");
+            payload.last_error_len = 15;
+        }
+        payload.state[..rates.len()].copy_from_slice(&rates);
+        shm.fly_sim().publish(payload)?;
+        Ok(())
+    }
+}
+
 /// Flag-gated observe-only runner.
 ///
 /// One instance keeps the active generation resident, parks the immediately
@@ -209,6 +314,8 @@ pub struct ObserveOnlyRunner {
     last_key: Option<(u64, u64, u64)>,
     counters: Counters,
     latencies: VecDeque<u64>,
+    #[cfg(feature = "sim")]
+    fly: Option<FlySimPublisher>,
 }
 
 impl ObserveOnlyRunner {
@@ -224,6 +331,8 @@ impl ObserveOnlyRunner {
         let backend_code = backend_code(&backend_name)?;
         let config = config.validate()?;
         let live = load_generation(read_generation(&generation_file)?, &backend_name)?;
+        #[cfg(feature = "sim")]
+        let fly = FlySimPublisher::from_env(producer_epoch);
         Ok(Self {
             generation_file,
             backend_name,
@@ -236,6 +345,8 @@ impl ObserveOnlyRunner {
             last_key: None,
             counters: Counters::default(),
             latencies: VecDeque::with_capacity(MAX_LATENCY_SAMPLES),
+            #[cfg(feature = "sim")]
+            fly,
         })
     }
 
@@ -247,6 +358,27 @@ impl ObserveOnlyRunner {
     /// Checkpoint identity of the loaded generation.
     pub fn active_checkpoint_id(&self) -> &str {
         &self.live.pointer.checkpoint_id
+    }
+
+    /// Advance the fly simulator one step and publish it.
+    ///
+    /// The publisher is dropped, loudly, if a publication fails: the slot is a
+    /// monitor, and the monitor never fails the inference it watches.
+    #[cfg(feature = "sim")]
+    fn step_fly_sim(&mut self, shm: &ShmRegion, now_ns: u64) {
+        let Some(fly) = self.fly.as_mut() else {
+            return;
+        };
+        let published = fly.tick(
+            shm,
+            now_ns,
+            self.live.pointer.approved_observe_only,
+            self.live.pointer.generation,
+        );
+        if let Err(error) = published {
+            eprintln!("fly sim: disabled ({error})");
+            self.fly = None;
+        }
     }
 
     /// Advance the runner by at most one inference.
@@ -270,6 +402,9 @@ impl ObserveOnlyRunner {
                 return Ok(TickOutcome::Idle);
             }
         }
+
+        #[cfg(feature = "sim")]
+        self.step_fly_sim(shm, now_ns);
 
         let frame = match capture_observation(shm, now_ns, self.config, self.last_frame.as_ref()) {
             Ok(frame) => frame,
@@ -1511,5 +1646,113 @@ mod tests {
                 .quality,
             0.0
         );
+    }
+}
+
+#[cfg(all(test, feature = "sim"))]
+mod fly_sim_tests {
+    use super::*;
+    use qualia_types::FLY_SIM_ABI_VERSION;
+    use std::sync::atomic::Ordering;
+    use tempfile::TempDir;
+
+    /// A three-type cycle prior, written the way the builder writes it:
+    /// `manifest.json` carries the schema and counts, `graph.bin` the `u64`
+    /// rowptr followed by the `u32` columns and weights.
+    fn write_prior(directory: &Path) {
+        let manifest = serde_json::json!({
+            "schema": "qualia.connectome-prior.v1",
+            "type_count": 3,
+            "edge_count": 3,
+            "source_sha256": "0".repeat(64),
+            "rowptr_sha256": "0".repeat(64),
+            "cols_sha256": "0".repeat(64),
+            "weights_sha256": "0".repeat(64),
+            "created_at_ms": 0,
+            "attribution": {
+                "dataset": "male-cns:v1.0",
+                "licence": "CC-BY-4.0",
+                "url": "https://male-cns.janelia.org",
+                "citation": "Berg et al. 2026, Cell",
+            },
+        });
+        fs::write(directory.join("manifest.json"), manifest.to_string()).expect("manifest");
+        let mut graph = Vec::new();
+        for row in [0u64, 1, 2, 3] {
+            graph.extend_from_slice(&row.to_le_bytes());
+        }
+        for column in [1u32, 2, 0] {
+            graph.extend_from_slice(&column.to_le_bytes());
+        }
+        for weight in [2u32, 1, 3] {
+            graph.extend_from_slice(&weight.to_le_bytes());
+        }
+        fs::write(directory.join("graph.bin"), graph).expect("graph");
+    }
+
+    #[test]
+    fn fly_sim_is_absent_unless_the_mode_is_sim() {
+        let directory = TempDir::new().expect("temporary directory");
+        write_prior(directory.path());
+        let path = directory.path().to_str().expect("utf-8 path");
+        for mode in [None, Some("off"), Some("prior")] {
+            assert!(FlySimPublisher::from_parts(mode, Some(path), 1).is_none());
+        }
+    }
+
+    #[test]
+    fn fly_sim_disables_itself_when_the_artifact_does_not_load() {
+        let directory = TempDir::new().expect("temporary directory");
+        write_prior(directory.path());
+        let missing = directory.path().join("absent");
+        assert!(FlySimPublisher::from_parts(Some("sim"), None, 1).is_none());
+        assert!(FlySimPublisher::from_parts(Some("sim"), Some("  "), 1).is_none());
+        assert!(
+            FlySimPublisher::from_parts(Some("sim"), missing.to_str(), 1).is_none(),
+            "a directory without a prior disables the simulator"
+        );
+    }
+
+    #[test]
+    fn fly_sim_publishes_only_while_observe_only_is_approved() {
+        let directory = TempDir::new().expect("temporary directory");
+        write_prior(directory.path());
+        let mut publisher = FlySimPublisher::from_parts(
+            Some("sim"),
+            directory.path().to_str(),
+            7,
+        )
+        .expect("publisher");
+        let shm = ShmRegion::create("qualia_t15_fly_slot").expect("region");
+
+        publisher
+            .tick(&shm, 1_000, false, 3)
+            .expect("unapproved tick");
+        assert_eq!(
+            shm.fly_sim().snapshot(4).expect("snapshot").sim_step,
+            0,
+            "an unapproved pointer publishes nothing"
+        );
+
+        publisher.tick(&shm, 2_000, true, 3).expect("approved tick");
+        let read = shm.fly_sim().snapshot(4).expect("snapshot");
+        assert_eq!(read.abi_version, FLY_SIM_ABI_VERSION);
+        assert_eq!(read.type_count, 3);
+        assert_eq!(read.flags, JEPA_FLAG_VALID | JEPA_FLAG_OUTPUT_FINITE);
+        assert_eq!(read.producer_epoch, 7);
+        assert_eq!(read.runner_epoch, 3);
+        assert_eq!(read.sim_step, 1);
+        assert_eq!(read.timestamp_ns, 2_000);
+        assert_eq!(read.dt, FlySimPublisher::STEP_SECONDS);
+        assert_eq!(&read.sim_id[..SIM_ID.len()], SIM_ID.as_bytes());
+        assert_eq!(read.state[..3], [0.0, 0.0, 0.0]);
+
+        publisher.tick(&shm, 3_000, true, 3).expect("approved tick");
+        assert_eq!(
+            shm.fly_sim().snapshot(4).expect("snapshot").sim_step,
+            2,
+            "each approved tick advances the model once"
+        );
+        assert_eq!(shm.fly_sim().seq.load(Ordering::Acquire) & 1, 0);
     }
 }

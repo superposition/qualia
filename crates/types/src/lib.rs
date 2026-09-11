@@ -19,7 +19,7 @@ pub use entity::*;
 
 pub const STATE_DIM: usize = 1024;
 pub const SHM_MAGIC: u64 = 0x5155414C3141454E; // "QUAL1AEN"
-pub const SHM_VERSION: u32 = 2;
+pub const SHM_VERSION: u32 = 3;
 pub const JEPA_ABI_VERSION: u32 = 1;
 pub const NUM_LAYERS: usize = 8;
 pub const JEPA_CORE_DIM: usize = 256;
@@ -30,6 +30,19 @@ pub const JEPA_OCCUPANCY_CELLS: usize = JEPA_OCCUPANCY_W * JEPA_OCCUPANCY_H;
 pub const JEPA_ID_BYTES: usize = 64;
 pub const JEPA_ERROR_BYTES: usize = 256;
 pub const APPLIED_ACTION_HISTORY_CAPACITY: usize = 4_096;
+
+/// ABI version stamped into [`FlySimPayload::abi_version`].
+pub const FLY_SIM_ABI_VERSION: u32 = 1;
+/// Capacity of one published fly rate vector: one `f32` per prior type.
+///
+/// The slot is a fixed-size mapping, so the publisher refuses a graph that
+/// does not fit rather than truncating the observation. The whole-brain
+/// FlyWire annotation names 8,453 cell types, which fits here with headroom.
+pub const FLY_SIM_MAX_TYPES: usize = 16_384;
+/// Bytes of the simulator identifier in [`FlySimPayload::sim_id`].
+pub const FLY_SIM_ID_BYTES: usize = 64;
+/// Bytes of the last error message in [`FlySimPayload::last_error`].
+pub const FLY_SIM_ERROR_BYTES: usize = 256;
 
 pub const JEPA_BACKEND_NONE: u32 = 0;
 pub const JEPA_BACKEND_CPU: u32 = 1;
@@ -1245,6 +1258,66 @@ impl Default for JepaTelemetryPayload {
     }
 }
 
+/// One published state of the invented fly rate model, observe-only.
+///
+/// The JEPA runtime fills this while `QUALIA_FLY_MODE=sim`, the fly crate's
+/// `sim` feature is compiled in, and the active generation pointer is approved
+/// for observe-only operation. The first [`FlySimPayload::type_count`] entries
+/// of [`FlySimPayload::state`] carry one rate per prior type, in the prior's
+/// type order; nothing in the belief or motor path reads the slot.
+#[repr(C, align(64))]
+#[derive(Clone, Copy)]
+pub struct FlySimPayload {
+    /// [`FLY_SIM_ABI_VERSION`] of the writer that published this state.
+    pub abi_version: u32,
+    /// Number of valid entries in [`Self::state`].
+    pub type_count: u32,
+    /// The region's flag vocabulary: [`JEPA_FLAG_VALID`],
+    /// [`JEPA_FLAG_OUTPUT_FINITE`].
+    pub flags: u32,
+    pub _pad0: u32,
+    /// Generation that produced the rates; correlates with the JEPA slots.
+    pub producer_epoch: u64,
+    /// Runtime epoch that published them.
+    pub runner_epoch: u64,
+    /// Steps the model has taken since it was loaded.
+    pub sim_step: u64,
+    /// Publication time, nanoseconds.
+    pub timestamp_ns: u64,
+    /// Length of the message in [`Self::last_error`].
+    pub last_error_len: u32,
+    /// Step size of the last integration.
+    pub dt: f32,
+    pub _pad1: [u8; 8],
+    /// NUL-padded identifier of the model that produced the rates — the fly
+    /// crate's `SIM_ID`, or all zero while unpublished.
+    pub sim_id: [u8; FLY_SIM_ID_BYTES],
+    pub last_error: [u8; FLY_SIM_ERROR_BYTES],
+    /// One rate per prior type; [`Self::type_count`] entries are valid.
+    pub state: [f32; FLY_SIM_MAX_TYPES],
+}
+
+impl Default for FlySimPayload {
+    fn default() -> Self {
+        Self {
+            abi_version: FLY_SIM_ABI_VERSION,
+            type_count: 0,
+            flags: 0,
+            _pad0: 0,
+            producer_epoch: 0,
+            runner_epoch: 0,
+            sim_step: 0,
+            timestamp_ns: 0,
+            last_error_len: 0,
+            dt: 0.0,
+            _pad1: [0; 8],
+            sim_id: [0; FLY_SIM_ID_BYTES],
+            last_error: [0; FLY_SIM_ERROR_BYTES],
+            state: [0.0; FLY_SIM_MAX_TYPES],
+        }
+    }
+}
+
 /// Declares a seqlocked slot around a payload type.
 ///
 /// The sequence word occupies its own cache line so a reader spinning on it
@@ -1306,6 +1379,7 @@ macro_rules! define_jepa_slot {
 
 define_jepa_slot!(JepaEvidenceSlot, JepaEvidencePayload);
 define_jepa_slot!(JepaTelemetrySlot, JepaTelemetryPayload);
+define_jepa_slot!(FlySimSlot, FlySimPayload);
 
 /// Header at the base of the shared-memory region.
 #[repr(C)]
@@ -1500,7 +1574,7 @@ mod tests {
     #[test]
     fn shm_constants_are_pinned() {
         assert_eq!(SHM_MAGIC, 0x5155414C3141454E);
-        assert_eq!(SHM_VERSION, 2);
+        assert_eq!(SHM_VERSION, 3);
         assert_eq!(JEPA_ABI_VERSION, 1);
         assert_eq!(NUM_LAYERS, 8);
         assert_eq!(WEIGHT_COUNT, 1_048_576);

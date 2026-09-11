@@ -114,6 +114,11 @@ impl CircuitSim {
         })
     }
 
+    /// Number of types in the loaded prior: the length of every rate vector.
+    pub fn type_count(&self) -> usize {
+        self.state.len()
+    }
+
     /// Advance every type by one `dt` step and return the new state.
     ///
     /// The returned vector holds one rate per type, in the prior's type order.

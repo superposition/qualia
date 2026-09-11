@@ -180,6 +180,10 @@ fn offsets_place_the_header_slots_and_ledger_where_the_layout_says() {
         offset_in(&region, region.jepa_telemetry() as *const JepaTelemetrySlot as *const u8),
         JEPA_TELEMETRY_OFFSET
     );
+    assert_eq!(
+        offset_in(&region, region.fly_sim() as *const FlySimSlot as *const u8),
+        FLY_SIM_OFFSET
+    );
 
     assert!(WORLD_MODEL_OFFSET + std::mem::size_of::<WorldModel>() <= SHM_SIZE);
     assert!(THOUGHT_BUFFER_OFFSET + std::mem::size_of::<ThoughtBuffer>() <= SHM_SIZE);
@@ -187,6 +191,7 @@ fn offsets_place_the_header_slots_and_ledger_where_the_layout_says() {
     assert!(WORLD_VOXELS_OFFSET + std::mem::size_of::<WorldVoxels>() <= SHM_SIZE);
     assert!(LIDAR_SCAN_OFFSET + std::mem::size_of::<LidarScan>() <= SHM_SIZE);
     assert!(JEPA_REGION_OFFSET + JEPA_REGION_SIZE <= SHM_SIZE);
+    assert!(FLY_SIM_OFFSET + std::mem::size_of::<FlySimSlot>() <= SHM_SIZE);
     assert!(APPLIED_ACTION_HISTORY_OFFSET + std::mem::size_of::<AppliedActionHistory>() <= SHM_SIZE);
 
     // A write through the region base is what `layer_slot` reads back.
