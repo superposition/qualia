@@ -12,9 +12,18 @@
 //! marks `leash:http`: `motion.navigate` forwards an evidence-grounded plan as a
 //! proposal, and `safety.estop` reaches Leash's acknowledged zero-output stop.
 //! Both fail closed before any request leaves the process when the declaration is
-//! wrong: a command that is not marked `leash:http` or is owned by someone other
-//! than Leash, an e-stop the declaration does not require acknowledgement for,
-//! and a navigation proposal with no operator token are all refused locally.
+//! wrong: a command no loaded profile marks `leash:http` — a profile that declares
+//! it over another transport, over an empty transport, or not at all — a command
+//! owned by someone other than Leash, an e-stop the declaration does not require
+//! acknowledgement for, and a navigation proposal with no operator token are all
+//! refused locally. The built-in declaration stands only when no profile is
+//! loaded at all, where it speaks for the entity contract itself.
+//!
+//! A navigation proposal acquires the operator lease the goal route is gated on
+//! before it submits anything: `POST /pilot/authorize` with `{token, ttl_secs,
+//! speed_mode}`, the reference client's own order, and then
+//! `POST /navigation/goals`. Leash accepts a goal only when its reply says
+//! `ok && active`; every other answer is a refusal.
 //!
 //! The wire fields are the reference's, so a Leash that answers the reference
 //! answers this: the goal body is `leash.navigation-goal.v1` with
@@ -37,7 +46,7 @@ use serde_json::json;
 
 use crate::auth::AuthScope;
 use crate::config::LeashEndpoint;
-use crate::mission_control::MissionPlanV1;
+use crate::mission_control::{MissionPlanV1, MAX_OPERATOR_LEASE_SECS};
 use crate::AppState;
 
 /// The transport an authority must name for this client to carry it.
@@ -94,8 +103,9 @@ pub struct LeashOutcome {
     pub command: String,
     pub outcome: LeashOutcomeKind,
     /// A stable reason code: `accepted`, `leash_refused`, `stop_unverified`,
-    /// `leash_unreachable`, `leash_timeout`, `authority_denied`,
-    /// `acknowledgement_required`, or `operator_token_unavailable`.
+    /// `leash_authorize_refused`, `leash_unreachable`, `leash_timeout`,
+    /// `authority_denied`, `acknowledgement_required`, or
+    /// `operator_token_unavailable`.
     pub code: String,
     /// The human-readable detail, including Leash's own status when it answered.
     pub detail: String,
@@ -190,7 +200,9 @@ impl LeashClient {
     /// Forward an evidence-grounded plan to Leash as a navigation proposal.
     ///
     /// The plan is a *proposal*: this call moves no motor, and Leash's reply is
-    /// the only thing recorded.
+    /// the only thing recorded. Leash's goal route is gated on a live operator
+    /// lease, so the lease is acquired first — the reference's own order — and a
+    /// refused lease means the goal is never submitted.
     pub async fn navigate(&self, authority: &EntityAuthority, plan: &MissionPlanV1) -> LeashOutcome {
         if let Err(outcome) = self.gate(authority, NAVIGATE_COMMAND) {
             return self.record(outcome);
@@ -199,11 +211,27 @@ impl LeashClient {
             Ok(token) => token,
             Err(outcome) => return self.record(outcome),
         };
+        let lease = json!({
+            "token": &token,
+            "ttl_secs": authorize_ttl_secs(plan.expires_at_ms),
+            "speed_mode": LEASH_SPEED_MODE,
+        });
+        if let Err(outcome) = self
+            .post_bounded::<serde_json::Value>(
+                "/pilot/authorize",
+                &lease,
+                NAVIGATE_COMMAND,
+                "leash_authorize_refused",
+            )
+            .await
+        {
+            return self.record(outcome);
+        }
         let body = json!({
             "schema_version": LEASH_NAVIGATION_GOAL_SCHEMA_VERSION,
             "mission_id": plan.mission_id,
             "idempotency_key": plan.plan_id,
-            "token": token,
+            "token": &token,
             "approval": true,
             "frame_id": plan.frame_id,
             "x_m": plan.target_x_m,
@@ -212,28 +240,21 @@ impl LeashClient {
             "speed_mode": LEASH_SPEED_MODE,
             "deadline_ms": plan.expires_at_ms,
         });
-        let response = match self.send("/navigation/goals", &body, NAVIGATE_COMMAND).await {
-            Ok(response) => response,
-            Err(outcome) => return self.record(outcome),
-        };
-        let status: LeashNavigationStatus = match decode(response, NAVIGATE_COMMAND).await {
+        let status: LeashNavigationStatus = match self
+            .post_bounded("/navigation/goals", &body, NAVIGATE_COMMAND, "leash_refused")
+            .await
+        {
             Ok(status) => status,
             Err(outcome) => return self.record(outcome),
         };
-        let outcome = if status.ok {
-            LeashOutcome::accepted(
-                NAVIGATE_COMMAND,
-                format!(
-                    "Leash status {} (active={}): {}",
-                    status.status, status.active, status.message
-                ),
-            )
+        let detail = format!(
+            "Leash status {} (active={}): {}",
+            status.status, status.active, status.message
+        );
+        let outcome = if status.ok && status.active {
+            LeashOutcome::accepted(NAVIGATE_COMMAND, detail)
         } else {
-            LeashOutcome::refused(
-                NAVIGATE_COMMAND,
-                "leash_refused",
-                format!("Leash status {}: {}", status.status, status.message),
-            )
+            LeashOutcome::refused(NAVIGATE_COMMAND, "leash_refused", detail)
         };
         self.record(outcome)
     }
@@ -247,14 +268,10 @@ impl LeashClient {
             return self.record(outcome);
         }
         let body = json!({ "reason": "operator-request" });
-        let response = match self
-            .send("/motors/stop/verified", &body, ESTOP_COMMAND)
+        let evidence: LeashVerifiedZero = match self
+            .post_bounded("/motors/stop/verified", &body, ESTOP_COMMAND, "leash_refused")
             .await
         {
-            Ok(response) => response,
-            Err(outcome) => return self.record(outcome),
-        };
-        let evidence: LeashVerifiedZero = match decode(response, ESTOP_COMMAND).await {
             Ok(evidence) => evidence,
             Err(outcome) => return self.record(outcome),
         };
@@ -272,14 +289,17 @@ impl LeashClient {
             || authority.owner != LEASH_OWNER
             || authority.transport != LEASH_HTTP_TRANSPORT
         {
-            return Err(LeashOutcome::refused(
-                command,
-                "authority_denied",
+            let detail = if authority.transport.is_empty() {
+                format!(
+                    "no authority exists for {command} (an empty transport), so no request was sent"
+                )
+            } else {
                 format!(
                     "the entity declaration carries '{}' over '{}' owned by '{}', not {command} over {LEASH_HTTP_TRANSPORT} owned by {LEASH_OWNER}",
                     authority.command, authority.transport, authority.owner
-                ),
-            ));
+                )
+            };
+            return Err(LeashOutcome::refused(command, "authority_denied", detail));
         }
         if command == ESTOP_COMMAND && !authority.acknowledgement_required {
             return Err(LeashOutcome::refused(
@@ -318,13 +338,18 @@ impl LeashClient {
         Ok(token)
     }
 
-    /// One bounded POST. A non-success status is Leash's own refusal.
-    async fn send(
+    /// One bounded POST of `body`, decoded as `T`.
+    ///
+    /// `refusal_code` labels Leash's own non-success answer for this step, so a
+    /// refused lease and a refused goal do not read alike; a timeout and an
+    /// unreachable Leash keep their own codes.
+    async fn post_bounded<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
         body: &serde_json::Value,
         command: &str,
-    ) -> Result<reqwest::Response, LeashOutcome> {
+        refusal_code: &str,
+    ) -> Result<T, LeashOutcome> {
         let url = format!("{}{path}", self.endpoint.base_url);
         let response = self.http.post(&url).json(body).send().await.map_err(|error| {
             if error.is_timeout() {
@@ -344,15 +369,21 @@ impl LeashClient {
             }
         })?;
         let status = response.status();
-        if status.is_success() {
-            return Ok(response);
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(LeashOutcome::refused(
+                command,
+                refusal_code,
+                format!("Leash returned {status} for {url}: {body}"),
+            ));
         }
-        let body = response.text().await.unwrap_or_default();
-        Err(LeashOutcome::refused(
-            command,
-            "leash_refused",
-            format!("Leash returned {status}: {body}"),
-        ))
+        response.json().await.map_err(|error| {
+            LeashOutcome::refused(
+                command,
+                refusal_code,
+                format!("Leash answered {url} with invalid JSON: {error}"),
+            )
+        })
     }
 
     /// Log the outcome as the operator line and hand it back.
@@ -373,40 +404,58 @@ impl LeashClient {
     }
 }
 
-/// Read a Leash reply, or report the refusal as Leash's own invalid reply.
-async fn decode<T: for<'de> Deserialize<'de>>(
-    response: reqwest::Response,
-    command: &str,
-) -> Result<T, LeashOutcome> {
-    let url = response.url().to_string();
-    response.json().await.map_err(|error| {
-        LeashOutcome::refused(
-            command,
-            "leash_refused",
-            format!("Leash answered {url} with invalid JSON: {error}"),
-        )
-    })
+/// The lease window a navigation goal is authorized with.
+///
+/// The reference clamps the operator's requested lease to what is left of the
+/// plan's lifetime, and the contract restricts a lease to `1..=30` seconds
+/// (`MAX_OPERATOR_LEASE_SECS`): no plan asks for longer than the ceiling, and an
+/// expired plan asks for the one-second floor rather than refusing the lease
+/// outright, exactly as the reference does.
+fn authorize_ttl_secs(expires_at_ms: u128) -> u64 {
+    let remaining_secs = expires_at_ms
+        .saturating_sub(crate::now_ms())
+        .div_ceil(1_000);
+    remaining_secs.clamp(1, MAX_OPERATOR_LEASE_SECS as u128) as u64
 }
 
 /// The declaration this client carries for `command`.
 ///
-/// The loaded entity profile wins when it declares the command; otherwise the
-/// built-in declaration stands for the entity contract, which is where the two
-/// `leash:http` commands and the e-stop's acknowledgement requirement come
-/// from. Either way the gate re-checks transport, owner and acknowledgement, so
-/// a profile that declares something else is refused rather than trusted.
+/// The loaded entity profiles are the authority, so a profile's own row wins
+/// and is handed to the gate to check; a row naming another transport (or an
+/// empty one) is refused rather than replaced with a row that would let the
+/// request out (`qualia_types::EntityAuthority`: an empty transport means no
+/// authority exists). The built-in declaration stands only when no profile is
+/// loaded at all — that is the entity contract speaking for itself — and when
+/// profiles are loaded but none declares the command, the no-authority row the
+/// gate refuses is what this returns.
 pub fn authority_for(profiles: &[EntityProfile], command: &str) -> EntityAuthority {
-    profiles
+    let declared: Vec<&EntityAuthority> = profiles
         .iter()
         .filter_map(|profile| profile.authority(command))
+        .collect();
+    if let Some(authority) = declared
+        .iter()
         .find(|authority| authority.transport == LEASH_HTTP_TRANSPORT)
-        .cloned()
-        .unwrap_or_else(|| EntityAuthority {
+    {
+        return (*authority).clone();
+    }
+    if let Some(authority) = declared.first() {
+        return (*authority).clone();
+    }
+    if profiles.is_empty() {
+        return EntityAuthority {
             command: command.to_string(),
             owner: LEASH_OWNER.to_string(),
             transport: LEASH_HTTP_TRANSPORT.to_string(),
             acknowledgement_required: command == ESTOP_COMMAND,
-        })
+        };
+    }
+    EntityAuthority {
+        command: command.to_string(),
+        owner: LEASH_OWNER.to_string(),
+        transport: String::new(),
+        acknowledgement_required: false,
+    }
 }
 
 /// The configured client, or the response that says why there is none.
