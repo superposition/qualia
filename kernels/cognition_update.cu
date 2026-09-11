@@ -10,6 +10,18 @@
 // NVRTC compiles this at process start and nvcc may compile it at build time
 // (`CUDAARCHS`), so it may not include any CUDA header.
 
+/// One element of the cognition row step: the reference's fused sum, then its
+/// bound. `fmaf` pins the contraction the scalar walk chose, so the vector walk
+/// reproduces its values bit for bit.
+static __device__ __forceinline__ float cognition_weight_element(
+    float value,
+    float step,
+    float state)
+{
+    const float moved = fmaf(step, state, value);
+    return fminf(2.0f, fmaxf(-2.0f, moved));
+}
+
 extern "C" __global__ void cognition_update(
     float* state,
     const float* lower,
@@ -21,22 +33,41 @@ extern "C" __global__ void cognition_update(
     const unsigned int tid = threadIdx.x;
     if (tid >= 1024) return;
 
-    __shared__ float prior_state[1024];
-    __shared__ float local_error[1024];
+    // Both snapshots are read back four floats at a time below.
+    __shared__ __align__(16) float prior_state[1024];
+    __shared__ __align__(16) float local_error[1024];
 
     prior_state[tid] = state[tid];
     __syncthreads();
 
     float prediction = bias[tid];
-    for (unsigned int column = 0; column < 1024; ++column) {
-        prediction += weights[tid * 1024 + column] * prior_state[column];
+    const float4* row4 = reinterpret_cast<const float4*>(weights + tid * 1024);
+    const float4* state4 = reinterpret_cast<const float4*>(prior_state);
+#pragma unroll 4
+    for (unsigned int chunk = 0; chunk < 256; ++chunk) {
+        const float4 weight = row4[chunk];
+        const float4 snapshot = state4[chunk];
+        prediction += weight.x * snapshot.x;
+        prediction += weight.y * snapshot.y;
+        prediction += weight.z * snapshot.z;
+        prediction += weight.w * snapshot.w;
     }
     local_error[tid] = fminf(10.0f, fmaxf(-10.0f, lower[tid] - prediction));
     __syncthreads();
 
+    // Each thread walks one column in ascending row order. The lanes already
+    // read that column coalesced; four rows of errors now come back per
+    // shared-memory read instead of one.
     float transposed_grad = 0.0f;
-    for (unsigned int row = 0; row < 1024; ++row) {
-        transposed_grad += weights[row * 1024 + tid] * local_error[row];
+    const float4* error4 = reinterpret_cast<const float4*>(local_error);
+#pragma unroll 4
+    for (unsigned int tile = 0; tile < 256; ++tile) {
+        const float4 error = error4[tile];
+        const unsigned int row = tile * 4;
+        transposed_grad += weights[row * 1024 + tid] * error.x;
+        transposed_grad += weights[(row + 1) * 1024 + tid] * error.y;
+        transposed_grad += weights[(row + 2) * 1024 + tid] * error.z;
+        transposed_grad += weights[(row + 3) * 1024 + tid] * error.w;
     }
     const float candidate = prior_state[tid]
         + params[2] * params[0] * transposed_grad
@@ -45,10 +76,19 @@ extern "C" __global__ void cognition_update(
 
     float row_step = params[3] * params[4] * params[0] * local_error[tid];
     row_step = fminf(0.001f, fmaxf(-0.001f, row_step));
-    for (unsigned int column = 0; column < 1024; ++column) {
-        const unsigned int index = tid * 1024 + column;
-        const float moved = weights[index] + row_step * prior_state[column];
-        weights[index] = fminf(2.0f, fmaxf(-2.0f, moved));
+    // The step is row-local, but it exists only once this row's dot product has
+    // completed, so the row is walked a second time; four columns at a time,
+    // and the value each chunk already loaded is the value it writes.
+    float4* row4w = reinterpret_cast<float4*>(weights + tid * 1024);
+#pragma unroll 4
+    for (unsigned int chunk = 0; chunk < 256; ++chunk) {
+        const float4 snapshot = state4[chunk];
+        float4 weight = row4w[chunk];
+        weight.x = cognition_weight_element(weight.x, row_step, snapshot.x);
+        weight.y = cognition_weight_element(weight.y, row_step, snapshot.y);
+        weight.z = cognition_weight_element(weight.z, row_step, snapshot.z);
+        weight.w = cognition_weight_element(weight.w, row_step, snapshot.w);
+        row4w[chunk] = weight;
     }
     bias[tid] = fminf(1.0f, fmaxf(-1.0f, bias[tid] + row_step));
 }

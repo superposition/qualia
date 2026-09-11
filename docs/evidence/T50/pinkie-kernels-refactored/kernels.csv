@@ -1,0 +1,14 @@
+run,launch,kernel,block,grid,device,cc,dram_bytes_sum,duration_ns,l1tex_t_bytes_sum,l1tex_t_sectors_pipe_lsu_mem_global_op_ld_sum,launch_block_size,launch_grid_size,launch_registers_per_thread,launch_shared_mem_per_block_dynamic,launch_shared_mem_per_block_static,launch_waves_per_multiprocessor,lts_t_bytes_sum,sm_cycles_active_avg,sm_cycles_elapsed_avg,sm_maximum_warps_per_active_cycle_pct,sm_throughput_pct_of_peak,warps_active_pct_of_peak,smsp_inst_executed_sum,registers_per_thread,static_shared_memory_per_block,theoretical_occupancy,achieved_occupancy
+refactored,0,belief_update,"(1024, 1, 1)","(1, 1, 1)",0,8.7,n/a,3407008,25220224,525281,1024,1,42,0,8192,0.25,16853632,260040.25,1038752,66.67,2.42,64.64,238256,42,8192,66.67,64.64
+refactored,1,cognition_update,"(1024, 1, 1)","(1, 1, 1)",0,8.7,n/a,3589024,29394944,656192,1024,1,40,0,8192,0.25,20950592,274013.25,1094761,66.67,2.00,62.80,350528,40,8192,66.67,62.80
+refactored,2,cognition_update,"(1024, 1, 1)","(1, 1, 1)",0,8.7,n/a,3595392,29394944,656192,1024,1,40,0,8192,0.25,20950560,274493.75,1092781,66.67,2.01,62.75,350528,40,8192,66.67,62.75
+refactored,3,cognition_patch,"(1, 1, 1)","(1, 1, 1)",0,8.7,n/a,16128,64,1,1,1,16,0,0,0.02,9984,675.50,3096,33.33,0.15,2.08,16,16,0,33.33,2.08
+refactored,4,costmap_stats,"(256, 1, 1)","(16, 1, 1)",0,8.7,n/a,19328,12288,256,256,16,16,0,0,0.67,23392,3518,4453,100,15.81,64.70,4352,16,0,100,64.70
+refactored,5,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16032,64,1,4,1,16,0,0,0.02,9984,674,3098,33.33,0.15,2.08,13,16,0,33.33,2.08
+refactored,6,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16128,64,1,4,1,16,0,0,0.02,9984,675.50,3312,33.33,0.14,2.08,13,16,0,33.33,2.08
+refactored,7,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16064,64,1,4,1,16,0,0,0.02,9984,668.50,3152,33.33,0.14,2.08,13,16,0,33.33,2.08
+refactored,8,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16128,64,1,4,1,16,0,0,0.02,9984,678.25,3124,33.33,0.14,2.08,13,16,0,33.33,2.08
+refactored,9,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16096,64,1,4,1,16,0,0,0.02,9984,673,3092,33.33,0.15,2.08,13,16,0,33.33,2.08
+refactored,10,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,17408,64,1,4,1,16,0,0,0.02,9984,690.25,3259,33.33,0.14,2.08,13,16,0,33.33,2.08
+refactored,11,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16256,64,1,4,1,16,0,0,0.02,9984,670.25,3096,33.33,0.15,2.08,13,16,0,33.33,2.08
+refactored,12,add_one,"(4, 1, 1)","(1, 1, 1)",0,8.7,n/a,16864,64,1,4,1,16,0,0,0.02,9984,678.75,3283,33.33,0.14,2.08,13,16,0,33.33,2.08
