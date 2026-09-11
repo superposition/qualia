@@ -1,0 +1,14 @@
+{
+  "braid": {
+    "schema_version": "qualia.braid-state.v1",
+    "generation": 12,
+    "session_id": "sess-2026-09-11-explore-frontier",
+    "open_missions": 1,
+    "last_promotion_ns": 1789084800000000000,
+    "last_quarantine_ns": 1789081200000000000
+  },
+  "drift": {
+    "mahalanobis": 4.2,
+    "sample_count": 512
+  }
+}

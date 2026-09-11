@@ -1,0 +1,309 @@
+//! `qualia-console` — the braid's operator console.
+//!
+//! Five views over one state: the braid the agent reports on `GET /braid`, the
+//! belief layers in the shared region, the world the runners have mapped, the
+//! evidence MCAP has sealed, and the newest frame each sensing runner published.
+//! One native binary, no webview, no JavaScript runtime.
+//!
+//! Every design choice here traces to `docs/frontend-lessons.md`, which records
+//! what five existing front ends taught and what they got wrong. The short
+//! version, one line per decision:
+//!
+//! - `egui` + `eframe`, one binary — the stack source 2 uses and the one the
+//!   operator screens already assume;
+//! - one `View` enum, one label table, one dispatch, one module per view under
+//!   [`views`] — sources 1, 2, 3 and 4 arrived at this independently;
+//! - [`client::agent_url`] is the only address in the source, default
+//!   `http://127.0.0.1:8080` — source 2's household-subnet default and source
+//!   4's twelve hard-coded hosts are the counter-example;
+//! - no subnet autodiscovery, no TLS-insecure default — source 2;
+//! - the named snapshot states in the crate's `tests/snapshots.rs` are driven
+//!   by a committed fixture, plus one fresh region and the opening arrangement
+//!   — source 3;
+//! - the telemetry rows are the ABI's sensing slots, or the runners a named
+//!   stack declares — never a runner list invented beside the stack — source 1's
+//!   avoid;
+//! - assertions are accessible labels, not pixels alone — source 3;
+//! - `GET /braid` is polled off the UI thread through a command/message channel
+//!   — source 2;
+//! - every dataset is a floating panel on one page, staggered so the whole
+//!   console is visible at once, with the Mission panel naming the agent,
+//!   session and generation behind every other panel's numbers — sources 1, 2
+//!   and 4;
+//! - presentation lives in [`theme`], one palette, one family and one 8 px
+//!   grid, so the five views cannot drift apart;
+//! - no `unsafe` in the console: the ABI pointer arithmetic stays in
+//!   `qualia-shm` — source 1.
+
+pub mod client;
+pub mod poller;
+pub mod sample;
+mod shm_sample;
+pub mod stack;
+pub mod theme;
+pub mod views;
+
+pub use client::{agent_url, fixture, BraidSnapshot, BraidState, DriftReport};
+pub use sample::Sample;
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use poller::Poller;
+
+/// The five operator screens, in cascade order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Mission,
+    Belief,
+    World,
+    Evidence,
+    Telemetry,
+}
+
+/// One label table drives the window titles, the `Console` menu's checkboxes
+/// and the cascade order (source 1's lesson: never write the binding twice).
+pub const VIEWS: [View; 5] = [
+    View::Mission,
+    View::Belief,
+    View::World,
+    View::Evidence,
+    View::Telemetry,
+];
+
+impl View {
+    pub const fn label(self) -> &'static str {
+        match self {
+            View::Mission => "Mission",
+            View::Belief => "Belief",
+            View::World => "World",
+            View::Evidence => "Evidence",
+            View::Telemetry => "Telemetry",
+        }
+    }
+}
+
+/// Whether the console is showing the agent or the committed fixture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Connection {
+    Live,
+    Unreachable { reason: String },
+}
+
+impl Connection {
+    pub fn is_live(&self) -> bool {
+        matches!(self, Connection::Live)
+    }
+}
+
+/// Which floating panels are showing. Every panel starts open and staggered, so
+/// the console opens on the whole picture; the `Windows` menu re-opens one the
+/// operator closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSet {
+    pub mission: bool,
+    pub belief: bool,
+    pub world: bool,
+    pub evidence: bool,
+    pub telemetry: bool,
+}
+
+impl Default for WindowSet {
+    fn default() -> Self {
+        Self {
+            mission: true,
+            belief: true,
+            world: true,
+            evidence: true,
+            telemetry: true,
+        }
+    }
+}
+
+impl WindowSet {
+    /// Only `view` open, for the per-panel snapshot states.
+    pub fn only(view: View) -> Self {
+        let mut set = Self {
+            mission: false,
+            belief: false,
+            world: false,
+            evidence: false,
+            telemetry: false,
+        };
+        set.set(view, true);
+        set
+    }
+
+    pub fn is_open(self, view: View) -> bool {
+        match view {
+            View::Mission => self.mission,
+            View::Belief => self.belief,
+            View::World => self.world,
+            View::Evidence => self.evidence,
+            View::Telemetry => self.telemetry,
+        }
+    }
+
+    pub fn set(&mut self, view: View, open: bool) {
+        match view {
+            View::Mission => self.mission = open,
+            View::Belief => self.belief = open,
+            View::World => self.world = open,
+            View::Evidence => self.evidence = open,
+            View::Telemetry => self.telemetry = open,
+        }
+    }
+}
+
+/// The whole console state: one sample, plus which panels are showing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConsoleState {
+    pub agent_url: String,
+    pub observed_at_ns: u64,
+    /// Set by the strip, drained by the window, which asks the poller for a
+    /// poll now instead of at the next interval.
+    pub refresh_requested: bool,
+    pub connection: Connection,
+    pub braid: BraidState,
+    pub drift: Option<DriftReport>,
+    pub belief: views::belief::BeliefView,
+    pub world: views::world::WorldView,
+    pub evidence: views::evidence::EvidenceView,
+    pub telemetry: views::telemetry::TelemetryView,
+    pub windows: WindowSet,
+}
+
+impl ConsoleState {
+    /// A whole state from one poll, with every panel showing.
+    pub fn from_sample(sample: Sample, agent_url: impl Into<String>) -> Self {
+        Self {
+            agent_url: agent_url.into(),
+            observed_at_ns: sample.observed_at_ns,
+            refresh_requested: false,
+            connection: sample.connection,
+            braid: sample.braid,
+            drift: sample.drift,
+            belief: sample.belief,
+            world: sample.world,
+            evidence: sample.evidence,
+            telemetry: sample.telemetry,
+            windows: WindowSet::default(),
+        }
+    }
+
+    /// Replace everything a poll produces, keeping the open panels and URL.
+    pub fn apply(&mut self, sample: Sample) {
+        self.observed_at_ns = sample.observed_at_ns;
+        self.connection = sample.connection;
+        self.braid = sample.braid;
+        self.drift = sample.drift;
+        self.belief = sample.belief;
+        self.world = sample.world;
+        self.evidence = sample.evidence;
+        self.telemetry = sample.telemetry;
+    }
+}
+
+/// Wall clock in nanoseconds since the Unix epoch.
+pub fn now_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// Draw the console: the one strip, then the five floating panels.
+///
+/// This is the whole surface, so the snapshot tests drive the same code the
+/// window does; [`app_ui`] only wraps it in a panel.
+pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
+    theme::apply(ui.ctx());
+    ui.painter().rect_filled(ui.max_rect(), 0.0, theme::BG);
+    theme::menu_strip(ui, state);
+
+    let mut windows = state.windows;
+    let ctx = ui.ctx().clone();
+    theme::panel(&ctx, View::Mission, &mut windows.mission, |ui| {
+        views::mission::render(ui, state)
+    });
+    theme::panel(&ctx, View::Belief, &mut windows.belief, |ui| {
+        views::belief::render(ui, state)
+    });
+    theme::panel(&ctx, View::World, &mut windows.world, |ui| {
+        views::world::render(ui, state)
+    });
+    theme::panel(&ctx, View::Evidence, &mut windows.evidence, |ui| {
+        views::evidence::render(ui, state)
+    });
+    theme::panel(&ctx, View::Telemetry, &mut windows.telemetry, |ui| {
+        views::telemetry::render(ui, state)
+    });
+    state.windows = windows;
+}
+
+/// One frame of the console: panels around [`render_view`].
+pub fn app_ui(ctx: &egui::Context, state: &mut ConsoleState) {
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(theme::BG))
+        .show(ctx, |ui| render_view(ui, state));
+}
+
+/// The window application: polls, then draws.
+pub struct ConsoleApp {
+    state: ConsoleState,
+    poller: Poller,
+}
+
+impl ConsoleApp {
+    /// Build the app against `QUALIA_AGENT_URL`, degrading to the fixture.
+    pub fn new(agent_url: String) -> Result<Self, String> {
+        let fixture = client::fixture();
+        let initial = Sample::degraded(
+            &fixture,
+            &format!("waiting for agent at {agent_url}"),
+            now_ns(),
+        );
+        let state = ConsoleState::from_sample(initial, agent_url.clone());
+        let poller = Poller::spawn(
+            Box::new(client::HttpSource::new(agent_url)?),
+            Box::new(client::FixtureSource::default()),
+        );
+        Ok(Self { state, poller })
+    }
+}
+
+impl eframe::App for ConsoleApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.state.refresh_requested {
+            self.state.refresh_requested = false;
+            self.poller.refresh_now();
+        }
+        if let Some(sample) = self.poller.try_recv() {
+            self.state.apply(sample);
+        }
+        app_ui(ctx, &mut self.state);
+        ctx.request_repaint_after(poller::POLL_INTERVAL);
+    }
+}
+
+/// Run the native window.
+pub fn run() -> eframe::Result<()> {
+    let agent_url = agent_url();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 820.0])
+            .with_min_inner_size([900.0, 600.0])
+            .with_title("Qualia Console"),
+        renderer: eframe::Renderer::Wgpu,
+        ..Default::default()
+    };
+    eframe::run_native(
+        "qualia-console",
+        options,
+        Box::new(move |_cc| {
+            let app = ConsoleApp::new(agent_url).map_err(
+                |error| -> Box<dyn std::error::Error + Send + Sync> { error.into() },
+            )?;
+            Ok(Box::new(app) as Box<dyn eframe::App>)
+        }),
+    )
+}
