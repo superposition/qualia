@@ -13,9 +13,6 @@ body {
 }
 header { padding: 24px 28px 8px; }
 h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: 0.02em; }
-.wordmark { display: flex; align-items: center; gap: 10px; }
-.wordmark h1 { margin: 0; }
-.mark { display: inline-grid; place-items: center; width: 27px; height: 27px; border: 1px solid var(--line); border-radius: 7px; color: var(--accent); }
 h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent); }
 main { padding: 16px 28px 40px; }
 #status { margin: 0; color: var(--accent); min-height: 1.5em; }
