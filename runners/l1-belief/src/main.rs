@@ -36,8 +36,8 @@ fn main() {
     // Both backends compiled in would make the choice of device implicit in
     // `cfg` order, and neither leaves the process with nothing to drive.
     #[cfg(all(feature = "cuda", feature = "metal"))]
-    compile_error!("cuda and metal are alternative backends; enable exactly one");
+    compile_error!("cuda and metal features are mutually exclusive");
 
     #[cfg(all(not(feature = "cuda"), not(feature = "metal")))]
-    compile_error!("no compute backend selected; enable the cuda or metal feature");
+    compile_error!("enable either cuda or metal feature");
 }

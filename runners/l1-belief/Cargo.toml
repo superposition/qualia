@@ -3,11 +3,6 @@ name = "qualia-l1-belief"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
-
-[[bin]]
-name = "qualia-l1-belief"
-path = "src/main.rs"
 
 [features]
 default = ["metal"]
