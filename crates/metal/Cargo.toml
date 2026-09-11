@@ -5,9 +5,19 @@ edition.workspace = true
 license.workspace = true
 description = "Metal compute pipeline for belief updates"
 
+[features]
+default = []
+# The same flag as the CUDA stack: coupling the loaded connectome prior is off
+# unless a build asks for it, and with it off `couple_prior` is the zero no-op
+# the interface fixes.
+fly-prior = []
+
 [dependencies]
 qualia-types.workspace = true
 qualia-shm.workspace = true
+# The prior is data, not code (D-001). It is not optional because the
+# no-coupling build still names `CouplingPrior` in `couple_prior`'s signature.
+qualia-jepa.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.31"
