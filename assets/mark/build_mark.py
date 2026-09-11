@@ -9,12 +9,13 @@ sites inline (D-007) — imported with Blender's built-in SVG importer; `psi.jso
 supplies the stroke width, the palette and the part names, and the imported
 centre lines are checked against it so the flat mark and the mesh cannot drift.
 
-Blender's SVG importer reads fills and ignores `stroke`, and `psi.svg` draws the
-mark with square-capped, mitre-joined strokes, so what the importer produces is a
+Blender's SVG importer reads fills and ignores `stroke`, and `psi.svg` draws each
+part as a closed, mitre-joined stroke, so what the importer produces is a
 zero-width centre line: converting it straight to mesh and extruding would give
-nothing to render. The imported centre lines are therefore stroked here under the
-same cap, join and mitre-limit rules the SVG asks for, and that outline is what is
-extruded along `+Z` by 0.12 and bevelled by 0.01 in two segments.
+nothing to render. The imported centre lines are therefore stroked here as the
+closed polygons the SVG draws — join and mitre-limit rules, no caps — and that
+outline is what is extruded along `+Z` by 0.12 and bevelled by 0.01 in two
+segments.
 
 Outputs, written in this order:
 
@@ -62,11 +63,11 @@ ICON_PATHS = (
 
 SCHEMA = "qualia.psi-mark.v1"
 
-# psi.json's geometry is stroked, and psi.svg carries the stroke as a `stroke`
-# attribute with `stroke-linecap="square"`, `stroke-linejoin="miter"` and
-# `stroke-miterlimit="4"`. Blender's SVG importer only reads fills, so the
-# strokes are expanded here with the same cap, join and miter-limit rules and
-# the result is what gets extruded.
+# psi.json's geometry is stroked, and psi.svg carries each part as a closed
+# subpath (`Z`) with `stroke-linejoin="miter"` and `stroke-miterlimit="4"`; a
+# closed subpath joins at its ends rather than capping them. Blender's SVG
+# importer only reads fills, so the strokes are expanded here as closed polygons
+# with the same join and miter-limit rules and the result is what gets extruded.
 MITER_LIMIT = 4.0
 
 # One viewBox unit. The viewBox is 100 units across, so 100 units == one Blender
@@ -281,19 +282,18 @@ def _wound(polygon: list[tuple[float, float]]) -> list[tuple[float, float]]:
 def stroke_pieces(points: list[tuple[float, float]], half: float) -> list[list[tuple[float, float]]]:
     """Simple convex pieces whose union is the stroked centre line.
 
-    Every piece is convex, so the union Blender's exact boolean builds stays
-    clean even where the mark's arms turn more sharply than the stroke is wide.
+    The centre line is the closed polygon `psi.svg` draws, so the closing segment
+    is a band like the rest and the start and end vertices join like the interior
+    ones: a closed subpath has joins at its ends, not caps. Every piece is convex,
+    so the union Blender's exact boolean builds stays clean even where the mark's
+    arms turn more sharply than the stroke is wide.
     """
     pieces = []
     count = len(points)
-    for index in range(count - 1):
-        start, end = points[index], points[index + 1]
+    for index in range(count):
+        start, end = points[index], points[(index + 1) % count]
         tangent = unit((end[0] - start[0], end[1] - start[1]))
         normal = (-tangent[1], tangent[0])
-        if index == 0:  # square cap
-            start = (start[0] - tangent[0] * half, start[1] - tangent[1] * half)
-        if index == count - 2:  # square cap
-            end = (end[0] + tangent[0] * half, end[1] + tangent[1] * half)
         pieces.append(
             [
                 (start[0] + normal[0] * half, start[1] + normal[1] * half),
@@ -302,8 +302,8 @@ def stroke_pieces(points: list[tuple[float, float]], half: float) -> list[list[t
                 (start[0] - normal[0] * half, start[1] - normal[1] * half),
             ]
         )
-    for index in range(1, count - 1):
-        piece = _join_piece(points[index - 1], points[index], points[index + 1], half)
+    for index in range(count):
+        piece = _join_piece(points[index - 1], points[index], points[(index + 1) % count], half)
         if piece is not None:
             pieces.append(piece)
     return [_wound(piece) for piece in pieces]
@@ -383,6 +383,53 @@ def union_pieces(name: str, pieces: list[list[tuple[float, float]]], depth: floa
     return target
 
 
+def canonical_elements(obj) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    """The object's mesh as (vertices, faces) in a canonical order.
+
+    Blender's exact boolean is threaded, so it emits the same solid with a
+    different element order between runs. Sorting the faces by their own
+    coordinates — each loop turned to start at the smallest of its rotations,
+    which keeps the winding and so the shading — makes everything read out of the
+    mesh reproducible: the bevel's clamping decisions and the exported GLB.
+    """
+    coordinates = [tuple(vertex.co) for vertex in obj.data.vertices]
+    loops = []
+    for polygon in obj.data.polygons:
+        loop = tuple(polygon.vertices)
+        sequence = [coordinates[corner] for corner in loop]
+        start = min(range(len(loop)), key=lambda turn: sequence[turn:] + sequence[:turn])
+        loops.append(loop[start:] + loop[:start])
+    loops.sort(key=lambda loop: tuple(coordinates[i] for i in loop))
+
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    remap: dict[int, int] = {}
+    for loop in loops:
+        for corner in loop:
+            if corner not in remap:
+                remap[corner] = len(remap)
+                vertices.append(coordinates[corner])
+        faces.append(tuple(remap[corner] for corner in loop))
+    return vertices, faces
+
+
+def canonicalise(obj) -> None:
+    """Rebuild the mesh's elements in canonical order before anything walks them.
+
+    `bevel_edges` clamps overlapping offsets in the order it meets them, so its
+    result is only reproducible if the mesh it is handed is.
+    """
+    vertices, faces = canonical_elements(obj)
+    old = obj.data
+    name = old.name
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj.data = mesh
+    bpy.data.meshes.remove(old)
+    mesh.name = name
+
+
 def bevel_edges(obj, offset: float, segments: int) -> None:
     builder = bmesh.new()
     try:
@@ -415,34 +462,16 @@ def principled(name: str, colour: str, roughness: float, metallic: float):
 
 
 def combine(name: str, groups: list[tuple[object, int]], materials: list[object]):
-    """One mesh object carrying both materials, in a canonical element order.
-
-    Blender's exact boolean is threaded, so the order in which it emits faces
-    changes between runs even though the geometry does not. Sorting the faces by
-    their own coordinates — each loop turned to start at its lowest vertex, which
-    keeps the winding and so the shading — makes the exported mesh, and therefore
-    the GLB, byte-identical between runs.
-    """
+    """One mesh object carrying both materials, in a canonical element order."""
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
     materials_per_face: list[int] = []
     for obj, index in groups:
-        coordinates = [tuple(vertex.co) for vertex in obj.data.vertices]
-        loops = []
-        for polygon in obj.data.polygons:
-            loop = tuple(polygon.vertices)
-            start = min(range(len(loop)), key=lambda corner: coordinates[loop[corner]])
-            loops.append(loop[start:] + loop[:start])
-        loops.sort(key=lambda loop: tuple(coordinates[i] for i in loop))
-
+        group_vertices, group_faces = canonical_elements(obj)
         base = len(vertices)
-        remap: dict[int, int] = {}
-        for loop in loops:
-            for corner in loop:
-                if corner not in remap:
-                    remap[corner] = base + len(remap)
-                    vertices.append(coordinates[corner])
-            faces.append(tuple(remap[corner] for corner in loop))
+        vertices.extend(group_vertices)
+        for loop in group_faces:
+            faces.append(tuple(base + corner for corner in loop))
             materials_per_face.append(index)
 
     mesh = bpy.data.meshes.new(name)
@@ -629,6 +658,7 @@ def build() -> None:
         parts = [to_blender(points, origin) for points, part_colour in lines if part_colour == colour]
         pieces = [piece for points in parts for piece in stroke_pieces(points, half)]
         solid = union_pieces(f"mark-{colour}", pieces, DEPTH)
+        canonicalise(solid)
         bevel_edges(solid, BEVEL, BEVEL_SEGMENTS)
         solids.append(solid)
 
