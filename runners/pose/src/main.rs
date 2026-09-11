@@ -284,7 +284,7 @@ impl Tracker {
             };
         };
 
-        self.pending = delta.chain(self.pending);
+        self.pending = self.pending.chain(delta);
         if self.anchors.is_empty() {
             self.anchors.push(Anchor {
                 pose: self.pose,
@@ -1098,6 +1098,46 @@ mod tests {
         assert_close(tick.pose.east_m, 0.45, 0.08);
         assert_eq!(tick.anchors, 2);
         assert_eq!(tick.odometry_links, 1);
+        assert_eq!(tick.loop_links, 0);
+    }
+
+    #[test]
+    fn observe_tracks_curved_motion_through_anchor_intervals() {
+        let cloud = scattered_cloud(200, 4.0);
+        // Every anchor interval takes two registrations: a straight step that
+        // sets the pending delta, then an 8 deg turn that has to compose onto
+        // it. Pure-translation trajectories cannot tell the two composition
+        // orders apart, because their rotations commute; this curved one
+        // drifts off the truth when the operands are swapped.
+        let mut tracker = Tracker::new();
+        tracker.observe(&scan_from_cloud(1, &cloud));
+
+        let mut truth = MapPose::HOME;
+        let mut last = None;
+        for update in 0..6 {
+            truth = truth.advance(Motion {
+                shift_x: 0.11,
+                shift_y: 0.0,
+                turn: if update % 2 == 0 {
+                    0.0
+                } else {
+                    8.0 * PI / 180.0
+                },
+            });
+            let seen = apply_motion(&cloud, frame_delta(MapPose::HOME, truth).inverse());
+            let tick = match tracker.observe(&scan_from_cloud(update as u64 + 2, &seen)) {
+                Outcome::Tracked(tick) => tick,
+                _ => panic!("curved motion {} must register", update + 1),
+            };
+            assert_close(tick.pose.east_m, truth.east_m, 0.005);
+            assert_close(tick.pose.north_m, truth.north_m, 0.005);
+            assert_close(tick.pose.heading_rad, truth.heading_rad, 0.002);
+            last = Some(tick);
+        }
+
+        let tick = last.expect("six updates");
+        assert!(tick.anchors >= 3, "curved motion must cross anchor intervals");
+        assert_eq!(tick.odometry_links, tick.anchors - 1);
         assert_eq!(tick.loop_links, 0);
     }
 
