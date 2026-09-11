@@ -1,16 +1,18 @@
 //! CPU reference mathematics for the Qualia belief manifold.
 //!
 //! This crate is the numerical source of truth that the tensor backends are
-//! checked against, so it deliberately carries no dependencies: a backend
-//! cannot disagree with a contract it is not allowed to import. Every entry
-//! point validates its inputs and fails closed with [`MathError`] instead of
-//! letting a `NaN`, an infinity or a ragged slice reach the model.
+//! checked against, so it deliberately carries no tensor-backend dependencies:
+//! a backend cannot disagree with a contract it is not allowed to import.
+//! Every entry point validates its inputs and fails closed with [`MathError`]
+//! instead of letting a `NaN`, an infinity or a ragged slice reach the model.
 //!
 //! The golden braid's seam is joined here: the drift measurement in
 //! `crates/braid` is expressed as a diagonal Mahalanobis distance against the
 //! same precision conventions these functions define.
 
 #![forbid(unsafe_code)]
+
+pub mod prior;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
