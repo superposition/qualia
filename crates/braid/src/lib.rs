@@ -19,6 +19,7 @@
 //! writes are the only copies there are.
 
 pub mod drift;
+pub mod improvement;
 pub mod rules;
 
 use serde::{Deserialize, Serialize};
