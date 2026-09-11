@@ -9,9 +9,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use egui_kittest::{kittest::Queryable, Harness};
-use qualia_console::views::telemetry::TelemetryView;
+use qualia_console::stack::SensingSet;
+use qualia_console::views::telemetry::{SensingRunner, TelemetryView};
 use qualia_console::views::world::WorldView;
-use qualia_console::{fixture, stack, Connection, ConsoleState, Sample, View, WindowSet};
+use qualia_console::{fixture, Connection, ConsoleState, Sample, View, WindowSet};
 use qualia_shm::ShmRegion;
 use qualia_types::LidarScanSnapshot;
 
@@ -25,31 +26,16 @@ fn region_name(tag: &str) -> String {
     format!("/qualia_console_test_{}_{}_{}", std::process::id(), tag, index)
 }
 
-/// The runner names a manifest declaring the three sensing runners carries.
-fn sensing_runner_names() -> Vec<String> {
-    ["qualia-lidar", "qualia-camera", "qualia-vslam"]
+/// The ABI's sensing slots, in table order, as the console names them.
+fn every_slot() -> Vec<&'static str> {
+    SensingRunner::ALL
         .iter()
-        .map(|name| (*name).to_owned())
+        .map(|slot| slot.runner_name())
         .collect()
 }
 
-#[test]
-fn telemetry_names_every_runner_and_only_reports_published_frames() {
-    let name = region_name("telemetry");
-    let region = ShmRegion::create(&name).expect("create region");
-    let runners = sensing_runner_names();
-
-    let fresh = TelemetryView::sample(&region, &runners);
-    assert_eq!(fresh.frames.len(), runners.len());
-    assert!(
-        fresh.frames.iter().all(|row| row.detail.is_none()),
-        "a region nobody has written to has no frames to show"
-    );
-    assert_eq!(
-        fresh.frames[0].runner, "qualia-lidar",
-        "the row carries the name the manifest declares, not the slot's own"
-    );
-
+/// A 720-point lidar scan published into the region's lidar slot.
+fn publish_scan(region: &ShmRegion) {
     let scan = LidarScanSnapshot {
         scan_start_ns: 1_000,
         scan_end_ns: 2_000,
@@ -57,13 +43,34 @@ fn telemetry_names_every_runner_and_only_reports_published_frames() {
         ..LidarScanSnapshot::default()
     };
     region.lidar_scan_mut().publish(&scan).expect("publish scan");
+}
 
-    let published = TelemetryView::sample(&region, &runners);
+#[test]
+fn telemetry_names_every_sensing_slot_the_console_reads() {
+    let name = region_name("telemetry");
+    let region = ShmRegion::create(&name).expect("create region");
+
+    let fresh = TelemetryView::sample(&region, &SensingSet::EverySlot);
+    let labels: Vec<&str> = fresh.frames.iter().map(|row| row.runner.as_str()).collect();
+    let expected: Vec<&str> = every_slot();
+    assert_eq!(
+        labels,
+        expected,
+        "with no stack named, the rows are the ABI's sensing slots, in slot order"
+    );
+    assert!(
+        fresh.frames.iter().all(|row| row.detail.is_none()),
+        "a region nobody has written to has no frames to show"
+    );
+
+    publish_scan(&region);
+
+    let published = TelemetryView::sample(&region, &SensingSet::EverySlot);
     let lidar = published
         .frames
         .iter()
-        .find(|row| row.runner == "qualia-lidar")
-        .expect("lidar keeps its row");
+        .find(|row| row.runner == SensingRunner::Lidar.runner_name())
+        .expect("the lidar slot keeps its row");
     assert_eq!(lidar.detail.as_deref(), Some("720 points"));
     assert_eq!(lidar.timestamp_ns, 2_000);
     assert_eq!(
@@ -73,20 +80,20 @@ fn telemetry_names_every_runner_and_only_reports_published_frames() {
             .filter(|row| row.detail.is_none())
             .count(),
         2,
-        "the runners that published nothing keep their rows"
+        "the slots that published nothing keep their rows"
     );
 }
 
 #[test]
-fn telemetry_renders_an_absent_row_for_every_silent_runner() {
+fn telemetry_renders_an_absent_row_for_every_silent_slot() {
     let name = region_name("telemetry_render");
     let region = ShmRegion::create(&name).expect("create region");
     let fixture = fixture();
-    let runners = sensing_runner_names();
+    let slots = every_slot();
 
     let mut sample = Sample::degraded(&fixture, "not used here", fixture.braid.last_promotion_ns);
     sample.connection = Connection::Live;
-    sample.telemetry = TelemetryView::sample(&region, &runners);
+    sample.telemetry = TelemetryView::sample(&region, &SensingSet::EverySlot);
 
     let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
     state.windows = WindowSet::only(View::Telemetry);
@@ -96,45 +103,49 @@ fn telemetry_renders_an_absent_row_for_every_silent_runner() {
         .build_ui_state(|ui, state| qualia_console::render_view(ui, state), state);
     harness.run();
 
-    for runner in &runners {
-        harness.get_by_label(runner.as_str());
+    for slot in &slots {
+        harness.get_by_label(*slot);
     }
     assert_eq!(
         harness.query_all_by_label("no frame published").count(),
-        runners.len(),
-        "a silent runner is an absent row, not a missing one"
+        slots.len(),
+        "a silent slot is an absent row, not a missing one"
+    );
+    assert_eq!(
+        harness.query_all_by_label("no telemetry frames").count(),
+        0,
+        "the slots exist whether or not a runner has published to them"
     );
 }
 
-/// The shipped configuration, end to end: the rows come from the manifest
-/// compiled into the binary. Before `config/stack-manifest.default.json` named
-/// the sensing runners this rendered `no telemetry frames` while a published
-/// scan sat in the region the console was attached to.
+/// A named stack is read, not re-invented: its sensing runners are the rows, in
+/// its own order, and a stack that declares none renders the honest empty table
+/// — the state `config/stack-manifest.zero-motion.json` shows — rather than
+/// borrowing a runner set from the console.
 #[test]
-fn telemetry_renders_the_rows_the_shipped_default_manifest_declares() {
-    let name = region_name("telemetry_default");
+fn telemetry_rows_follow_the_named_stack_and_its_order() {
+    let name = region_name("telemetry_named");
     let region = ShmRegion::create(&name).expect("create region");
-    let runners = stack::sensing_runner_names(stack::DEFAULT_MANIFEST)
-        .expect("the compiled-in default manifest parses");
+    publish_scan(&region);
 
-    let scan = LidarScanSnapshot {
-        scan_start_ns: 1_000,
-        scan_end_ns: 2_000,
-        point_count: 720,
-        ..LidarScanSnapshot::default()
-    };
-    region.lidar_scan_mut().publish(&scan).expect("publish scan");
+    let declared = SensingSet::Declared(vec!["qualia-camera".to_owned(), "qualia-lidar".to_owned()]);
+    let view = TelemetryView::sample(&region, &declared);
+    let labels: Vec<&str> = view.frames.iter().map(|row| row.runner.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["qualia-camera", "qualia-lidar"],
+        "the named stack's sensing runners, in the manifest's order"
+    );
+    assert!(
+        view.frames[0].detail.is_none(),
+        "a runner the stack names but that has published nothing is absent, not missing"
+    );
+    assert_eq!(view.frames[1].detail.as_deref(), Some("720 points"));
 
     let fixture = fixture();
     let mut sample = Sample::degraded(&fixture, "not used here", fixture.braid.last_promotion_ns);
     sample.connection = Connection::Live;
-    sample.telemetry = TelemetryView::sample(&region, &runners);
-    assert_eq!(
-        sample.telemetry.frames.len(),
-        3,
-        "the shipped default must name the three sensing runners the body stack runs"
-    );
-
+    sample.telemetry = view;
     let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
     state.windows = WindowSet::only(View::Telemetry);
     let mut harness = Harness::builder()
@@ -142,15 +153,30 @@ fn telemetry_renders_the_rows_the_shipped_default_manifest_declares() {
         .wgpu()
         .build_ui_state(|ui, state| qualia_console::render_view(ui, state), state);
     harness.run();
+    harness.get_by_label("qualia-camera");
+    harness.get_by_label("qualia-lidar");
+    assert_eq!(harness.query_all_by_label("no frame published").count(), 1);
 
-    for runner in &runners {
-        harness.get_by_label(runner.as_str());
-    }
-    harness.get_by_label("720 points");
+    let none = TelemetryView::sample(&region, &SensingSet::Declared(Vec::new()));
+    assert!(
+        none.is_empty(),
+        "a stack that declares no sensing runner gets no rows"
+    );
+    let mut sample = Sample::degraded(&fixture, "not used here", fixture.braid.last_promotion_ns);
+    sample.connection = Connection::Live;
+    sample.telemetry = none;
+    let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
+    state.windows = WindowSet::only(View::Telemetry);
+    let mut harness = Harness::builder()
+        .with_size(egui::Vec2::new(1280.0, 820.0))
+        .wgpu()
+        .build_ui_state(|ui, state| qualia_console::render_view(ui, state), state);
+    harness.run();
+    harness.get_by_label("no telemetry frames");
     assert_eq!(
-        harness.query_all_by_label("no telemetry frames").count(),
+        harness.query_all_by_label("no frame published").count(),
         0,
-        "the shipped default must not render the empty table"
+        "the honest empty table has no rows to render"
     );
 }
 

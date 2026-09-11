@@ -4,18 +4,21 @@
 //! `#[repr(C)]` ABI directly with no IPC layer, and staleness is derived from
 //! the frame's own timestamp so the redraw is driven by the data.
 //!
-//! The runner set comes from the stack manifest ([`crate::stack`]) rather than
-//! a list here (`docs/frontend-lessons.md` source 1 counts two hard-coded
-//! runner lists beside `QUALIA_STACK_MANIFEST` as a mistake): the rows are
-//! exactly the manifest's sensing runners, in manifest order, and a runner
-//! that has published nothing keeps its row saying so instead of shrinking the
-//! table.
+//! The rows are the ABI's own sensing slots ([`SensingRunner`]), not a runner
+//! list beside the stack: every slot the console's read path covers gets a row,
+//! and a slot whose publisher has published nothing keeps its row saying so
+//! instead of shrinking the table or inventing a frame. A stack named by
+//! `QUALIA_STACK_MANIFEST` narrows the rows to the sensing runners it declares
+//! ([`crate::stack::SensingSet`]); it is not what makes the console able to
+//! show a frame, which is why the product's default stack (it declares no
+//! sensing runner) is not the default row set.
 
 use std::sync::atomic::Ordering;
 
 use egui::Ui;
 use qualia_shm::ShmRegion;
 
+use crate::stack::SensingSet;
 use crate::{theme, ConsoleState};
 
 /// Column widths of the frame table, on the 8 px rhythm and sized to the
@@ -27,8 +30,9 @@ const COL_AGE: f32 = 72.0;
 /// The sensing slots the region's ABI defines, and the runner crate that
 /// publishes each (`runners/*/Cargo.toml`).
 ///
-/// This is slot knowledge, not a stack definition: which of these runners a
-/// deployment runs is what the manifest declares ([`crate::stack`]).
+/// This is slot knowledge, not a stack definition: it says which crate writes
+/// each slot the console can read, and which of those crates a deployment runs
+/// is what a manifest declares ([`crate::stack`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SensingRunner {
     Lidar,
@@ -37,6 +41,9 @@ pub enum SensingRunner {
 }
 
 impl SensingRunner {
+    /// Every sensing slot the region's ABI defines, in table order.
+    pub const ALL: [Self; 3] = [Self::Lidar, Self::Camera, Self::Vslam];
+
     /// The runner crate that publishes this slot.
     pub const fn runner_name(self) -> &'static str {
         match self {
@@ -111,7 +118,8 @@ impl SensingRunner {
 /// One row of the telemetry table: the runner, and its newest frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameReading {
-    /// The runner name the stack manifest declares.
+    /// The row's label: the stack's name for the runner when a manifest declares
+    /// it, otherwise the crate that publishes the slot.
     pub runner: String,
     /// The frame's summary, or `None` when the runner has published none.
     pub detail: Option<String>,
@@ -144,7 +152,7 @@ impl FrameReading {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TelemetryView {
-    /// One row per sensing runner the manifest declares, in manifest order.
+    /// One row per runner the stack's sensing set names, in that set's order.
     pub frames: Vec<FrameReading>,
     pub error: Option<String>,
 }
@@ -157,24 +165,36 @@ impl TelemetryView {
         }
     }
 
-    /// Copy the newest frame each of `runner_names` has published.
+    /// Copy the newest frame each row of `sensing` has published.
     ///
-    /// `runner_names` is the stack manifest's runner list, so the table shows
-    /// the runners this stack declares and nothing else; a declared name that
-    /// is not a sensing slot keeps no row.
-    pub fn sample(region: &ShmRegion, runner_names: &[String]) -> Self {
-        Self {
-            frames: runner_names
+    /// [`SensingSet::EverySlot`] is the console's own row set — the ABI's
+    /// sensing slots, which exist whether or not a runner has published to
+    /// them. A stack named by `QUALIA_STACK_MANIFEST` contributes its sensing
+    /// runners instead, in the manifest's order; a stack that declares none
+    /// keeps no row, which is the honest empty table. In every case a slot
+    /// whose publisher has published nothing keeps its row saying so.
+    pub fn sample(region: &ShmRegion, sensing: &SensingSet) -> Self {
+        let frames = match sensing {
+            SensingSet::EverySlot => SensingRunner::ALL
                 .iter()
-                .filter_map(|name| {
-                    let runner = SensingRunner::for_runner_name(name)?;
-                    Some(
-                        runner
-                            .newest(region, name.clone())
-                            .unwrap_or_else(|| FrameReading::absent(name.clone())),
-                    )
+                .map(|slot| {
+                    slot.newest(region, slot.runner_name())
+                        .unwrap_or_else(|| FrameReading::absent(slot.runner_name()))
                 })
                 .collect(),
+            SensingSet::Declared(names) => names
+                .iter()
+                .filter_map(|name| {
+                    let slot = SensingRunner::for_runner_name(name)?;
+                    Some(match slot.newest(region, name.as_str()) {
+                        Some(frame) => frame,
+                        None => FrameReading::absent(name.as_str()),
+                    })
+                })
+                .collect(),
+        };
+        Self {
+            frames,
             error: None,
         }
     }

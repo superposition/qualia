@@ -5,6 +5,7 @@
 
 use qualia_shm::ShmRegion;
 
+use crate::stack::SensingSet;
 use crate::views::belief::BeliefView;
 use crate::views::evidence::LedgerRow;
 use crate::views::telemetry::TelemetryView;
@@ -45,10 +46,11 @@ fn unavailable(region: Option<String>, reason: String) -> ShmSample {
 
 /// Attach to `region` and read the belief, world, telemetry and ledger.
 ///
-/// `sensing` is the sensing runner set the stack manifest declares, or the
-/// reason it could not be read; the telemetry rows are exactly that set, and a
-/// manifest that cannot be read is named without blanking the other panels.
-pub fn sample(region: &str, sensing: &Result<Vec<String>, String>) -> ShmSample {
+/// `sensing` is the sensing row set the stack declares, or the reason the
+/// manifest naming it could not be read; the telemetry rows come from that set,
+/// and a manifest that cannot be read is named without blanking the other
+/// panels.
+pub fn sample(region: &str, sensing: &Result<SensingSet, String>) -> ShmSample {
     match ShmRegion::open(region) {
         Ok(region_handle) => ShmSample {
             belief: BeliefView {
@@ -60,7 +62,7 @@ pub fn sample(region: &str, sensing: &Result<Vec<String>, String>) -> ShmSample 
                 ..WorldView::sample(&region_handle)
             },
             telemetry: match sensing {
-                Ok(runner_names) => TelemetryView::sample(&region_handle, runner_names),
+                Ok(set) => TelemetryView::sample(&region_handle, set),
                 Err(reason) => TelemetryView::unattached(format!("stack manifest: {reason}")),
             },
             ledger: LedgerRow::sample(&region_handle),

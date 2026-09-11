@@ -24,14 +24,17 @@ Configuration is four environment variables and nothing else:
 |---|---|---|
 |`QUALIA_AGENT_URL`|the agent base URL|`http://127.0.0.1:8080`|
 |`QUALIA_SHM_NAME`|the shared region to attach|`/qualia_body`, the arena the manifest and every region-opening runner name|
-|`QUALIA_STACK_MANIFEST`|the stack manifest that declares the runners|`config/stack-manifest.default.json`, compiled into the binary|
+|`QUALIA_STACK_MANIFEST`|a deployment's stack manifest; the Telemetry rows become its sensing runners, in its order|every sensing slot the console reads gets a row|
 |`QUALIA_EVIDENCE_DIR`|the directory holding `*.mcap`|`artifacts/mcap`, a console-only convenience until a manifest or runner names an evidence root|
 
-The Telemetry view's rows are exactly the sensing runners the stack manifest declares; the console
-keeps no runner list of its own. The manifest the binary compiles in
-(`config/stack-manifest.default.json`) declares `qualia-lidar`, `qualia-camera` and `qualia-vslam`,
-so the panel is populated out of the box, and a deployment manifest that names sensing runners
-replaces that set in the manifest's own order.
+The Telemetry view's rows are the ABI's sensing slots — `qualia-lidar`, `qualia-camera` and
+`qualia-vslam` — one row each, carrying the newest frame its publisher wrote or an explicit
+`no frame published`. That row set is the console's own and does not depend on a manifest naming a
+sensing runner: the product's default stack (`config/stack-manifest.default.json`) declares none, so
+deriving the table from it would leave the panel empty while the region the console is attached to
+holds frames. A deployment manifest named by `QUALIA_STACK_MANIFEST` narrows the rows to the sensing
+runners that stack declares, in the manifest's own order; a stack that declares none shows the honest
+empty table.
 
 There is no subnet autodiscovery and no host literal in the source. When no agent answers, the console
 renders the committed fixture `tests/fixtures/braid-state.json` and names the reason in the Mission
@@ -61,6 +64,6 @@ a GPU-capable adapter; development and verification run on the 4090. Nothing in 
 wall-clock frame budget, so a loaded host does not make the snapshots flake.
 
 `tests/evidence.rs` covers the directory scan against a temporary directory, `tests/stack.rs` covers
-the manifest-derived runner set including the manifest the binary compiles in, and
-`tests/shm_views.rs` covers the region read paths and the Telemetry rows the shipped default renders
-against regions it creates itself; none needs a running stack.
+the sensing runners a named stack contributes, and `tests/shm_views.rs` covers the region read paths
+and the Telemetry rows — the ABI's slots, and the rows a named stack declares — against regions it
+creates itself; none needs a running stack.

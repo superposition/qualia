@@ -77,9 +77,9 @@ fn worker(
     samples: &Sender<Sample>,
 ) {
     let evidence_root = crate::views::evidence::evidence_root();
-    // The stack's runner set is a deployment fact, not a per-poll one: read the
-    // manifest once and hold it for the life of the poller.
-    let sensing = crate::stack::load_sensing_runner_names();
+    // The stack's declared row set is a deployment fact, not a per-poll one:
+    // read the manifest once and hold it for the life of the poller.
+    let sensing = crate::stack::load_sensing_set();
     let mut evidence = EvidenceScan::default();
 
     loop {

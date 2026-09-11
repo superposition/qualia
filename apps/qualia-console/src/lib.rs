@@ -20,8 +20,9 @@
 //! - the named snapshot states in the crate's `tests/snapshots.rs` are driven
 //!   by a committed fixture, plus one fresh region and the opening arrangement
 //!   — source 3;
-//! - the telemetry runner set is the stack manifest's, not a list beside it —
-//!   source 1's avoid;
+//! - the telemetry rows are the ABI's sensing slots, or the runners a named
+//!   stack declares — never a runner list invented beside the stack — source 1's
+//!   avoid;
 //! - assertions are accessible labels, not pixels alone — source 3;
 //! - `GET /braid` is polled off the UI thread through a command/message channel
 //!   — source 2;

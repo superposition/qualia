@@ -1,11 +1,16 @@
-//! The stack manifest is the console's only runner list.
+//! The stack manifest a deployment names is read, never re-invented.
 //!
 //! `docs/frontend-lessons.md` (source 1's avoid) counts two hard-coded runner
-//! lists beside `QUALIA_STACK_MANIFEST` as a mistake. These pin that the
-//! telemetry set is read out of the manifest, in manifest order, and that a
-//! stack declaring no sensing runner gains none.
+//! lists beside `QUALIA_STACK_MANIFEST` as a mistake. These pin the in-scope
+//! route: a named stack contributes exactly its sensing runners, in its own
+//! order, and a stack that names none gains none — the console's rows must not
+//! be made to depend on a stack declaration.
+//!
+//! The product's default stack (`config/stack-manifest.default.json`) is not
+//! the console's row set and does not name a sensing runner, so no test here
+//! asserts a runner set the shipped default does not declare.
 
-use qualia_console::stack;
+use qualia_console::stack::{self, SensingSet};
 
 fn manifest(runners: &str) -> String {
     format!(
@@ -20,20 +25,20 @@ fn manifest(runners: &str) -> String {
 }
 
 #[test]
-fn the_sensing_set_comes_from_the_manifest_in_manifest_order() {
+fn a_named_stack_contributes_its_sensing_runners_in_its_own_order() {
     let text = manifest(
         r#"{"name": "qualia-agent"}, {"name": "qualia-vslam"}, {"name": "qualia-lidar"}"#,
     );
     assert_eq!(
         stack::sensing_runner_names(&text).expect("manifest parses"),
         vec!["qualia-vslam", "qualia-lidar"],
-        "the rows are the manifest's sensing runners, in the manifest's order"
+        "the rows are the named stack's sensing runners, in the manifest's order"
     );
 }
 
 #[test]
-fn a_stack_with_no_sensing_runner_gains_none() {
-    let text = manifest(r#"{"name": "qualia-agent"}"#);
+fn a_stack_that_names_no_sensing_runner_gets_none() {
+    let text = manifest(r#"{"name": "qualia-health"}"#);
     assert!(
         stack::sensing_runner_names(&text)
             .expect("manifest parses")
@@ -42,18 +47,16 @@ fn a_stack_with_no_sensing_runner_gains_none() {
     );
 }
 
-/// The path that regressed: with no `QUALIA_STACK_MANIFEST`, the console reads
-/// the manifest compiled into it. If that manifest names no sensing runner the
-/// Telemetry panel renders `no telemetry frames` while the region it is
-/// attached to holds a lidar scan, a camera frame and a VSLAM pose, so the
-/// shipped default must declare the three the body stack runs
-/// (`qualia.json` `deployments.body_double`, region `/qualia_body`).
+/// The shipped default: with no `QUALIA_STACK_MANIFEST` named, the console does
+/// not wait for a stack that can name a sensing runner. The product's default
+/// stack declares none, so the rows are the ABI's own sensing slots — which is
+/// what keeps the panel populated in the configuration the repo ships.
 #[test]
-fn the_shipped_default_manifest_declares_the_sensing_runners() {
+fn with_no_manifest_named_the_rows_are_the_abi_sensing_slots() {
+    std::env::remove_var("QUALIA_STACK_MANIFEST");
     assert_eq!(
-        stack::sensing_runner_names(stack::DEFAULT_MANIFEST)
-            .expect("the compiled-in default manifest parses"),
-        vec!["qualia-lidar", "qualia-camera", "qualia-vslam"],
-        "the stack the console compiles in must feed its own Telemetry rows"
+        stack::load_sensing_set().expect("the default row set needs no manifest"),
+        SensingSet::EverySlot,
+        "the shipped default must not derive its rows from a stack that names none"
     );
 }
