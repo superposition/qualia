@@ -38,10 +38,10 @@ static RUNNING: AtomicBool = AtomicBool::new(true);
 
 const LAYER_NAMES: [&str; NUM_LAYERS] = [
     "superposition",
-    "belief.motor",
-    "belief.local",
-    "belief.visual",
-    "behavior.fast",
+    "belief_motor",
+    "belief_local",
+    "belief_visual",
+    "behavior_short",
     "behavior.deep",
     "semantic",
     "senses",
@@ -1617,7 +1617,7 @@ fn thought_kind_label(kind: u8) -> &'static str {
     match kind {
         0 => "observe",
         1 => "predict",
-        2 => "surprised",
+        2 => "surprise",
         3 => "learn",
         4 => "resolve",
         5 => "escalate",
