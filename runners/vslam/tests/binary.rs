@@ -20,7 +20,7 @@ fn publish_frame(shm: &ShmRegion, index: u64) -> u64 {
     for (pixel_index, pixel) in thumbnail_luma.iter_mut().enumerate() {
         let h = (pixel_index as u32)
             .wrapping_mul(2_654_435_761)
-            .wrapping_add(index as u32 * 2_246_822_519);
+            .wrapping_add((index as u32).wrapping_mul(2_246_822_519));
         *pixel = ((h >> 11) & 0xff) as u8;
     }
     let snapshot = CameraFrameSnapshot {
