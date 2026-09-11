@@ -587,12 +587,12 @@ fn import_ros2_jsonl(
     let reader = BufReader::new(
         std::fs::File::open(input).with_context(|| format!("open {input}"))?,
     );
-    let mut row_index = 0usize;
-    for raw in reader.lines() {
+    for (row_index, raw) in reader.lines().enumerate() {
         let raw = raw.with_context(|| format!("read line {}", row_index + 1))?;
-        let row = ingest_ros2_row(&raw, row_index)?;
-        row_index += 1;
-        let Some(row) = row else {
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let Some(row) = ingest_ros2_row(&raw, row_index)? else {
             ignored_total += 1;
             continue;
         };
@@ -631,12 +631,9 @@ struct Ros2Row {
     samples: Vec<(&'static str, AbstractStateSample)>,
 }
 
-/// Maps one JSONL line, or reports `None` when the line is blank, unnamed, off-contract or
-/// produced no sample at all.
+/// Maps one JSONL line, or reports `None` when the line is unnamed, off-contract or produced no
+/// sample at all. Blank lines are skipped by the caller and never reach this mapper.
 fn ingest_ros2_row(raw: &str, row_index: usize) -> Result<Option<Ros2Row>> {
-    if raw.trim().is_empty() {
-        return Ok(None);
-    }
     let value: Value =
         serde_json::from_str(raw).with_context(|| format!("parse json line {}", row_index + 1))?;
     let Some(topic) = value.get("topic").and_then(Value::as_str) else {
@@ -868,15 +865,16 @@ fn parse_stamp_struct(stamp: &Value) -> Option<f64> {
     if let Some(number) = stamp.as_f64() {
         return Some(number);
     }
-    let whole = stamp_field(stamp, &["sec", "secs", "s"])?;
-    let fraction = stamp_field(stamp, &["nanosec", "nsec", "nsecs", "ns"]).unwrap_or(0.0);
+    let whole = stamp_field(stamp, &["sec", "secs", "s"]).and_then(Value::as_f64)?;
+    let fraction = stamp_field(stamp, &["nanosec", "nsec", "nsecs", "ns"])
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
     Some(whole + fraction / 1_000_000_000.0)
 }
 
-/// The first of `keys` a stamp object carries as a number.
-fn stamp_field(stamp: &Value, keys: &[&str]) -> Option<f64> {
-    keys.iter()
-        .find_map(|key| stamp.get(*key).and_then(Value::as_f64))
+/// The value under the first of `keys` a stamp object carries, whether or not it is a number.
+fn stamp_field<'a>(stamp: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    keys.iter().find_map(|key| stamp.get(*key))
 }
 
 fn infer_cmd_vel_symbol(msg: &Value) -> String {

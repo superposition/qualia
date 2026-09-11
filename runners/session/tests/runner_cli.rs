@@ -264,11 +264,13 @@ fn import_ros2_jsonl_reports_topics_and_persists_five_spaces() {
     let rows = [
         r#"{"topic":"/odom","msg":{"header":{"stamp":{"sec":1,"nanosec":0},"frame_id":"odom"},"child_frame_id":"base_link","pose":{},"twist":{}}}"#,
         r#"{"topic":"/scan","msg":{"header":{"stamp":{"sec":1,"nanosec":100000000},"frame_id":"laser"},"ranges":[1.0,2.0],"range_min":0.1,"range_max":10.0}}"#,
-        r#"{"topic":"/cmd_vel","stamp":{"sec":1,"nanosec":200000000},"msg":{"linear":{"x":0.2},"angular":{"z":0.0}}}"#,
+        r#"{"topic":"/cmd_vel","stamp":{"sec":null,"secs":7},"msg":{"linear":{"x":0.2},"angular":{"z":0.0}}}"#,
         r#"{"topic":"/tf","msg":{"transforms":[{"header":{"frame_id":"odom","stamp":{"sec":1,"nanosec":300000000}},"child_frame_id":"base_link","transform":{}}]}}"#,
         r#"{"topic":"/tf_static","msg":{"transforms":[{"header":{"frame_id":"map","stamp":{"sec":1,"nanosec":400000000}},"child_frame_id":"odom","transform":{}}]}}"#,
         r#"{"topic":"/battery","msg":{"voltage":12.1}}"#,
         r#"{"noise":true}"#,
+        "",
+        "   ",
     ]
     .join("\n");
     write(&jsonl_path, &rows);
@@ -324,6 +326,8 @@ fn import_ros2_jsonl_reports_topics_and_persists_five_spaces() {
         .list_state_samples(cmd_space.id, None, None, None)
         .expect("cmd_vel samples");
     assert_eq!(cmd_samples[0].symbol_key, "forward");
+    // `sec` is present but null, so the stamp is unusable and the sample keeps the line index.
+    assert!((cmd_samples[0].timestamp_sec - 2.0).abs() < 1e-9);
 
     let _ = std::fs::remove_dir_all(dir);
 }
