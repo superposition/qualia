@@ -22,8 +22,8 @@ the hardware the naive shape actually ships on.
 holds `capture.json`, `kernels.json`, `kernels.csv`, the backend's export and this README; this
 directory holds six files — those five plus the second run's export.
 
-This capture is **manual**, under #166's `## Manual capture` clause: mage cannot run on Pinkie (no
-`nsys`, and `triton>=3.0` publishes no aarch64 wheel to install mage with), so the two `ncu` runs were
+This capture is **manual**, under #166's `## Manual capture` clause: mage is not available on Pinkie
+— it carries no `nsys`, has no DNS, and has no mage installed today — so the two `ncu` runs were
 driven by hand. `capture.json` therefore keeps mage's manifest field names for the primary (`base`)
 run — `argv` (the profiled argv), `profiler_argv`, `returncode`, `status`, `kernel_count` — with the
 board, build and environment data added alongside, and the `--clock-control none` run under `runs[]`.
@@ -289,6 +289,12 @@ removed; `n/a` kept). The mapping from the committed column name to ncu's metric
 | `block_limit_sm` / `block_limit_shared_mem` / `block_limit_warps` | `Block Limit SM` / `Block Limit Shared Mem` / `Block Limit Warps` |
 | `theoretical_active_warps_per_sm` | `Theoretical Active Warps per SM` |
 
+Both occupancy-percent columns carry the same Occupancy-section value: `theoretical_occupancy_pct` and
+`section_theoretical_occupancy_pct` agree in all 26 rows (the `section_` prefix names the ncu section
+they come from). The named counter `sm__maximum_warps_per_active_cycle_pct`, also in the capture's
+`--metrics` list, reports that same percentage in every launch of both exports and so gets no column
+of its own; no value in either column is absent from the export.
+
 `kernels.csv` equals `kernels.json` row for row — 26 rows, 13 `base` + 13 `none` — and every number
 in this README is recomputed from them.
 
@@ -306,9 +312,9 @@ in this README is recomputed from them.
   this capture.
 - **No timeline capture.** There is no `nsys` binary on the board and no network to install one, and
   `mage` is not installed there either, so #64's `mage profile-exec --backend nsys` path cannot run on
-  Pinkie. This capture is `ncu` only, and kernel-level rather than step-level. `mage` also resolves
-  `triton>=3.0`, which has no aarch64 wheel published for it, so installing mage on the board is not a
-  matter of copying a binary.
+  Pinkie. This capture is `ncu` only, and kernel-level rather than step-level. That block is
+  target-side and is not a wheel or toolchain limit: per #166's `## Manual capture` clause, the board
+  carries no `nsys`, has no DNS, and has no mage installed today.
 - **No DRAM verdict.** See the `n/a` above.
 - **Duration is a profiler duration.** Both runs report the duration of an isolated, replayed launch,
   not a throughput measurement of the pipeline. Compare launch count and shape first, then cycles,
