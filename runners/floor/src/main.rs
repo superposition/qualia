@@ -126,22 +126,26 @@ fn open_failure_message(name: &str, err: &ShmError) -> String {
     format!("qualia-floor: failed to open shm '{name}': {err}")
 }
 
+/// Attach to the arena the stack created, or die reporting why.
+fn attach(name: &str) -> ShmRegion {
+    match ShmRegion::open(name) {
+        Ok(region) => region,
+        Err(err) => {
+            eprintln!("{}", open_failure_message(name, &err));
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let shm_name = shm_name_from(std::env::var("QUALIA_SHM_NAME").ok().as_deref());
     let poll_ms = poll_ms_from(std::env::var("QUALIA_FLOOR_POLL_MS").ok().as_deref());
+    let shm = attach(&shm_name);
 
-    let shm = match ShmRegion::open(&shm_name) {
-        Ok(shm) => shm,
-        Err(err) => {
-            eprintln!("{}", open_failure_message(&shm_name, &err));
-            std::process::exit(1);
-        }
-    };
-
+    let mut last_seq = 0u64;
     init_grid(shm.camera_floor_mut());
     println!("qualia-floor: deriving floor confidence from camera thumbnails");
 
-    let mut last_seq = 0u64;
     loop {
         if let Ok(frame) = shm.camera_frame().snapshot(SNAPSHOT_ATTEMPTS) {
             if should_publish(&frame, last_seq) {
