@@ -170,9 +170,7 @@ pub const JEPA_REGION_SIZE: usize = APPLIED_ACTION_HISTORY_OFFSET
     + std::mem::size_of::<AppliedActionHistory>()
     - JEPA_REGION_OFFSET;
 
-// ---------------------------------------------------------------------------
-// ShmRegion
-// ---------------------------------------------------------------------------
+// ShmRegion: the mapped arena and its typed accessors.
 
 /// A mapped handle to the arena.
 ///
