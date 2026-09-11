@@ -6,10 +6,19 @@
 //! silicon — and the backend is chosen at build time rather than probed at
 //! run time, so a deployment cannot silently fall back to the wrong one.
 //!
-//! What this binary owns is the hand-off: which arena slot it claims and which
-//! name the backend logs and panics under. The supervisor's stack manifest
-//! spawns it as `qualia-l1-belief`, and the health tap reads the same slot
-//! index, so [`LAYER_ID`] and [`LAYER_NAME`] are the whole of its contract.
+//! What this binary owns is the hand-off: which arena slot it claims, which
+//! name the backend logs and panics under, and the fly coupling the operator
+//! asked for. `QUALIA_FLY_MODE` is `off` (the default) or `prior`, and a
+//! `prior` names an artifact directory through `QUALIA_FLY_PRIOR_PATH`. The
+//! artifact is loaded and verified here, before the layer is entered, so a
+//! truncated or edited graph is reported at the front door and the layer runs
+//! uncoupled instead of refusing to start — the prior is optional
+//! infrastructure and must never take a belief layer down with it. The
+//! supervisor's stack manifest spawns every belief layer with both keys.
+
+use std::path::Path;
+
+use qualia_jepa::prior::CouplingPrior;
 
 /// Arena slot this layer owns.
 ///
@@ -26,12 +35,95 @@ const LAYER_ID: u8 = 1;
 /// word of the refusal printed on a host with no compute device.
 const LAYER_NAME: &str = "l1-belief";
 
-fn main() {
-    #[cfg(all(feature = "cuda", not(feature = "metal")))]
-    qualia_cuda::run_layer(LAYER_ID, LAYER_NAME);
+/// Environment key selecting the fly coupling.
+const FLY_MODE_KEY: &str = "QUALIA_FLY_MODE";
 
-    #[cfg(all(feature = "metal", not(feature = "cuda")))]
-    qualia_metal::run_layer(LAYER_ID, LAYER_NAME);
+/// Environment key naming the verified prior artifact directory.
+const FLY_PRIOR_PATH_KEY: &str = "QUALIA_FLY_PRIOR_PATH";
+
+/// Which fly coupling the process was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlyMode {
+    /// No coupling. The default, and the value the stack manifest ships.
+    Off,
+    /// Couple every belief tick through the verified connectome prior.
+    Prior,
+    /// Observe the circuit simulator; wired where the `sim` feature lives.
+    Sim,
+}
+
+/// Reads `QUALIA_FLY_MODE`, refusing a value this runner does not implement.
+///
+/// An unset or empty key is `off`, so a stack configured before the key
+/// existed still starts. Any other value is an operator error and stops the
+/// process before it enters the layer: coupling to a mode nobody asked for
+/// would be worse than not starting.
+fn fly_mode_from_env(name: &str) -> FlyMode {
+    let raw = std::env::var(FLY_MODE_KEY).unwrap_or_default();
+    match raw.trim() {
+        "" | "off" => FlyMode::Off,
+        "prior" => FlyMode::Prior,
+        "sim" => FlyMode::Sim,
+        other => {
+            eprintln!("qualia-{name}: unknown {FLY_MODE_KEY} {other:?}; expected off, prior or sim");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Loads the prior `QUALIA_FLY_PRIOR_PATH` names, or reports why it cannot.
+///
+/// `None` means the layer runs uncoupled. The caller logs the accepted prior
+/// only through its effect on the published belief, so nothing is printed on
+/// success; every way of failing to produce a verified prior prints exactly
+/// one `fly prior: disabled` line naming the reason.
+fn load_fly_prior() -> Option<CouplingPrior> {
+    let raw = std::env::var(FLY_PRIOR_PATH_KEY).unwrap_or_default();
+    let path = raw.trim();
+    if path.is_empty() {
+        eprintln!("fly prior: disabled ({FLY_PRIOR_PATH_KEY} is not set)");
+        return None;
+    }
+    match CouplingPrior::load(Path::new(path)) {
+        Ok(prior) => Some(prior),
+        Err(error) => {
+            eprintln!("fly prior: disabled ({error})");
+            None
+        }
+    }
+}
+
+fn main() {
+    let mode = fly_mode_from_env(LAYER_NAME);
+    let prior = if mode == FlyMode::Prior {
+        load_fly_prior()
+    } else {
+        None
+    };
+
+    #[cfg(feature = "fly-prior")]
+    {
+        #[cfg(all(feature = "cuda", not(feature = "metal")))]
+        qualia_cuda::run_layer_with_prior(LAYER_ID, LAYER_NAME, prior);
+
+        #[cfg(all(feature = "metal", not(feature = "cuda")))]
+        qualia_metal::run_layer_with_prior(LAYER_ID, LAYER_NAME, prior);
+    }
+
+    // A verified prior with no coupling compiled in is reported rather than
+    // silently dropped: the operator asked for a mode this build cannot run.
+    #[cfg(not(feature = "fly-prior"))]
+    {
+        if prior.is_some() {
+            eprintln!("fly prior: disabled (built without the fly-prior feature)");
+        }
+
+        #[cfg(all(feature = "cuda", not(feature = "metal")))]
+        qualia_cuda::run_layer(LAYER_ID, LAYER_NAME);
+
+        #[cfg(all(feature = "metal", not(feature = "cuda")))]
+        qualia_metal::run_layer(LAYER_ID, LAYER_NAME);
+    }
 
     // Both backends compiled in would make the choice of device implicit in
     // `cfg` order, and neither leaves the process with nothing to drive.

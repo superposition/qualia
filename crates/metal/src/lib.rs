@@ -25,6 +25,11 @@ mod cognition_stub;
 #[cfg(target_os = "macos")]
 pub use macos::{run_layer, MetalContext};
 
+// The active coupling is off by default, so the entry point that carries a
+// verified prior exists only in a build that asked for it.
+#[cfg(all(target_os = "macos", feature = "fly-prior"))]
+pub use macos::run_layer_with_prior;
+
 #[cfg(target_os = "macos")]
 pub use cognition_macos::MetalCognitionStack;
 
@@ -123,4 +128,18 @@ pub fn run_layer(layer_id: u8, name: &str) -> ! {
         "qualia-metal is only supported on macOS; cannot run layer {} ({}) on this platform",
         layer_id, name
     );
+}
+
+/// Refuses a coupled belief layer where there is no Metal device.
+///
+/// The prior cannot change that there is no layer to couple it into, so this
+/// is the same refusal [`run_layer`] gives, reached through the entry point a
+/// runner built with the coupling calls.
+#[cfg(all(not(target_os = "macos"), feature = "fly-prior"))]
+pub fn run_layer_with_prior(
+    layer_id: u8,
+    name: &str,
+    _prior: Option<qualia_jepa::prior::CouplingPrior>,
+) -> ! {
+    run_layer(layer_id, name)
 }

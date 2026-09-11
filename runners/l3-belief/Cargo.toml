@@ -8,9 +8,16 @@ license.workspace = true
 default = ["metal"]
 metal = ["dep:qualia-metal"]
 cuda  = ["dep:qualia-cuda", "qualia-cuda/cuda"]
+# Coupling each belief tick to the verified connectome prior. Off by default:
+# a prior that moves a belief must be something an operator turned on.
+fly-prior = ["qualia-cuda?/fly-prior", "qualia-metal?/fly-prior"]
 
 [dependencies]
 qualia-types.workspace = true
 qualia-shm.workspace = true
+qualia-jepa.workspace = true
 qualia-metal = { workspace = true, optional = true }
 qualia-cuda  = { workspace = true, optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"

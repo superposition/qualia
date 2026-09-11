@@ -18,6 +18,9 @@ use qualia_types::{
     NUM_LAYERS, STATE_DIM, VOXEL_TOTAL, WEIGHT_COUNT,
 };
 
+#[cfg(feature = "fly-prior")]
+use qualia_jepa::prior::CouplingPrior;
+
 use cudarc::driver::{
     CudaContext as Adapter, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig,
     PushKernelArg,
@@ -1246,6 +1249,51 @@ impl CudaCognitionStack {
 /// generative update, optionally inject the semantic embedding, publish the
 /// belief, and emit thoughts and questions on their own cooldowns.
 pub fn run_layer(layer_id: u8, name: &str) {
+    #[cfg(feature = "fly-prior")]
+    run_layer_inner(layer_id, name, None);
+
+    #[cfg(not(feature = "fly-prior"))]
+    run_layer_inner(layer_id, name, ());
+}
+
+/// Runs one belief layer with a verified connectome prior coupled in.
+///
+/// The prior travels as an argument rather than being read from the
+/// environment here: the layer runner owns `QUALIA_FLY_MODE` and
+/// `QUALIA_FLY_PRIOR_PATH`, verifies the artifact before the layer starts, and
+/// hands over the graph it already loaded, so a layer never loads it twice.
+#[cfg(feature = "fly-prior")]
+pub fn run_layer_with_prior(layer_id: u8, name: &str, prior: Option<CouplingPrior>) {
+    run_layer_inner(layer_id, name, prior);
+}
+
+/// The prior a layer was started with.
+///
+/// With the coupling compiled out there is nothing to carry, and the loop must
+/// not name a type from a dependency the build does not have.
+#[cfg(feature = "fly-prior")]
+type FlyPrior = Option<CouplingPrior>;
+#[cfg(not(feature = "fly-prior"))]
+type FlyPrior = ();
+
+/// Maps each type in the prior onto the belief dimension of the same index.
+///
+/// The artifact records the graph but not how its types line up with a layer's
+/// belief, so the mapping couples the leading dimensions in type order and
+/// drops any type that has no dimension left. It is fixed for the life of the
+/// process, which is why it is built once and reused every tick.
+#[cfg(feature = "fly-prior")]
+fn coupling_slots(prior: &CouplingPrior) -> Vec<(u32, usize)> {
+    (0..prior.type_count.min(STATE_DIM as u32))
+        .map(|type_index| (type_index, type_index as usize))
+        .collect()
+}
+
+fn run_layer_inner(layer_id: u8, name: &str, prior: FlyPrior) {
+    // With the coupling compiled out there is no prior to apply.
+    #[cfg(not(feature = "fly-prior"))]
+    let _ = prior;
+
     let shm_name =
         std::env::var("QUALIA_SHM_NAME").unwrap_or_else(|_| "/qualia_body".to_string());
     eprintln!("qualia-{name}: opening shm '{shm_name}', layer {layer_id}");
@@ -1357,6 +1405,11 @@ pub fn run_layer(layer_id: u8, name: &str) {
     let mut high_vfe_streak = 0u32;
     let mut compression_stall = 0u32;
 
+    // Fixed for the life of the process, so it is built once and reused every
+    // tick rather than allocated inside the loop.
+    #[cfg(feature = "fly-prior")]
+    let slots = prior.as_ref().map(coupling_slots);
+
     loop {
         let cycle_start = Instant::now();
         cycle += 1;
@@ -1407,6 +1460,25 @@ pub fn run_layer(layer_id: u8, name: &str) {
                     belief.precision[index] =
                         (belief.precision[index] * (1.0 + alpha * 0.1 * strength)).min(100.0);
                 }
+            }
+        }
+
+        // Coupling is the last thing done to the tick's belief, after every
+        // other term has moved it. The artifact was verified before the layer
+        // started, so the loop only applies it; the total goes to the operator
+        // log because no ledger field in the layer slot carries it.
+        #[cfg(feature = "fly-prior")]
+        if let (Some(prior), Some(slots)) = (prior.as_ref(), slots.as_ref()) {
+            match crate::couple_prior(&context, prior, slots) {
+                Ok(total) => {
+                    // The crate call reports the contract's total; the belief
+                    // this tick is about to publish is scaled by the same
+                    // contract on the host copy, which is the only copy the
+                    // loop holds here.
+                    prior.couple(&mut belief.mean, slots);
+                    eprintln!("fly prior: applied {total}");
+                }
+                Err(error) => eprintln!("fly prior: disabled ({error})"),
             }
         }
 
