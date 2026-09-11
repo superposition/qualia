@@ -4,10 +4,11 @@
 Nothing is copied from the private engine. Two things are fatal, two are
 reported:
 
-FATAL   whole-file identity: the bytes match the reference and the working
-        file is not this worktree's rendition of its own recorded content.
-        The match is then not a line-ending accident — the bytes were written
-        into the tree — so it is the copy this gate exists to catch;
+FATAL   whole-file identity: the text matches the reference's recorded
+        content and the working file is not this worktree's rendition of our
+        own recorded content. The match is then not a line-ending accident —
+        the text was written into the tree — so it is the copy this gate
+        exists to catch;
 FATAL   a run of more than two consecutive identical *comment or doc* lines
         (prose is never forced by an interface, so shared prose means copied
         prose);
@@ -26,10 +27,9 @@ REPORT  files whose text equals the reference's once line endings are folded
         a checkout setting, not authored content: no `core.autocrlf` value and
         no way of checking out a worktree may change this gate's verdict.
 
-A file whose text is the reference's and not our own recorded text, but whose
-working bytes differ, is reported by the share and code-run metrics below
-rather than treated as fatal — the same report the gate has always given a
-reimplementation that shares declaration text.
+Both identity tests fold line endings and judge the reference on the content
+it records at its HEAD, not on the content its own checkout rendered, so
+neither repository's checkout settings enter the verdict.
 
 Generated files are excluded from the run metrics; they are machine output,
 not authorship.
@@ -138,7 +138,9 @@ def recorded_bytes(rel):
     """The bytes this repository records for `rel` at HEAD, or None.
 
     The blob is the stored content, before any checkout filter: it is what the
-    path is supposed to hold, not what a particular checkout rendered.
+    path is supposed to hold, not what a particular checkout rendered. None
+    when the path is not recorded at HEAD — a file added but not yet committed
+    — which the caller reads as nothing yet establishing the bytes as ours.
     """
     out = subprocess.run(
         ["git", "cat-file", "blob", "HEAD:" + rel], cwd=ROOT, capture_output=True
@@ -159,6 +161,23 @@ def carries_own_text(rel, data):
     """
     recorded = recorded_bytes(rel)
     return recorded is not None and normalise_eol(recorded) == normalise_eol(data)
+
+
+def recorded_reference_text(reference, rel):
+    """The reference's text for `rel` at its HEAD, folded to LF, or None.
+
+    The reference checkout renders its LF blobs CRLF, so its working file is
+    its recorded text plus that rendering. Identity is judged on what the two
+    repositories record, not on either checkout. None when the path has no
+    blob there — an untracked file, where the working file is all the
+    reference records — and the caller then falls back to those bytes.
+    """
+    out = subprocess.run(
+        ["git", "cat-file", "blob", "HEAD:" + rel], cwd=reference, capture_output=True
+    )
+    if out.returncode != 0:
+        return None
+    return normalise_eol(out.stdout)
 
 
 def trivial(line):
@@ -238,18 +257,24 @@ def main(argv):
         with open(mine, "rb") as handle_a, open(other, "rb") as handle_b:
             our_bytes = handle_a.read()
             ref_bytes = handle_b.read()
-        if our_bytes == ref_bytes and not carries_own_text(rel, our_bytes):
-            # The working file holds the reference's bytes and not our own
-            # text, so no checkout setting explains the match.
-            print("IDENTICAL: %s" % rel)
-            identical += 1
-            continue
-        if normalise_eol(our_bytes) == normalise_eol(ref_bytes):
-            # Same text, different line endings: the reference's CRLF is its
-            # checkout, and either LF or CRLF here is ours. Reported, not
-            # fatal, and still measured for code runs and shared prose below.
-            print("EOL-IDENTICAL: %s" % rel)
-            eol_identical += 1
+        our_text = normalise_eol(our_bytes)
+        ref_text = normalise_eol(ref_bytes)
+        if our_text == ref_text or our_text == recorded_reference_text(
+            reference, rel
+        ):
+            if carries_own_text(rel, our_bytes):
+                # Our own text, coinciding with the reference's, or our own
+                # content rendered CRLF by a CRLF checkout. Reported, not
+                # fatal, and still measured for code runs and prose below.
+                print("EOL-IDENTICAL: %s" % rel)
+                eol_identical += 1
+            else:
+                # The reference's text, and not ours: written into the tree,
+                # in either line-ending convention, so not a checkout
+                # accident.
+                print("IDENTICAL: %s" % rel)
+                identical += 1
+                continue
 
         a_lines = read_lines(mine)
         b_lines = read_lines(other)
