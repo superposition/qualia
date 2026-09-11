@@ -1032,12 +1032,103 @@ pub fn write_candidate_checkpoint(
     ))
 }
 
+/// Refuse to serialize a manifest carrying a non-finite floating-point metric.
+///
+/// JSON has no NaN or infinity literal, so `serde_json` writes `null` where a
+/// non-finite `f64`/`f32` stood; the manifest then fails its own reader with
+/// `invalid type: null, expected f64`. A non-finite held-out metric is a real
+/// outcome of a diverged run rather than a formatting accident, so the
+/// publication boundary refuses it by name and publishes nothing.
+fn ensure_manifest_metrics_finite(manifest: &CheckpointManifest) -> ModelResult<()> {
+    let gate = &manifest.baseline_gate;
+    let support = &manifest.action_support;
+    let fields: [(&str, f64); 19] = [
+        (
+            "baseline_gate.constant.transition_nll",
+            gate.constant.transition_nll,
+        ),
+        (
+            "baseline_gate.constant.rollout_error",
+            gate.constant.rollout_error,
+        ),
+        (
+            "baseline_gate.flat_mlp.transition_nll",
+            gate.flat_mlp.transition_nll,
+        ),
+        (
+            "baseline_gate.flat_mlp.rollout_error",
+            gate.flat_mlp.rollout_error,
+        ),
+        (
+            "baseline_gate.tiny_cnn.transition_nll",
+            gate.tiny_cnn.transition_nll,
+        ),
+        (
+            "baseline_gate.tiny_cnn.rollout_error",
+            gate.tiny_cnn.rollout_error,
+        ),
+        ("action_support.min_left", f64::from(support.min_left)),
+        ("action_support.max_left", f64::from(support.max_left)),
+        ("action_support.min_right", f64::from(support.min_right)),
+        ("action_support.max_right", f64::from(support.max_right)),
+        (
+            "action_support.min_effective_forward",
+            f64::from(support.min_effective_forward),
+        ),
+        (
+            "action_support.max_effective_forward",
+            f64::from(support.max_effective_forward),
+        ),
+        (
+            "action_support.min_effective_turn",
+            f64::from(support.min_effective_turn),
+        ),
+        (
+            "action_support.max_effective_turn",
+            f64::from(support.max_effective_turn),
+        ),
+        (
+            "action_support.min_speed_scale",
+            f64::from(support.min_speed_scale),
+        ),
+        (
+            "action_support.max_speed_scale",
+            f64::from(support.max_speed_scale),
+        ),
+        (
+            "action_support.min_delta_seconds",
+            f64::from(support.min_delta_seconds),
+        ),
+        (
+            "action_support.max_delta_seconds",
+            f64::from(support.max_delta_seconds),
+        ),
+        (
+            "grounding_geometry.resolution_m",
+            f64::from(manifest.grounding_geometry.resolution_m),
+        ),
+    ];
+    for (field, value) in fields {
+        if !value.is_finite() {
+            return Err(format!(
+                "refusing to publish checkpoint {}: non-finite manifest metric {field} = {value}; \
+                 a non-finite held-out metric means the evaluation diverged, and JSON writes it as \
+                 null, which the manifest reader rejects",
+                manifest.checkpoint_id
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
 /// Serialize one checkpoint's weights and manifest into a staging directory.
 fn publish_checkpoint(
     staging: &Path,
     checkpoint_vars: &VarMap,
     manifest: &mut CheckpointManifest,
 ) -> ModelResult<()> {
+    ensure_manifest_metrics_finite(manifest)?;
     let weights_partial = staging.join("weights.safetensors");
     checkpoint_vars.save(&weights_partial)?;
     sync_file(&weights_partial)?;

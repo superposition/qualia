@@ -187,6 +187,51 @@ fn runtime_rejects_weights_whose_digest_does_not_match_the_manifest() {
 }
 
 #[test]
+fn publication_refuses_a_manifest_with_a_non_finite_metric() {
+    let temp = tempfile::tempdir().unwrap();
+    let vars = initialized_vars(0x5eed);
+    let mut gate = passing_gate();
+    gate.flat_mlp.rollout_error = f64::NAN;
+    let manifest = empty_candidate_manifest(
+        "non-finite-candidate",
+        &"d".repeat(64),
+        0x5eed,
+        "cpu",
+        gate,
+        passing_support(),
+        passing_geometry(),
+    );
+
+    let error = match write_candidate_checkpoint(
+        temp.path(),
+        "non-finite-candidate",
+        &vars,
+        &vars,
+        manifest,
+    ) {
+        Ok(_) => panic!("a manifest with a non-finite metric must not be published"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains("non-finite manifest metric baseline_gate.flat_mlp.rollout_error"),
+        "refusal must name the offending metric: {message}"
+    );
+    assert!(
+        message.contains("non-finite-candidate"),
+        "refusal must name the candidate: {message}"
+    );
+    // A refused publication leaves neither a destination nor a staging dir.
+    assert!(!temp.path().join("non-finite-candidate").exists());
+    assert!(!temp.path().join(".non-finite-candidate.partial").exists());
+
+    // The same path with a finite metric still publishes and reads back.
+    let directory = write_checkpoint(temp.path(), "finite-candidate", 0x5eed);
+    let loaded = CoherentJepaRuntime::from_checkpoint(&directory, Device::Cpu).unwrap();
+    assert_eq!(loaded.checkpoint_id(), "finite-candidate");
+}
+
+#[test]
 fn generation_swap_keeps_the_previous_generation_resident_and_reports_the_new_one() {
     let temp = tempfile::tempdir().unwrap();
     let first_dir = write_checkpoint(temp.path(), "generation-1", 11);
