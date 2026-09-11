@@ -240,67 +240,80 @@ def strand_flow() -> None:
     ax.text(
         0.012,
         0.948,
-        "The braid stores nothing: the durable copies stay where they are, and `observe` is the only mutator.",
+        "Three owners report — one in this process, two across the edge; the braid stores nothing, and `observe` is the only mutator.",
         fontsize=9,
         color=MUTED,
     )
 
-    strands = (
-        ("mission broker", "opens and closes a\nmission; the count is the\nbraid's, not its own.", GREEN),
-        ("evidence writer", "seals a segment and\nreports the digest; a seal\nmoves no pointer.", BLUE),
+    owners = (
         (
-            "promotion gate",
-            "accepts a generation, or\nrolls one back with a\nreason the registry writes.",
+            "mission broker",
+            "opens and closes a mission by\ncalling `observe` directly: it\nruns in this process.",
+            GREEN,
+        ),
+        (
+            "evidence recorder",
+            "another process: it hands over\n`EvidenceSealed` with the\nsegment's digest, over the edge.",
+            BLUE,
+        ),
+        (
+            "JEPA runtime",
+            "another process: it hands over\n`PromotionAccepted` /\n`PromotionRolledBack` on a move.",
             LAVENDER,
         ),
-        ("recovery", "quarantines the partials\nunder the path it names; the\nedge refuses the report.", SAND),
     )
-    for index, (title, text, colour) in enumerate(strands):
-        x = 0.012 + index * 0.245
-        box(ax, x, 0.775, 0.232, 0.160, text, colour, title=title, fontsize=8.8)
-        arrow(ax, (x + 0.116, 0.775), (0.20 + index * 0.20, 0.700), colour)
-
-    box(
-        ax,
-        0.150,
-        0.570,
-        0.700,
-        0.130,
-        "frozen `BraidEvent` in, the `GET /braid` view out; a failed dispatch is 503, `quarantined` refused",
-        INK,
-        title="POST /braid — the write edge (two strands are other processes)",
-        fontsize=9.0,
-    )
-    arrow(ax, (0.500, 0.570), (0.500, 0.535), INK)
-
-    box(
-        ax,
-        0.280,
-        0.415,
-        0.440,
-        0.120,
-        "the sole mutator of `BraidState`: one event in, the folded view out",
-        GREEN,
-        title="observe(state, event)",
-        fontsize=9.0,
-    )
-    arrow(ax, (0.400, 0.415), (0.270, 0.375), GREEN)
-    arrow(ax, (0.600, 0.415), (0.730, 0.375), BLUE)
+    for index, (title, text, colour) in enumerate(owners):
+        x = 0.012 + index * 0.328
+        box(ax, x, 0.775, 0.310, 0.160, text, colour, title=title, fontsize=8.8)
+    arrow(ax, (0.167, 0.775), (0.167, 0.712), GREEN)
+    arrow(ax, (0.495, 0.775), (0.495, 0.732), BLUE)
+    arrow(ax, (0.823, 0.775), (0.823, 0.732), LAVENDER)
 
     box(
         ax,
         0.030,
-        0.395,
-        0.215,
-        0.190,
-        "Not deduplicated: the count\nis the events folded, so a\nre-delivered `mission_opened`\ncounts twice. Reconciling is\nthe delivering strand's job.",
-        MUTED,
-        fontsize=7.6,
+        0.585,
+        0.300,
+        0.125,
+        "the sole mutator of `BraidState`",
+        GREEN,
+        title="observe(state, event)",
+        fontsize=9.0,
     )
     box(
         ax,
+        0.360,
+        0.575,
+        0.630,
+        0.160,
+        "frozen `BraidEvent` in, the `GET /braid` view out; a failed dispatch is\n"
+        "503. Not deduplicated: the count is the events folded, so a re-delivered\n"
+        "`mission_opened` counts twice.",
+        INK,
+        title="POST /braid — the write edge the two other-process strands cross",
+        fontsize=9.0,
+    )
+    arrow(ax, (0.360, 0.6475), (0.332, 0.6475), GREEN)
+    arrow(ax, (0.167, 0.585), (0.167, 0.400), GREEN, label="the fold")
+
+    box(
+        ax,
+        0.360,
+        0.405,
+        0.630,
+        0.145,
+        "recovery's `Quarantined` is not a strand report: the edge refuses it with 400,\n"
+        "and the dispatch (renaming `*.partial` files aside) stays in the crate's fold,\n"
+        "over a local root — no strand, and no state moved.",
+        SAND,
+        title="the variant the edge refuses",
+        fontsize=8.0,
+    )
+    arrow(ax, (0.675, 0.405), (0.720, 0.392), SAND, dashed=True)
+    box(
+        ax,
         0.060,
-        0.190,
+        0.225,
         0.420,
         0.170,
         "schema_version · generation · session_id\nopen_missions · last_promotion_ns ·\nlast_quarantine_ns — the fold, rebuildable\nby replaying the stream",
@@ -311,7 +324,7 @@ def strand_flow() -> None:
     box(
         ax,
         0.550,
-        0.190,
+        0.225,
         0.420,
         0.170,
         "MCAP: `quarantine_partials` moves the partials aside\nregistry: `route()` writes a rollback's reason, a handle the\nfold does not hold; a sealed segment is its own record.\nThe braid keeps none of them.",
@@ -331,8 +344,8 @@ def strand_flow() -> None:
         title="GET /braid — the read every strand and page polls",
         fontsize=8.8,
     )
-    arrow(ax, (0.270, 0.190), (0.270, 0.160), SAND)
-    arrow(ax, (0.730, 0.190), (0.730, 0.160), BLUE)
+    arrow(ax, (0.270, 0.225), (0.270, 0.165), SAND)
+    arrow(ax, (0.730, 0.225), (0.730, 0.165), BLUE)
 
     fig.text(
         0.012,

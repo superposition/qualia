@@ -41,6 +41,13 @@ largest, and the mapped slot is multiplied by that factor. Nothing in these
 figures is a new measurement; the only derived quantity is the mean, which is the
 sum divided by the type count, the way the exploration runner computes it.
 
+`prior-path.svg`'s footnote names the second crate's ABI in passing:
+`crates/types/src/lib.rs`'s `FlySimPayload` (`repr(C, align(64))`,
+`FLY_SIM_MAX_TYPES` = 16,384 `f32`) is **65,920** bytes, and the `FlySimSlot`
+that seqlocks it **65,984** — both asserted by `crates/types/tests/layout.rs`
+(`size_of::<FlySimPayload>() == 65_920`, `size_of::<FlySimSlot>() == 65_984`) —
+and `SHM_VERSION` is 3 after T15.
+
 ## Regenerating
 
 ```console

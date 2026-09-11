@@ -6,7 +6,7 @@ Two figures for the journal entry
 | File | Kind | What it encodes |
 | --- | --- | --- |
 | `mission-lifecycle.svg` (+ `.png`) | chart, two panels | Left: `open_missions` through the fold — the crate's test folding open m1, open m2, close m1, close m2 and a close for a mission it never saw (1, 2, 1, 0, 0), and the agent's write edge folding one open and one close (1, 0). Right: the belief pace gate — the window (1×), the stale window (8×), the hold region and the two stale publications `runners/map`'s tests assert (a 10 s-old belief tick under the 250 ms default; a 300 ms-old tick released at the 200 × 8 = 1,600 ms window). |
-| `strand-flow.svg` (+ `.png`) | diagram | The four strands fanning into the one write edge (`POST /braid` carrying the frozen `BraidEvent`, 503 on a failed dispatch, `quarantined` refused with 400), then `observe` as the sole mutator, the folded `BraidState` and its six fields, the durable copies the braid does not keep (MCAP quarantine, the registry's rollback record), and the `GET /braid` read the console, TUI and operator page poll. |
+| `strand-flow.svg` (+ `.png`) | diagram | The three owners that report — the mission broker calling `observe` directly (it runs in this process), and the two strands that live in other processes, the evidence recorder's `EvidenceSealed` and the JEPA runtime's `PromotionAccepted` / `PromotionRolledBack`, crossing the one write edge (`POST /braid` carrying the frozen `BraidEvent`, 503 on a failed dispatch, no de-duplication) — then `observe` as the sole mutator, the folded `BraidState` and its six fields, the durable copies the braid does not keep (MCAP quarantine, the registry's rollback record), recovery's `Quarantined` shown as the variant the edge refuses with 400, and the `GET /braid` read the console, TUI and operator page poll. |
 | `loop-state.json` | data | The two event sequences the fold is replayed from, the pace gate's constants and its two asserted stale publications, and the console fixture's `BraidState` fields. |
 
 ## Data
@@ -37,6 +37,16 @@ recording the fold does not hold, then re-reads the gate's constants from
   `apps/qualia-console/tests/fixtures/braid-state.json` (generation 12, session
   `sess-2026-09-11-explore-frontier`, one open mission, with the drift block the
   console's panel reads).
+* **The owners and the edge** — `runners/agent/src/braid.rs`: `POST /braid` is
+  "where a strand that lives in another process reports", naming the evidence
+  recorder's `EvidenceSealed` and the JEPA runtime's `PromotionAccepted` /
+  `PromotionRolledBack`; the mission strand "runs in this process, so it calls
+  `observe` directly instead of going through HTTP"; and the crate's
+  `BraidEvent::Quarantined` is the one variant a strand does not report — the
+  edge refuses it before the fold, with the literal refusal text
+  (`UNSUPPORTED_EVENT`) that names it. `runners/agent/tests/braid.rs` pins the
+  refusal (`braid_edge_refuses_the_quarantine_variant`, 400, no file renamed, no
+  state moved) and the acceptance of an unknown event.
 
 ## Regenerating
 

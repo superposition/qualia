@@ -369,7 +369,8 @@ def prior_path() -> None:
         0.012,
         0.022,
         "crates/fly-circuit (feature `sim`, also off by default) is a separate invented rate model over the same graph: it publishes\n"
-        "FlySimPayload, 65,984 bytes, under SHM_VERSION 3, and carries no coupling gain. Neither path reaches a motor.\n"
+        "FlySimPayload is 65,920 bytes (its seqlocked slot 65,984: crates/types/tests/layout.rs), under SHM_VERSION 3,\n"
+        "and carries no coupling gain. Neither path reaches a motor.\n"
         "Sources: crates/jepa/src/prior.rs, crates/jepa/tests/prior.rs, crates/cuda/src/{lib.rs,cuda_impl.rs}, crates/metal/src/lib.rs,\n"
         "assets/brain/prior/{manifest.json,graph.bin}, runners/explore/src/main.rs, docs/decisions.md (D-001).",
         fontsize=8.4,

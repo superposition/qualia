@@ -41,6 +41,20 @@
       }
     }
   ],
+  "owners": {
+    "what": "Who reports into the braid, and which of them cross the write edge",
+    "source": "runners/agent/src/braid.rs (module doc; is_strand_report; UNSUPPORTED_EVENT)",
+    "in_process": [
+      "mission broker — mission_opened / mission_closed, calling observe directly because it runs in this process"
+    ],
+    "other_process": [
+      "evidence recorder — EvidenceSealed over POST /braid",
+      "JEPA runtime — PromotionAccepted / PromotionRolledBack over POST /braid, when the generation pointer moves"
+    ],
+    "refused": [
+      "recovery — BraidEvent::Quarantined is not a strand report: the edge answers 400 and the rename dispatch stays in the crate's fold, over a local root"
+    ]
+  },
   "pace": {
     "constants": {
       "pace_ms": 250,
