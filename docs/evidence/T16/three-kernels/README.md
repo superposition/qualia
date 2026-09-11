@@ -37,14 +37,24 @@ Systems. The WSL `stable` toolchain is older than `cudarc 0.19.9`'s `libloading 
 needs, so the build pins 1.98.1. The test binary is a Linux ELF built in WSL, not the
 Windows checkout's `target/`.
 
+Run from the checkout root; the capture built into a WSL-native target directory
+(`CARGO_TARGET_DIR=~/t16-target`) so the build did not cross the 9p mount. That
+directory does not matter to reproduction — only the test binary does, and its hashed
+name is recovered with the same `find` the baseline uses:
+
 ```bash
-cd /mnt/c/Users/ericm/wt/T16
-CARGO_TARGET_DIR=/home/superposition/t16-target cargo +1.98.1 test -p qualia-cuda --features cuda -j 4 --no-run
+cargo +1.98.1 test -p qualia-cuda --features cuda -j 4 --no-run
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/wsl/lib:$LD_LIBRARY_PATH
+BIN=$(find target/debug/deps -maxdepth 1 -type f -name 'gpu-*' -executable | head -1)
 mage profile-exec --backend nsys --capture-range all \
-  --output-dir /home/superposition/mage-t16 \
-  -- /home/superposition/t16-target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1
+  --output-dir ~/mage-capture-scratch \
+  -- "$BIN" --test-threads=1
 ```
+
+`capture.json` records the profiled argv with the checkout-relative binary
+(`./target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1`) and the profile directory
+home-relative (`~/mage-capture-scratch/...`), so no capture artifact carries a
+machine-specific absolute path.
 
 `--capture-range all` and not `cuda`: no runner here calls `cudaProfilerStart`, so a
 `cuda` range records nothing. mage's recorded profiler argv is in `capture.json`; the
@@ -59,9 +69,14 @@ Host and tools: RTX 4090, driver 591.74, 24564 MiB; WSL2 `Ubuntu-22.04`; cargo/r
 `capture.sqlite` is a **trimmed** export: the full Nsight Systems SQLite is 320 KiB,
 over the ~196 KiB the tree already carries, so it holds only the two tables mage's
 nsys backend reads (`StringIds`, `CUPTI_ACTIVITY_KIND_KERNEL`) and was `VACUUM`ed to
-36 KiB. It still parses through `mage.profiler.backends.nsys` into the same 16
-launches. To regenerate the full export, rerun the invocation above; it lands under a
-fresh `mage-nsys-<random>/` directory, and the untrimmed `capture.sqlite` is next to it.
+36 KiB. `StringIds` was then cut from 134 rows to the eight ids the kernel table's
+`demangledName`, `shortName` and `mangledName` columns actually reference — nsys also
+interns the process table, environment blocks (`PATH`, `HOME`), distro and session
+names and its own session log paths, none of which any launch refers to — leaving 12 KiB
+and a capture that carries no host path. It still parses through
+`mage.profiler.backends.nsys` into the same 16 launches. To regenerate the full
+export, rerun the invocation above; it lands under a fresh `mage-nsys-<random>/`
+directory, and the untrimmed `capture.sqlite` is next to it.
 
 ## What a later ticket must beat
 

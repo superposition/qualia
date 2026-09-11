@@ -1,7 +1,7 @@
 {
   "backend": "nsys",
   "argv": [
-    "/home/superposition/t16-target/debug/deps/gpu-ababab3f01c5ede7",
+    "./target/debug/deps/gpu-ababab3f01c5ede7",
     "--test-threads=1"
   ],
   "profiler_argv": [
@@ -12,11 +12,11 @@
     "--cpuctxsw=none",
     "--stats=false",
     "--export=sqlite",
-    "--output=/home/superposition/mage-t16/mage-nsys-df8xbl0a/capture",
-    "/home/superposition/t16-target/debug/deps/gpu-ababab3f01c5ede7",
+    "--output=~/mage-capture-scratch/mage-nsys-df8xbl0a/capture",
+    "./target/debug/deps/gpu-ababab3f01c5ede7",
     "--test-threads=1"
   ],
-  "command": "/home/superposition/t16-target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1",
+  "command": "./target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1",
   "capture_range": "all",
   "status": "complete",
   "returncode": 0,
