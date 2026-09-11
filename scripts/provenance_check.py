@@ -17,6 +17,12 @@ REPORT  the longest run of identical code lines, and the share of this file's
 Generated files are excluded from the run metrics; they are machine output,
 not authorship.
 
+The gate measures the worktree it is run in, not the checkout it lives in:
+ROOT is the worktree root of the current directory (`git rev-parse
+--show-toplevel`), so a checkout's copy invoked from a ticket worktree
+measures that worktree. A copy run from outside a worktree of this repository
+falls back to the checkout containing the script.
+
 A line is "trivial" when, after trimming, it is empty or consists only of
 brackets, braces, parens, commas, semicolons, quotes, angle brackets, equals
 signs, asterisks or comment delimiters.
@@ -34,7 +40,42 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+SCRIPT_ROOT = os.path.dirname(HERE)
+
+
+def git_output(args, cwd):
+    """Stripped stdout of `git args` in `cwd`, or None when that fails."""
+    try:
+        out = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True)
+    except OSError:
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip()
+
+
+def cwd_root():
+    """The worktree root of the repository the command is run in.
+
+    Falls back to the checkout holding this script when the current directory
+    is not inside a worktree of the same repository, so the gate always
+    measures the tree it was pointed at.
+    """
+    toplevel = git_output(["rev-parse", "--show-toplevel"], os.getcwd())
+    here_common = git_output(["rev-parse", "--git-common-dir"], SCRIPT_ROOT)
+    if not toplevel or not here_common:
+        return SCRIPT_ROOT
+    common = git_output(["rev-parse", "--git-common-dir"], toplevel)
+    if not common:
+        return SCRIPT_ROOT
+    if os.path.realpath(os.path.join(toplevel, common)) != os.path.realpath(
+        os.path.join(SCRIPT_ROOT, here_common)
+    ):
+        return SCRIPT_ROOT
+    return toplevel
+
+
+ROOT = cwd_root()
 
 TRIVIAL = set("{}()[];,<>=\\'\"`*")
 

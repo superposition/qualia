@@ -99,3 +99,40 @@ Recovery reads GitHub, never a dead session's memory.
 If a worktree file is unreadable or filled with NUL bytes, the machine died mid-write: restore it with
 `git checkout -- <path>` — the content was either committed or lost with the step in flight — and say
 so in the block.
+
+## Host safety
+
+The dev host is shared by every agent and cannot be rebooted cheaply. Four rules, from
+[`decisions.md`](decisions.md) D-011/D-012/D-013:
+
+- **Never touch display devices.** No `Disable-PnpDevice`/`Enable-PnpDevice`/`pnputil` on a display
+  adapter, no driver reinstall, no profiler-permission script. The 06:10 crash was exactly this (D-012).
+- **One GPU job at a time, bounded.** `--test-threads=1`, iteration caps, no open-ended benchmarks;
+  `ncu`/`nsys` runs count. Profiling happens on Pinkie (the board), not the host.
+- **Build bounded.** `cargo ... -j 4` for agent builds; no `--workspace` build/test matrices, no
+  unbounded test loops; prefer one package at a time.
+- **The CPU itself is currently faulty.** Since 05:44 on 2026-09-11 the host logs WHEA-Logger Id 19
+  corrected machine checks (processor core, internal parity error) every 1–3 minutes under load; rustc
+  intermittently dies with garbage-value const-eval ICEs as a result. Build with `cargo -j 2` at most,
+  one build at a time, never a workspace build; keep the exit code, not a piped `tail`. An ICE is a host
+  fault: retry once at `-j 1`, then post `blocked_on: host CPU fault (WHEA 19)` and stop. A result
+  obtained while a WHEA event landed within ±2 minutes is provisional — re-run it, or show two agreeing
+  runs spanning an event. Static work (git, Python, the gate, diff reads) is unaffected. See
+  [`decisions.md`](decisions.md) D-014.
+- **Watch the guard.** `C:/tmp/resmon4.py` runs persistently (`hub ps`, name `resmon4`) and logs to
+  `C:/tmp/resmon.log`: RAM/VRAM/build count every 10 s, new WHEA events as `WHEA …`, and the last fault
+  stamped at `C:/tmp/host_fault_window.txt`. Under memory pressure it kills the largest build processes
+  rather than let the box OOM. If you see `WARN[HIGH]`/`WARN[CRITICAL]`, reduce your footprint and say so
+  in your braid.
+
+## Definition of done
+
+A ticket is done when its package builds and its tests pass on the dev host, its artifact is built for
+the robot's architecture and exercised on **Pinkie** — the Waveshare-carried Jetson Orin NX at
+`jetson@192.168.55.1` (see [`decisions.md`](decisions.md) D-010) — by the ticket's own smoke path, and
+the handoff comment quotes that build/deploy command and the output observed on the board. A host-only
+package that cannot run there (the macOS `metal` backend) records the aarch64 build as its board
+evidence and states why execution on the board is impossible.
+
+The board is a deployment target, not a build farm: build here, copy the artifact there, run it there,
+quote what it printed.

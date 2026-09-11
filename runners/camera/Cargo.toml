@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "Webcam sensor ingestion — captures frames, writes to L7 sensor slot"
 
+[[bin]]
+name = "qualia-camera"
+path = "src/main.rs"
+
 [dependencies]
 qualia-types.workspace = true
 qualia-shm.workspace = true

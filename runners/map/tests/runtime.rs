@@ -2,7 +2,7 @@
 //! a region this test created, integrates a scan this test published, and
 //! writes the result back where this test can read it.
 
-use qualia_shm::ShmRegion;
+use qualia_shm::{LayerWriter, ShmRegion};
 use qualia_types::{LidarPoint, LidarScanSnapshot, NavPose, MAP_GRID_H, MAP_GRID_W};
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -132,6 +132,137 @@ fn binary_integrates_a_published_scan_and_reports_it() {
     assert_eq!(shm.binary_map().free_cells, 29);
     assert_eq!(shm.binary_map().unknown_cells, (MAP_GRID_W * MAP_GRID_H) as u32 - 29);
     assert_eq!(shm.binary_map().last_update_ns, end_ns);
+}
+
+#[test]
+fn publishes_when_belief_lag_exceeded() {
+    let name = unique_name("pace");
+    let shm = ShmRegion::create(&name).expect("create region");
+
+    // The newest belief commit is far past the stale window, so the pace gate
+    // must let the map publish anyway rather than hold it for belief.
+    let writer = LayerWriter::new(shm.layer_slot(0));
+    writer.back_buffer().timestamp_ns = now_ns() - 10_000_000_000;
+    writer.publish();
+
+    let start_ns = now_ns();
+    let end_ns = start_ns + 1_000_000;
+    shm.set_robot_pose(empty_nav_pose(1.0, start_ns));
+
+    let mut snapshot = LidarScanSnapshot::default();
+    snapshot.scan_start_ns = start_ns;
+    snapshot.scan_end_ns = end_ns;
+    snapshot.point_count = 1;
+    snapshot.points[0] = LidarPoint {
+        angle_rad: 0.0,
+        distance_m: 2.0,
+        intensity: 255,
+        _pad: [0; 3],
+    };
+    shm.lidar_scan_mut().publish(&snapshot).expect("publish scan");
+
+    let mut child = Command::new(BIN)
+        .env("QUALIA_SHM_NAME", &name)
+        .env("QUALIA_MAP_POLL_MS", "10")
+        .env("QUALIA_MAP_LOG_EVERY_UPDATES", "1")
+        .env("QUALIA_BELIEF_PACE_MS", "250")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn qualia-map");
+
+    let lines = read_until_map_line(&mut child, "map_seq=");
+    stop(&mut child);
+
+    let stale_line = lines
+        .iter()
+        .find(|line| line.contains("belief pace: stale, publishing map at"))
+        .unwrap_or_else(|| panic!("stale pace line missing from {lines:?}"));
+    // The line reports the lag it measured: roughly the ten seconds the belief
+    // tick has been sitting in the slot.
+    let lag_ms: u64 = stale_line
+        .trim_end_matches(" ms")
+        .rsplit(' ')
+        .next()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or_else(|| panic!("no lag in the stale pace line {stale_line:?}"));
+    assert!(
+        (10_000..11_000).contains(&lag_ms),
+        "reported lag {lag_ms} ms in {stale_line:?}"
+    );
+
+    // Publishing anyway means the map still advanced.
+    assert_eq!(
+        shm.map_grid().seq.load(std::sync::atomic::Ordering::Acquire),
+        2
+    );
+    assert_eq!(shm.map_grid().log_odds[cell_index(148, 128)], 10);
+}
+
+#[test]
+fn waits_while_belief_is_inside_the_stale_window() {
+    let name = unique_name("pace-wait");
+    let shm = ShmRegion::create(&name).expect("create region");
+
+    // A belief tick 300 ms old under a 200 ms pace: the map may not publish
+    // until the layers have been silent for 200 * 8 ms, so the stale window is
+    // what finally lets it through.
+    let writer = LayerWriter::new(shm.layer_slot(0));
+    writer.back_buffer().timestamp_ns = now_ns() - 300_000_000;
+    writer.publish();
+
+    let start_ns = now_ns();
+    let end_ns = start_ns + 1_000_000;
+    shm.set_robot_pose(empty_nav_pose(1.0, start_ns));
+
+    let mut snapshot = LidarScanSnapshot::default();
+    snapshot.scan_start_ns = start_ns;
+    snapshot.scan_end_ns = end_ns;
+    snapshot.point_count = 1;
+    snapshot.points[0] = LidarPoint {
+        angle_rad: 0.0,
+        distance_m: 2.0,
+        intensity: 255,
+        _pad: [0; 3],
+    };
+    shm.lidar_scan_mut().publish(&snapshot).expect("publish scan");
+
+    let started = Instant::now();
+    let mut child = Command::new(BIN)
+        .env("QUALIA_SHM_NAME", &name)
+        .env("QUALIA_MAP_POLL_MS", "10")
+        .env("QUALIA_MAP_LOG_EVERY_UPDATES", "1")
+        .env("QUALIA_BELIEF_PACE_MS", "200")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn qualia-map");
+
+    let lines = read_until_map_line(&mut child, "map_seq=");
+    let waited = started.elapsed();
+    stop(&mut child);
+
+    // The tick is already 300 ms old when the runner starts, so publishing can
+    // only happen once the lag passes the 1.6 s stale window.
+    assert!(
+        waited >= Duration::from_millis(1_000),
+        "published after only {waited:?}: {lines:?}"
+    );
+    let stale_line = lines
+        .iter()
+        .find(|line| line.contains("belief pace: stale, publishing map at"))
+        .unwrap_or_else(|| panic!("stale pace line missing from {lines:?}"));
+    let lag_ms: u64 = stale_line
+        .trim_end_matches(" ms")
+        .rsplit(' ')
+        .next()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or_else(|| panic!("no lag in the stale pace line {stale_line:?}"));
+    assert!(lag_ms >= 1_600, "released below the stale window: {lag_ms} ms");
+    assert_eq!(
+        shm.map_grid().seq.load(std::sync::atomic::Ordering::Acquire),
+        2
+    );
 }
 
 #[test]
