@@ -38,6 +38,15 @@
       "stdout": "null"
     },
     {
+      "name": "qualia-lidar"
+    },
+    {
+      "name": "qualia-camera"
+    },
+    {
+      "name": "qualia-vslam"
+    },
+    {
       "name": "qualia-agent",
       "stdout": "null",
       "env_passthrough": [

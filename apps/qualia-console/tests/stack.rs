@@ -41,3 +41,19 @@ fn a_stack_with_no_sensing_runner_gains_none() {
         "a stack that names no sensing runner must not be given a built-in one"
     );
 }
+
+/// The path that regressed: with no `QUALIA_STACK_MANIFEST`, the console reads
+/// the manifest compiled into it. If that manifest names no sensing runner the
+/// Telemetry panel renders `no telemetry frames` while the region it is
+/// attached to holds a lidar scan, a camera frame and a VSLAM pose, so the
+/// shipped default must declare the three the body stack runs
+/// (`qualia.json` `deployments.body_double`, region `/qualia_body`).
+#[test]
+fn the_shipped_default_manifest_declares_the_sensing_runners() {
+    assert_eq!(
+        stack::sensing_runner_names(stack::DEFAULT_MANIFEST)
+            .expect("the compiled-in default manifest parses"),
+        vec!["qualia-lidar", "qualia-camera", "qualia-vslam"],
+        "the stack the console compiles in must feed its own Telemetry rows"
+    );
+}

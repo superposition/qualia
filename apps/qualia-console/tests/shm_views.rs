@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use egui_kittest::{kittest::Queryable, Harness};
 use qualia_console::views::telemetry::TelemetryView;
 use qualia_console::views::world::WorldView;
-use qualia_console::{fixture, Connection, ConsoleState, Sample, View};
+use qualia_console::{fixture, stack, Connection, ConsoleState, Sample, View, WindowSet};
 use qualia_shm::ShmRegion;
 use qualia_types::LidarScanSnapshot;
 
@@ -89,7 +89,7 @@ fn telemetry_renders_an_absent_row_for_every_silent_runner() {
     sample.telemetry = TelemetryView::sample(&region, &runners);
 
     let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
-    state.view = View::Telemetry;
+    state.windows = WindowSet::only(View::Telemetry);
     let mut harness = Harness::builder()
         .with_size(egui::Vec2::new(1280.0, 820.0))
         .wgpu()
@@ -103,6 +103,54 @@ fn telemetry_renders_an_absent_row_for_every_silent_runner() {
         harness.query_all_by_label("no frame published").count(),
         runners.len(),
         "a silent runner is an absent row, not a missing one"
+    );
+}
+
+/// The shipped configuration, end to end: the rows come from the manifest
+/// compiled into the binary. Before `config/stack-manifest.default.json` named
+/// the sensing runners this rendered `no telemetry frames` while a published
+/// scan sat in the region the console was attached to.
+#[test]
+fn telemetry_renders_the_rows_the_shipped_default_manifest_declares() {
+    let name = region_name("telemetry_default");
+    let region = ShmRegion::create(&name).expect("create region");
+    let runners = stack::sensing_runner_names(stack::DEFAULT_MANIFEST)
+        .expect("the compiled-in default manifest parses");
+
+    let scan = LidarScanSnapshot {
+        scan_start_ns: 1_000,
+        scan_end_ns: 2_000,
+        point_count: 720,
+        ..LidarScanSnapshot::default()
+    };
+    region.lidar_scan_mut().publish(&scan).expect("publish scan");
+
+    let fixture = fixture();
+    let mut sample = Sample::degraded(&fixture, "not used here", fixture.braid.last_promotion_ns);
+    sample.connection = Connection::Live;
+    sample.telemetry = TelemetryView::sample(&region, &runners);
+    assert_eq!(
+        sample.telemetry.frames.len(),
+        3,
+        "the shipped default must name the three sensing runners the body stack runs"
+    );
+
+    let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
+    state.windows = WindowSet::only(View::Telemetry);
+    let mut harness = Harness::builder()
+        .with_size(egui::Vec2::new(1280.0, 820.0))
+        .wgpu()
+        .build_ui_state(|ui, state| qualia_console::render_view(ui, state), state);
+    harness.run();
+
+    for runner in &runners {
+        harness.get_by_label(runner.as_str());
+    }
+    harness.get_by_label("720 points");
+    assert_eq!(
+        harness.query_all_by_label("no telemetry frames").count(),
+        0,
+        "the shipped default must not render the empty table"
     );
 }
 
@@ -169,7 +217,7 @@ fn world_renders_the_absent_arms_for_a_fresh_region() {
     };
 
     let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
-    state.view = View::World;
+    state.windows = WindowSet::only(View::World);
     let mut harness = Harness::builder()
         .with_size(egui::Vec2::new(1280.0, 820.0))
         .wgpu()
