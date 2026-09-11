@@ -53,7 +53,9 @@ ticket's own comment, so the comment stream says which directory holds the evide
 Commit `capture.json`, `kernels.json`, `kernels.csv` and the README always, plus the export row for
 the backend that ran. Commit the export while it fits the size the tree already carries: the largest
 committed file is `Cargo.lock` at about 196 KB (191 KiB). When a full export is larger, trim it to
-what mage reads and say in the directory README that it is a trimmed export. For `nsys` that is the
+what mage reads and say in the directory README that it is a trimmed export. An `ncu` report cannot
+be trimmed — commit `capture.ncu-rep` whole however large it is (the T50 reports are ~594 KB each)
+and name it in the README. For `nsys` that is the
 `StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL` tables with the `StringIds` rows the kernel table does
 not reference dropped — the raw export carries the capturing host's `PATH`, `HOME` and distribution
 name — `VACUUM`ed. For `ncu`, `metrics.csv` is the `--csv` details-page export — the schema mage's
