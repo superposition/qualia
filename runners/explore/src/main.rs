@@ -932,9 +932,16 @@ mod tests {
     use super::*;
     use qualia_types::{NavPose, MAP_GRID_H, MAP_GRID_W};
     use serde_json::Value;
+    #[cfg(not(windows))]
+    use std::path::PathBuf;
+    #[cfg(not(windows))]
+    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
+    #[cfg(windows)]
     use tokio::net::TcpListener;
+    #[cfg(not(windows))]
+    use tokio::net::UnixListener;
 
     const FINE_RES: f32 = 0.1;
     const FINE_ORIGIN: f32 = -12.8;
@@ -1002,15 +1009,62 @@ mod tests {
         }
     }
 
-    struct FakePlanner {
+    /// The listener transport the runner dials. Selected by the same predicate
+    /// as the runner's `PlannerStream`, so the fixture and the product speak
+    /// the same protocol on every target.
+    #[cfg(windows)]
+    type PlannerListener = TcpListener;
+    #[cfg(not(windows))]
+    type PlannerListener = UnixListener;
+
+    /// A bound fake-planner endpoint: the address the runner must dial, plus
+    /// the Unix socket file to unlink when the test ends.
+    struct PlannerSocket {
         addr: String,
+        #[cfg(not(windows))]
+        path: PathBuf,
+    }
+
+    #[cfg(not(windows))]
+    impl Drop for PlannerSocket {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    /// Bind the platform's planner transport and report the endpoint the runner
+    /// must dial.
+    #[cfg(windows)]
+    async fn bind_planner(_tag: &str) -> (PlannerListener, PlannerSocket) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake planner");
+        let addr = listener.local_addr().expect("local addr").to_string();
+        (listener, PlannerSocket { addr })
+    }
+
+    #[cfg(not(windows))]
+    async fn bind_planner(tag: &str) -> (PlannerListener, PlannerSocket) {
+        static SEQ: AtomicUsize = AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, AtomicOrdering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "qualia-explore-{}-{tag}-{seq}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("bind fake planner");
+        let addr = path.to_string_lossy().into_owned();
+        (listener, PlannerSocket { addr, path })
+    }
+
+    struct FakePlanner {
+        socket: PlannerSocket,
         lines: Arc<Mutex<Vec<String>>>,
         _task: tokio::task::JoinHandle<()>,
     }
 
     async fn fake_planner(reply: impl Fn(usize) -> String + Send + 'static) -> FakePlanner {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake planner");
-        let addr = listener.local_addr().expect("local addr").to_string();
+        let (listener, socket) = bind_planner("planner").await;
         let lines = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&lines);
         let task = tokio::spawn(async move {
@@ -1039,16 +1093,15 @@ mod tests {
             }
         });
         FakePlanner {
-            addr,
+            socket,
             lines,
             _task: task,
         }
     }
 
     /// Accepts and reads the request, then never answers.
-    async fn silent_planner() -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind silent planner");
-        let addr = listener.local_addr().expect("local addr").to_string();
+    async fn silent_planner() -> PlannerSocket {
+        let (listener, socket) = bind_planner("silent").await;
         tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
                 tokio::spawn(async move {
@@ -1061,7 +1114,7 @@ mod tests {
                 });
             }
         });
-        addr
+        socket
     }
 
     fn ok_reply(points: usize) -> String {
@@ -1210,7 +1263,7 @@ mod tests {
 
         let outcome = explore_once(
             &shm,
-            &planner.addr,
+            &planner.socket.addr,
             300,
             ExploreTuning::from_env(),
             Some(PlannerBeliefRiskContext {
@@ -1286,7 +1339,7 @@ mod tests {
         shm.set_robot_pose(pose(0.05, -4.75));
         publish_map(&shm, two_blobs);
 
-        let outcome = explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        let outcome = explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .expect("the second candidate is planned");
 
@@ -1316,10 +1369,10 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_some());
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(
@@ -1338,10 +1391,10 @@ mod tests {
         let mut tuning = ExploreTuning::from_env();
         tuning.goal_hold_ns = 0;
 
-        assert!(explore_once(&shm, &planner.addr, 300, tuning, None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, tuning, None)
             .await
             .is_some());
-        assert!(explore_once(&shm, &planner.addr, 300, tuning, None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, tuning, None)
             .await
             .is_some());
         assert_eq!(planner.lines.lock().expect("planner lines").len(), 2);
@@ -1354,7 +1407,7 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, |_, _| UNKNOWN);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(shm.world_model().nav_goal.active, 0);
@@ -1373,7 +1426,7 @@ mod tests {
         shm.set_robot_pose(unlocalised);
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert!(planner.lines.lock().expect("planner lines").is_empty());
@@ -1388,7 +1441,7 @@ mod tests {
         shm.set_robot_pose(unstamped);
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert!(planner.lines.lock().expect("planner lines").is_empty());
@@ -1401,7 +1454,7 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(shm.world_model().nav_goal.active, 0);
@@ -1419,7 +1472,7 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env(), None)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(shm.world_model().nav_goal.active, 0);
@@ -1452,9 +1505,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_silent_planner_hits_the_read_deadline() {
-        let addr = silent_planner().await;
+        let planner = silent_planner().await;
         let started = Instant::now();
-        let err = ask_planner(&addr, 150, &request_for_test())
+        let err = ask_planner(&planner.addr, 150, &request_for_test())
             .await
             .expect_err("a silent planner must not satisfy the request");
         let elapsed = started.elapsed();
@@ -1472,11 +1525,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_closed_compute_socket_is_a_connect_error() {
-        let addr = {
-            let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-            listener.local_addr().expect("local addr").to_string()
-        };
-        let err = ask_planner(&addr, 300, &request_for_test())
+        let (listener, socket) = bind_planner("closed").await;
+        drop(listener);
+        let err = ask_planner(&socket.addr, 300, &request_for_test())
             .await
             .expect_err("a closed socket must not be used");
         assert!(err.starts_with("connect"), "unexpected error: {err}");
@@ -1485,7 +1536,7 @@ mod tests {
     #[tokio::test]
     async fn a_garbage_reply_is_a_decode_error() {
         let planner = fake_planner(|_| "not json".to_string()).await;
-        let err = ask_planner(&planner.addr, 300, &request_for_test())
+        let err = ask_planner(&planner.socket.addr, 300, &request_for_test())
             .await
             .expect_err("garbage must not decode");
         assert!(err.starts_with("decode"), "unexpected error: {err}");
