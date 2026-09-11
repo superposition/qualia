@@ -15,8 +15,8 @@
 
 use qualia_shm::ShmRegion;
 use qualia_types::{
-    BinaryMapGrid, LidarScanSnapshot, NavPose, PersistentMapGrid, MAP_GRID_CELLS, MAP_GRID_H,
-    MAP_GRID_W,
+    BinaryMapGrid, LidarPoint, LidarScanSnapshot, NavPose, PersistentMapGrid, MAP_GRID_CELLS,
+    MAP_GRID_H, MAP_GRID_W,
 };
 use std::sync::atomic::Ordering;
 use std::thread;
@@ -58,6 +58,14 @@ const DEFAULT_MAX_POSE_AGE_MS: u64 = 250;
 const SKIP_LOG_INTERVAL_NS: u64 = 2_000_000_000;
 /// Torn-read retries attempted per scan snapshot.
 const SNAPSHOT_ATTEMPTS: usize = 8;
+/// The three states a binary map cell can hold: never seen, seen empty, seen
+/// as a surface.
+const CELL_UNKNOWN: u8 = 0;
+const CELL_FREE: u8 = 1;
+const CELL_OCCUPIED: u8 = 2;
+/// The sequence a freshly initialised slot carries. Never zero, so a reader
+/// cannot mistake zeroed bytes for a published empty map.
+const FIRST_SEQ: u64 = 1;
 
 /// Everything the runner reads from its environment, resolved once at start.
 struct Settings {
@@ -120,11 +128,11 @@ fn main() {
 
     loop {
         let Ok(scan) = shm.lidar_scan().snapshot(SNAPSHOT_ATTEMPTS) else {
-            thread::sleep(Duration::from_millis(settings.poll_ms));
+            idle(settings.poll_ms);
             continue;
         };
         if scan.seq == 0 || scan.seq == last_scan_seq {
-            thread::sleep(Duration::from_millis(settings.poll_ms));
+            idle(settings.poll_ms);
             continue;
         }
 
@@ -146,7 +154,7 @@ fn main() {
                 );
                 last_skip_log_ns = now;
             }
-            thread::sleep(Duration::from_millis(settings.poll_ms));
+            idle(settings.poll_ms);
             continue;
         }
 
@@ -169,8 +177,13 @@ fn main() {
             );
         }
 
-        thread::sleep(Duration::from_millis(settings.poll_ms));
+        idle(settings.poll_ms);
     }
+}
+
+/// Sleeps for one poll interval; the loop's only way to wait.
+fn idle(poll_ms: u64) {
+    thread::sleep(Duration::from_millis(poll_ms));
 }
 
 fn now_ns() -> u64 {
@@ -187,11 +200,7 @@ fn now_ns() -> u64 {
 /// away the map the previous process built.
 fn init_map_grid(shm: &ShmRegion, reset_on_start: bool) {
     let map = shm.map_grid_mut();
-    if !reset_on_start
-        && map.width == MAP_GRID_W as u32
-        && map.height == MAP_GRID_H as u32
-        && map.seq.load(Ordering::Acquire) != 0
-    {
+    if !reset_on_start && grid_is_live(map) {
         return;
     }
 
@@ -205,20 +214,32 @@ fn init_map_grid(shm: &ShmRegion, reset_on_start: bool) {
     map.occupied_cells = 0;
     map.observed_cells = 0;
     map.log_odds.fill(0);
-    map.seq.store(1, Ordering::Release);
+    map.seq.store(FIRST_SEQ, Ordering::Release);
 
     let binary = shm.binary_map_mut();
-    binary.width = MAP_GRID_W as u32;
-    binary.height = MAP_GRID_H as u32;
-    binary.resolution_m = MAP_RESOLUTION_M;
-    binary.origin_x_m = origin_m;
-    binary.origin_y_m = origin_m;
+    stamp_binary_geometry(binary, origin_m, origin_m);
     binary.last_update_ns = 0;
     binary.occupied_cells = 0;
     binary.free_cells = 0;
     binary.unknown_cells = MAP_GRID_CELLS as u32;
     binary.cells.fill(0);
-    binary.seq.store(1, Ordering::Release);
+    binary.seq.store(FIRST_SEQ, Ordering::Release);
+}
+
+/// Whether the arena already holds a map of the shape this build speaks.
+fn grid_is_live(map: &PersistentMapGrid) -> bool {
+    map.width == MAP_GRID_W as u32
+        && map.height == MAP_GRID_H as u32
+        && map.seq.load(Ordering::Acquire) != 0
+}
+
+/// Copies the shared grid geometry onto the binary slot.
+fn stamp_binary_geometry(binary: &mut BinaryMapGrid, origin_x_m: f32, origin_z_m: f32) {
+    binary.width = MAP_GRID_W as u32;
+    binary.height = MAP_GRID_H as u32;
+    binary.resolution_m = MAP_RESOLUTION_M;
+    binary.origin_x_m = origin_x_m;
+    binary.origin_y_m = origin_z_m;
 }
 
 /// Whether a pose is fresh and confident enough to integrate a scan under.
@@ -231,10 +252,10 @@ fn pose_is_usable(pose: &NavPose, now_ns: u64, min_confidence: f32, max_pose_age
 
 /// Integrates one scan into both map slots from the pose it was taken at.
 ///
-/// Each usable return marks its cell a hit and every cell between the robot
-/// and it a miss. The binary slot is then re-derived from the log-odds, thinned
-/// and cleared under the robot, and both sequence words advance so readers can
-/// see a consistent map.
+/// Every usable return marks its cell a hit and every cell the ray crosses a
+/// miss. The binary slot is then re-derived from the log-odds, thinned and
+/// cleared under the robot, and both sequence words advance so readers see a
+/// consistent map.
 fn integrate_scan(
     shm: &ShmRegion,
     scan: &LidarScanSnapshot,
@@ -243,73 +264,46 @@ fn integrate_scan(
     pose_yaw: f32,
 ) {
     let map = shm.map_grid_mut();
-    let point_count = (scan.point_count as usize).min(scan.points.len());
-    let Some((robot_gx, robot_gz)) = world_to_map(map.origin_x_m, map.origin_y_m, pose_x, pose_z)
-    else {
+    let Some(robot) = world_to_map(map.origin_x_m, map.origin_y_m, pose_x, pose_z) else {
         return;
     };
 
+    let point_count = (scan.point_count as usize).min(scan.points.len());
     for point in scan.points.iter().take(point_count) {
-        if point.intensity == 0
-            || point.distance_m < MIN_INTEGRATION_RANGE_M
-            || point.distance_m > MAX_INTEGRATION_RANGE_M
-        {
+        if !return_is_usable(point) {
             continue;
         }
-
         let bearing = pose_yaw + point.angle_rad;
-        let world_x = pose_x + bearing.cos() * point.distance_m;
-        let world_z = pose_z + bearing.sin() * point.distance_m;
-        let Some((hit_gx, hit_gz)) =
-            world_to_map(map.origin_x_m, map.origin_y_m, world_x, world_z)
-        else {
+        let hit = world_to_map(
+            map.origin_x_m,
+            map.origin_y_m,
+            pose_x + bearing.cos() * point.distance_m,
+            pose_z + bearing.sin() * point.distance_m,
+        );
+        let Some((hit_gx, hit_gz)) = hit else {
             continue;
         };
-
-        trace_free_cells(map, robot_gx, robot_gz, hit_gx, hit_gz);
+        trace_free_cells(map, robot, (hit_gx, hit_gz));
         bump_cell(map, hit_gx, hit_gz, LOG_ODDS_HIT);
     }
 
     let stamp_ns = scan.scan_end_ns.max(scan.scan_start_ns);
     let binary = shm.binary_map_mut();
-    binary.width = MAP_GRID_W as u32;
-    binary.height = MAP_GRID_H as u32;
-    binary.resolution_m = MAP_RESOLUTION_M;
-    binary.origin_x_m = map.origin_x_m;
-    binary.origin_y_m = map.origin_y_m;
+    stamp_binary_geometry(binary, map.origin_x_m, map.origin_y_m);
     binary.last_update_ns = stamp_ns;
-    for (idx, &value) in map.log_odds.iter().enumerate() {
-        binary.cells[idx] = if value >= OCCUPIED_THRESHOLD {
-            2
-        } else if value <= OBSERVED_THRESHOLD {
-            1
-        } else {
-            0
-        };
+    for (cell, &log_odds) in binary.cells.iter_mut().zip(map.log_odds.iter()) {
+        *cell = classify_cell(log_odds);
     }
     postprocess_binary_map(binary, map.origin_x_m, map.origin_y_m, pose_x, pose_z);
 
-    let mut occupied = 0u32;
-    let mut observed = 0u32;
-    binary.occupied_cells = 0;
-    binary.free_cells = 0;
-    binary.unknown_cells = 0;
-    for (idx, &value) in map.log_odds.iter().enumerate() {
-        if value >= OCCUPIED_THRESHOLD {
-            occupied += 1;
-            observed += 1;
-        } else if value <= OBSERVED_THRESHOLD {
-            observed += 1;
-        }
-        match binary.cells[idx] {
-            2 => binary.occupied_cells += 1,
-            1 => binary.free_cells += 1,
-            _ => binary.unknown_cells += 1,
-        }
-    }
+    let (occupied, observed) = map_cell_counts(&map.log_odds);
     map.occupied_cells = occupied;
     map.observed_cells = observed;
     map.last_update_ns = stamp_ns;
+    let (occupied, free, unknown) = binary_cell_counts(&binary.cells);
+    binary.occupied_cells = occupied;
+    binary.free_cells = free;
+    binary.unknown_cells = unknown;
 
     let next_map = map.seq.load(Ordering::Acquire).wrapping_add(1);
     map.seq.store(next_map, Ordering::Release);
@@ -317,28 +311,76 @@ fn integrate_scan(
     binary.seq.store(next_binary, Ordering::Release);
 }
 
-/// Walks the integer line from the robot cell to the hit cell, marking every
-/// crossed cell free. The hit cell itself is left for `bump_cell`'s hit.
-fn trace_free_cells(map: &mut PersistentMapGrid, x0: i32, z0: i32, x1: i32, z1: i32) {
-    let dx = (x1 - x0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let dz = -(z1 - z0).abs();
-    let sz = if z0 < z1 { 1 } else { -1 };
-    let mut err = dx + dz;
-    let (mut x, mut z) = (x0, z0);
+/// Whether a return is worth integrating: bright enough and inside the usable
+/// range. Written as negated comparisons so a non-finite distance reaches the
+/// grid conversion instead of being dropped here.
+fn return_is_usable(point: &LidarPoint) -> bool {
+    point.intensity != 0
+        && !(point.distance_m < MIN_INTEGRATION_RANGE_M)
+        && !(point.distance_m > MAX_INTEGRATION_RANGE_M)
+}
 
-    while x != x1 || z != z1 {
+/// Thresholds one cell's accumulated log-odds into a binary map state.
+fn classify_cell(log_odds: i16) -> u8 {
+    if log_odds >= OCCUPIED_THRESHOLD {
+        CELL_OCCUPIED
+    } else if log_odds <= OBSERVED_THRESHOLD {
+        CELL_FREE
+    } else {
+        CELL_UNKNOWN
+    }
+}
+
+/// How many cells the persistent map counts as occupied and how many as seen.
+fn map_cell_counts(log_odds: &[i16; MAP_GRID_CELLS]) -> (u32, u32) {
+    let mut occupied = 0u32;
+    let mut observed = 0u32;
+    for &value in log_odds {
+        let is_occupied = value >= OCCUPIED_THRESHOLD;
+        let is_seen = is_occupied || value <= OBSERVED_THRESHOLD;
+        occupied += u32::from(is_occupied);
+        observed += u32::from(is_seen);
+    }
+    (occupied, observed)
+}
+
+/// How many cells the binary map publishes in each of its three states.
+fn binary_cell_counts(cells: &[u8; MAP_GRID_CELLS]) -> (u32, u32, u32) {
+    let mut occupied = 0;
+    let mut free = 0;
+    let mut unknown = 0;
+    for &cell in cells {
+        match cell {
+            CELL_OCCUPIED => occupied += 1,
+            CELL_FREE => free += 1,
+            _ => unknown += 1,
+        }
+    }
+    (occupied, free, unknown)
+}
+
+/// Walks the integer line between two grid cells, marking every crossed cell
+/// free. The destination is left alone so the caller's hit lands on it.
+fn trace_free_cells(map: &mut PersistentMapGrid, from: (i32, i32), to: (i32, i32)) {
+    let delta_x = (to.0 - from.0).abs();
+    let delta_z = -(to.1 - from.1).abs();
+    let step_x = if from.0 < to.0 { 1 } else { -1 };
+    let step_z = if from.1 < to.1 { 1 } else { -1 };
+    let mut error = delta_x + delta_z;
+    let (mut x, mut z) = from;
+
+    while (x, z) != to {
         bump_cell(map, x, z, LOG_ODDS_MISS);
-        let e2 = 2 * err;
-        if e2 >= dz {
-            err += dz;
-            x += sx;
+        let doubled = error * 2;
+        if doubled >= delta_z {
+            error += delta_z;
+            x += step_x;
         }
-        if e2 <= dx {
-            err += dx;
-            z += sz;
+        if doubled <= delta_x {
+            error += delta_x;
+            z += step_z;
         }
-        if x < 0 || z < 0 || x >= MAP_GRID_W as i32 || z >= MAP_GRID_H as i32 {
+        if !in_grid(x, z) {
             break;
         }
     }
@@ -346,21 +388,18 @@ fn trace_free_cells(map: &mut PersistentMapGrid, x0: i32, z0: i32, x1: i32, z1: 
 
 /// Applies a clamped log-odds delta to one in-grid cell; off-grid is a no-op.
 fn bump_cell(map: &mut PersistentMapGrid, gx: i32, gz: i32, delta: i16) {
-    if gx < 0 || gz < 0 || gx >= MAP_GRID_W as i32 || gz >= MAP_GRID_H as i32 {
+    if !in_grid(gx, gz) {
         return;
     }
-    let idx = gz as usize * MAP_GRID_W + gx as usize;
-    if idx >= MAP_GRID_CELLS {
-        return;
-    }
-    map.log_odds[idx] = (map.log_odds[idx] + delta).clamp(LOG_ODDS_MIN, LOG_ODDS_MAX);
+    let slot = &mut map.log_odds[cell_index(gx, gz)];
+    *slot = (*slot + delta).clamp(LOG_ODDS_MIN, LOG_ODDS_MAX);
 }
 
 /// Thins the binary map and stamps free space under the robot.
 ///
 /// An occupied cell with fewer than [`OCCUPIED_NEIGHBOR_MIN`] occupied
-/// neighbours is a speck, not a surface, so it is demoted to free. The disc
-/// under the robot is forced free afterwards because the robot's own body
+/// neighbours is a speck rather than a surface, so it is demoted to free. The
+/// disc under the robot is forced free afterwards because the robot's own body
 /// returns would otherwise wall it in.
 fn postprocess_binary_map(
     binary: &mut BinaryMapGrid,
@@ -369,36 +408,39 @@ fn postprocess_binary_map(
     pose_x: f32,
     pose_z: f32,
 ) {
-    let mut filtered = binary.cells;
+    let mut thinned = binary.cells;
+    let mut slot = 0usize;
     for gz in 0..MAP_GRID_H as i32 {
         for gx in 0..MAP_GRID_W as i32 {
-            let idx = gz as usize * MAP_GRID_W + gx as usize;
-            if binary.cells[idx] != 2 {
+            if binary.cells[slot] == CELL_OCCUPIED
+                && occupied_neighbors(&binary.cells, gx, gz) < OCCUPIED_NEIGHBOR_MIN
+            {
+                thinned[slot] = CELL_FREE;
+            }
+            slot += 1;
+        }
+    }
+    if let Some(robot) = world_to_map(origin_x, origin_z, pose_x, pose_z) {
+        stamp_robot_clearance(&mut thinned, robot);
+    }
+    binary.cells = thinned;
+}
+
+/// Forces the disc the robot occupies to free space.
+fn stamp_robot_clearance(cells: &mut [u8; MAP_GRID_CELLS], robot: (i32, i32)) {
+    let radius_sq = ROBOT_CLEAR_RADIUS_CELLS * ROBOT_CLEAR_RADIUS_CELLS;
+    for dz in -ROBOT_CLEAR_RADIUS_CELLS..=ROBOT_CLEAR_RADIUS_CELLS {
+        for dx in -ROBOT_CLEAR_RADIUS_CELLS..=ROBOT_CLEAR_RADIUS_CELLS {
+            if dx * dx + dz * dz > radius_sq {
                 continue;
             }
-            if occupied_neighbors(&binary.cells, gx, gz) < OCCUPIED_NEIGHBOR_MIN {
-                filtered[idx] = 1;
+            let gx = robot.0 + dx;
+            let gz = robot.1 + dz;
+            if in_grid(gx, gz) {
+                cells[cell_index(gx, gz)] = CELL_FREE;
             }
         }
     }
-
-    if let Some((robot_gx, robot_gz)) = world_to_map(origin_x, origin_z, pose_x, pose_z) {
-        for dz in -ROBOT_CLEAR_RADIUS_CELLS..=ROBOT_CLEAR_RADIUS_CELLS {
-            for dx in -ROBOT_CLEAR_RADIUS_CELLS..=ROBOT_CLEAR_RADIUS_CELLS {
-                if dx * dx + dz * dz > ROBOT_CLEAR_RADIUS_CELLS * ROBOT_CLEAR_RADIUS_CELLS {
-                    continue;
-                }
-                let gx = robot_gx + dx;
-                let gz = robot_gz + dz;
-                if gx < 0 || gz < 0 || gx >= MAP_GRID_W as i32 || gz >= MAP_GRID_H as i32 {
-                    continue;
-                }
-                filtered[gz as usize * MAP_GRID_W + gx as usize] = 1;
-            }
-        }
-    }
-
-    binary.cells = filtered;
 }
 
 /// Occupied count among the eight neighbours of a cell. Off-grid neighbours
@@ -407,10 +449,11 @@ fn occupied_neighbors(cells: &[u8; MAP_GRID_CELLS], gx: i32, gz: i32) -> usize {
     let mut count = 0;
     for dz in -1..=1 {
         for dx in -1..=1 {
-            if dx == 0 && dz == 0 {
+            if (dx, dz) == (0, 0) {
                 continue;
             }
-            if cell_at(cells, gx + dx, gz + dz) == Some(2) {
+            let (nx, nz) = (gx + dx, gz + dz);
+            if in_grid(nx, nz) && cells[cell_index(nx, nz)] == CELL_OCCUPIED {
                 count += 1;
             }
         }
@@ -418,22 +461,21 @@ fn occupied_neighbors(cells: &[u8; MAP_GRID_CELLS], gx: i32, gz: i32) -> usize {
     count
 }
 
-fn cell_at(cells: &[u8; MAP_GRID_CELLS], gx: i32, gz: i32) -> Option<u8> {
-    if gx < 0 || gz < 0 || gx >= MAP_GRID_W as i32 || gz >= MAP_GRID_H as i32 {
-        return None;
-    }
-    Some(cells[gz as usize * MAP_GRID_W + gx as usize])
+/// Whether a grid coordinate lies inside the square map.
+fn in_grid(gx: i32, gz: i32) -> bool {
+    (0..MAP_GRID_W as i32).contains(&gx) && (0..MAP_GRID_H as i32).contains(&gz)
+}
+
+/// Index of an in-grid cell in the flat map arrays.
+fn cell_index(gx: i32, gz: i32) -> usize {
+    gz as usize * MAP_GRID_W + gx as usize
 }
 
 /// Converts a world point on the map plane to a grid cell, or `None` outside.
 fn world_to_map(origin_x: f32, origin_z: f32, x_m: f32, z_m: f32) -> Option<(i32, i32)> {
     let gx = ((x_m - origin_x) / MAP_RESOLUTION_M).floor() as i32;
     let gz = ((z_m - origin_z) / MAP_RESOLUTION_M).floor() as i32;
-    if gx < 0 || gz < 0 || gx >= MAP_GRID_W as i32 || gz >= MAP_GRID_H as i32 {
-        None
-    } else {
-        Some((gx, gz))
-    }
+    in_grid(gx, gz).then_some((gx, gz))
 }
 
 #[cfg(test)]
