@@ -67,7 +67,7 @@ the whole-call delta (1.238 → 1.199 ms) is therefore the unbiased estimator: i
 start-up and averages over 1200 iterations, where the plain p50 delta (−125 µs, medians of seven
 runs) over-attributes the change by more than three times, because the before build's seven runs
 spread 0.934–2.061 ms against the after build's 0.918–1.024 ms. Their min-of-seven comparison is
-0.934 → 0.918 ms (−16 µs). The profiled pair (2.307 → 2.138 ms) moves least of all, because `nsys`
+0.934 → 0.918 ms (−16 µs). The profiled pair (2.307 → 2.138 ms) moves most of all, because `nsys`
 charges waiting time to whichever call is in flight; do not read it as the step's cost.
 
 ## What changed
@@ -195,9 +195,10 @@ Three files here are projections rather than a backend's own output, and each sa
 of the run — `nsys` reports no `ncu` counter, so 28 fields reduce to 9 and one launch is one line
 (before: 2,168,236 B whole; after: 2,314,723 B whole). `capture.sqlite` keeps `StringIds`,
 `CUPTI_ACTIVITY_KIND_KERNEL` and `CUPTI_ACTIVITY_KIND_MEMCPY`; `CUPTI_ACTIVITY_KIND_RUNTIME` is
-31,565 rows and does not fit what this tree carries, so it is **not** committed and `api-calls.csv`
-is its projection: rows are `SELECT nameId, end - start FROM CUPTI_ACTIVITY_KIND_RUNTIME`, grouped
-by `nameId` with the name resolved through `StringIds`, and the columns are the call count,
+31,565 rows in the before export and 32,390 in the after and does not fit what this tree carries,
+so it is **not** committed and `api-calls.csv` is its projection: rows are `SELECT nameId, end -
+start FROM CUPTI_ACTIVITY_KIND_RUNTIME`, grouped by `nameId` with the name resolved through
+`StringIds`, and the columns are the call count,
 count ÷ 33, the median of the per-call durations, and Σ(`end - start`) ÷ 33. `api-calls.csv` is
 therefore re-derivable from the **untrimmed** export — whose size and sha256 §Stays on the capturing
 machine records — and not from the committed SQLite, which is why that row is there. `device-copies.csv`

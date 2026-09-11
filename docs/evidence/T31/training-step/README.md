@@ -202,7 +202,7 @@ the cost is in the trainer's own printed line.
 | `osrt-calls.csv` | 989 | `8ca4370c6037d315105c6ddc285f12906ce79ca214bef5ec3279a9bbb3967cbb` |
 | `timeline.csv` | 979 | `911f750dff7754875f7736c38e4451b290f957c329a8177e43d8e46632e9e713` |
 | `train-progress.txt` | 2 388 | `1ed747723fdeebebd37f9a7e584e276024b94b4eab326c9b1d791f8416674be6` |
-| `make_timeline.py` | 4 438 | the generator of the two derived tables above |
+| `make_timeline.py` | 4 438 | `83d112bda58e85a381164dc01abe3caeb168320255999008b6ac454219115d93` |
 
 `capture.json` is mage's manifest for the mage leg, with every absolute path elided to home-relative
 (the profiler's `--output=` directory in `profiler_argv`, the report directory in `error`) and the nsys
@@ -221,9 +221,11 @@ with `start <` the epoch's start + 20 ms; keep `ThreadNames`, `TARGET_INFO_SESSI
 window's 399 669 rows** — all of the window's `open64` (1 290), `statx` (194), `read` (12), `write` (7),
 `close` (6) and the one `[Unknown]`, **11 of the 32 `pthread_create`**, **4 of the 32 `mmap64`** and
 **none of the 32 `mprotect`** (the 20 ms cut falls through the pool creation — the `pthread_create`
-rows run from +17.7 ms to +30.4 ms) — with 54 `StringIds` rows, so `ThreadNames` joins **161 of 161**
-rows to its names. The export therefore answers the phase boundary directly. It is `VACUUM`ed from the
-untrimmed export named in the table below. The 398 063 sustained `futex` rows that follow are **not** in
+rows run from +17.9 ms to +30.4 ms) — with 54 `StringIds` rows, so `ThreadNames` joins **161 of 161**
+rows to its names. Those 54 are the rows the two kept tables reference, and that rule keeps the host's
+own service-table names among them (`systemd-*`, `ollama`, `zsh`, `Relay(5752)`) — names only, no
+path, user or hostname. The export therefore answers the phase boundary directly. It is `VACUUM`ed from
+the untrimmed export named in the table below. The 398 063 sustained `futex` rows that follow are **not** in
 the committed export; they
 are projected into `osrt-calls.csv`, the way `T50/model-step` ships its 31 565-row runtime table as
 `api-calls.csv` instead. The trace clock's zero is the start of collection, 14 s into the process;
@@ -323,7 +325,7 @@ nsys profile --trace=osrt,cuda,nvtx --sample=none --cpuctxsw=none --stats=false 
 # the committed artifacts from the three legs' outputs
 python3 make_timeline.py ~/t47t31-capture/nsys-window/capture.sqlite .   # the two CSVs
 # capture.sqlite: the trim rule in §Files, applied to the same export and VACUUMed
-sed 's#/home/superposition#~#g' ~/t47t31-capture/plain/plain.log > train-progress.txt
+sed "s#$HOME#~#g" ~/t47t31-capture/plain/plain.log > train-progress.txt
 # capture.json: the mage manifest with the two absolute paths elided to ~ and the nsys progress
 # text dropped from `error`
 ```

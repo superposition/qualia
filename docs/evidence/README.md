@@ -39,12 +39,18 @@ plus the export of the backend that ran — never a `capture.sqlite` from a targ
 
 A run that launches no CUDA kernel produces no `kernels.json` and no `kernels.csv`. mage raises
 `captured no CUDA kernel launches`, and the only manifest it writes is `capture.json`, with
-`status: "failed"` and that error string; `process.log` stays on the capturing machine. T35 (#51) is
-that case — the healing ladder's decision path is a CPU timeline with no kernel in it. Do not
+`status: "failed"` and that error string. That string is the empty-capture branch only: when the
+target exits non-zero, `nsys` relays that code and mage reports it before it counts kernels, so a
+kernel-less capture can carry `nsys exited with code 1` instead (T31's leg-1 manifest is the case);
+`process.log` stays on the capturing machine. T35 (#51) is that case — the healing ladder's decision
+path is a CPU timeline with no kernel in it. Do not
 manufacture a kernel file for it. A kernel-less run whose ticket asks for no timeline commits
 `capture.json` and `README.md` alone. A kernel-less run whose ticket asks for a CPU timeline commits
-`capture.json`, the README, a derived table (a `timeline.csv`) and the backend export **trimmed** to
-the tables that timeline is read from; its README carries the timeline numbers, states the trim's
+`capture.json`, the README, the derived tables (a `timeline.csv`) and their generator where the
+capture's ticket committed one (`docs/evidence/T31/training-step/make_timeline.py`; T35's worked
+example has none), the captured binary's own progress output when it emits one (`train-progress.txt`),
+and the backend export **trimmed** to the tables that timeline is read from; its README carries
+the timeline numbers, states the trim's
 rule — which tables are kept and which `StringIds` rows are dropped — and names the raw,
 host-bearing export it came from by size and hash as staying off-tree. T35 is the worked example:
 `OSRT_API`, `ThreadNames`, the `StringIds` those two reference and
@@ -134,9 +140,15 @@ kernel-less rule and the `nsys` SQLite rule above are unchanged.
 ## Host
 
 Profiling happens on the target, and per D-012 that target is **Pinkie**; the evidence ships with the
-ticket from there. A capture on the dev host is not the convention. The host's WSL2 Ubuntu-22.04
-distribution is where mage installs on this workstation (`triton>=3.0` publishes no `win_amd64`
-wheel, so `uv tool install git+https://github.com/superposition/mage` cannot resolve on the Windows
+ticket from there. A capture on the dev host is not the convention. Two classes of dev-host capture
+are the carve-outs: a kernel-less CPU timeline — it opens no CUDA device for the board's `ncu`, and
+Pinkie carries no `nsys` to trace it there (T35 and T31) — and a run whose package the board cannot
+execute, T50's model step needing `candle-core/cuda`, which the board's offline registry cache lacks
+and its DNS-less host cannot fetch. Each may be captured on the dev host, accepted on precedent; the
+list is not exhaustive, since T16's capture also ran on the dev host, before D-012 set the target.
+The host's WSL2 Ubuntu-22.04 distribution is where mage installs on this workstation (`triton>=3.0`
+publishes no `win_amd64` wheel, so `uv tool install git+https://github.com/superposition/mage`
+cannot resolve on the Windows
 side) and it carries Nsight Systems and the 4090; `baseline-2026-09-11/` was taken there with
 `--backend nsys` before D-012. It stays a diagnostic, not the evidence a capture ticket lands.
 
