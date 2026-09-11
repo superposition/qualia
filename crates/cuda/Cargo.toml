@@ -11,9 +11,9 @@ cuda = ["dep:cudarc"]
 [dependencies]
 qualia-types.workspace = true
 qualia-shm.workspace = true
-# cudarc is optional — activated only when the `cuda` feature is enabled.
-# fallback-dynamic-loading: libcuda.so and libnvrtc.so are dlopen()'d at
-# runtime on the Jetson; zero CUDA artifacts needed on the macOS build host.
+# cudarc is behind the `cuda` feature so the default build stays pure Rust.
+# It is loaded dynamically: libcuda/libnvrtc are resolved at runtime, so a
+# machine without CUDA can still build and test the rest of the workspace.
 cudarc = { version = "0.19", default-features = false, features = [
     "std",
     "driver",
