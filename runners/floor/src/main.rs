@@ -71,10 +71,12 @@ fn write_floor_grid(grid: &mut CameraFloorGrid, frame: &CameraFrameSnapshot) {
     grid.last_update_ns = frame.timestamp_ns;
 
     for gz in 0..VOXEL_D {
-        let depth_bias = 1.0 - gz as f32 / VOXEL_D as f32;
+        // Rows nearer the camera are weighted higher; all of these values are
+        // exact f32 fractions of the grid depth.
+        let near_bias = (VOXEL_D - gz) as f32 / VOXEL_D as f32;
         for gx in 0..VOXEL_W {
             let luma = frame.thumbnail_luma[sampled_pixel(gx, gz)] as f32 / CONFIDENCE_SCALE;
-            let confidence = (luma * LUMA_WEIGHT + depth_bias * DEPTH_WEIGHT) * CONFIDENCE_SCALE;
+            let confidence = (luma * LUMA_WEIGHT + near_bias * DEPTH_WEIGHT) * CONFIDENCE_SCALE;
             grid.cells[gz * VOXEL_W + gx] = confidence.clamp(0.0, CONFIDENCE_SCALE) as u8;
         }
     }
@@ -124,22 +126,26 @@ fn open_failure_message(name: &str, err: &ShmError) -> String {
     format!("qualia-floor: failed to open shm '{name}': {err}")
 }
 
+/// Attach to the arena the stack created, or die reporting why.
+fn attach(name: &str) -> ShmRegion {
+    match ShmRegion::open(name) {
+        Ok(region) => region,
+        Err(err) => {
+            eprintln!("{}", open_failure_message(name, &err));
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let shm_name = shm_name_from(std::env::var("QUALIA_SHM_NAME").ok().as_deref());
     let poll_ms = poll_ms_from(std::env::var("QUALIA_FLOOR_POLL_MS").ok().as_deref());
+    let shm = attach(&shm_name);
 
-    let shm = match ShmRegion::open(&shm_name) {
-        Ok(shm) => shm,
-        Err(err) => {
-            eprintln!("{}", open_failure_message(&shm_name, &err));
-            std::process::exit(1);
-        }
-    };
-
+    let mut last_seq = 0u64;
     init_grid(shm.camera_floor_mut());
     println!("qualia-floor: deriving floor confidence from camera thumbnails");
 
-    let mut last_seq = 0u64;
     loop {
         if let Ok(frame) = shm.camera_frame().snapshot(SNAPSHOT_ATTEMPTS) {
             if should_publish(&frame, last_seq) {
