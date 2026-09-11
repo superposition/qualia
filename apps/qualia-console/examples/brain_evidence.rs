@@ -1,11 +1,13 @@
 //! Capture the Brain view's inputs through the real chain, for the figures.
 //!
 //! This example is evidence, not a fixture: it loads the committed prior, steps
-//! `crates/fly-circuit`'s rate model over it, publishes the model state and
-//! evolving belief slots into a fresh shared region, samples the region through
-//! `BrainView::sample` — the same read path the console uses — and writes the
-//! result to `docs/figures/fly-brain/firing-sample.json`. The figure script and
-//! the console therefore draw the same numbers.
+//! `crates/fly-circuit`'s rate model over it with a synthetic drive (the runtime
+//! drives no type yet, so a live stack publishes an all-zero, flat rate vector),
+//! publishes the model state and evolving belief slots into a fresh shared
+//! region, samples the region through `BrainView::sample` — the same read path
+//! the console uses — and writes the result to
+//! `docs/figures/fly-brain/firing-sample.json`. The figure script and the
+//! console therefore draw the same numbers.
 //!
 //! Run from the workspace root:
 //!

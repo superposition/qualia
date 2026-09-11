@@ -204,14 +204,22 @@ fn paint_graph(
     counts: &mut SceneCounts,
 ) {
     let node_count = prior.type_count().min(layout.node_count());
+    // Edge pulses render the published fly rate vector faithfully; a model held
+    // at rest publishes zeros and the pulses are flat (the fly drive is T30/T31).
     let rates = view.firing.as_ref().map(|firing| firing.rates.as_slice());
-    let peak = rates
+    let rate_peak = rates
         .map(|rates| {
             rates[..rates.len().min(node_count)]
                 .iter()
                 .fold(0.0_f32, |m, v| m.max(v.abs()))
         })
         .unwrap_or(0.0)
+        .max(f32::EPSILON);
+    // Node intensity comes from the belief slots, per layer, not the rates.
+    let node_intensity = view.node_intensity(node_count);
+    let activity_peak = node_intensity
+        .iter()
+        .fold(0.0_f32, |m, v| m.max(v.abs()))
         .max(f32::EPSILON);
     let max_weight = prior.weights.iter().copied().max().unwrap_or(1).max(1) as f32;
 
@@ -228,7 +236,7 @@ fn paint_graph(
         let source_rate = rates
             .map(|rates| rates.get(source).copied().unwrap_or(0.0).abs())
             .unwrap_or(0.0);
-        let flux = (weight as f32 * source_rate / (peak * max_weight)).clamp(0.0, 1.0);
+        let flux = (weight as f32 * source_rate / (rate_peak * max_weight)).clamp(0.0, 1.0);
         let from = projector.project(layout.positions[source]).0;
         let to = projector.project(layout.positions[destination]).0;
         if !rect.intersects(Rect::from_two_pos(from, to)) {
@@ -245,10 +253,7 @@ fn paint_graph(
         if !rect.contains(position) {
             continue;
         }
-        let rate = rates
-            .map(|rates| rates.get(node).copied().unwrap_or(0.0).abs())
-            .unwrap_or(0.0);
-        let intensity = (rate / peak).clamp(0.0, 1.0);
+        let intensity = (node_intensity[node] / activity_peak).clamp(0.0, 1.0);
         let colour = theme::ramp(intensity).gamma_multiply(Projector::depth_alpha(depth));
         painter.circle_filled(position, 3.0 + 4.0 * intensity, colour);
         counts.nodes_drawn += 1;

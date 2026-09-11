@@ -2,8 +2,8 @@
 """Figures for the journal entry `fly-brain` (T51).
 
     brain-layout.svg    a render: the prior in its committed spectral layout
-    brain-firing.svg    a render: node intensity from the fly model's rate
-                        vector, edge pulses from weight × rate[source]
+    brain-firing.svg    a render: node intensity from the belief slots' activity
+                        (per layer), edge pulses from weight × rate[source]
     brain-matrices.svg  a chart: the per-layer weight matrix and belief vector
                         as heatmaps, over a short time axis with the braid's
                         promotion markers
@@ -11,8 +11,12 @@
 Data: `assets/brain/layout.json` and `assets/brain/prior/` (the committed prior
 and its layout), and `firing-sample.json` — one recording taken through the
 console's own sampling path by `apps/qualia-console/examples/brain_evidence.rs`,
-which steps the fly rate model (`crates/fly-circuit`) and publishes into a shared
-region, so the numbers here are the ones the view reads, not a hand-drawn sketch.
+which steps the fly rate model (`crates/fly-circuit`) with a synthetic drive and
+publishes into a shared region, so the numbers here are the ones the view reads,
+not a hand-drawn sketch. The node intensity is the belief slots' activity, which
+in this recording is the example's evolving belief; live it is the runners'. The
+edge pulses are the published fly rate vector, which stays flat until the fly
+drive is wired (T30/T31).
 
 Run:  python make_figures.py
 """
@@ -51,6 +55,27 @@ SAMPLE_PATH = HERE / "firing-sample.json"
 
 MANIFEST_FILE = "manifest.json"
 GRAPH_FILE = "graph.bin"
+
+# The console's node-intensity source (`views/brain/mod.rs::node_intensity`):
+# type `t` reads layer `t % LAYERS`' belief mean at index `t / LAYERS`. These
+# mirror `qualia_types::NUM_LAYERS` and `STATE_DIM`.
+LAYERS = 8
+BELIEF_DIM = 1024
+
+
+def node_intensity(sample: dict, type_count: int) -> np.ndarray:
+    """The scene's per-node intensity, from the belief slots (per layer)."""
+    layers = {int(layer["layer"]): layer for layer in sample["layers"]}
+    intensity = np.zeros(type_count, dtype=float)
+    for node in range(type_count):
+        reading = layers.get(node % LAYERS)
+        if reading is None:
+            continue
+        belief = reading["belief"]
+        index = (node // LAYERS) % BELIEF_DIM
+        if index < len(belief):
+            intensity[node] = abs(float(belief[index]))
+    return intensity
 
 # The console's own default camera, so the figure is the panel's view.
 YAW = -0.6
@@ -151,7 +176,12 @@ def figure_firing(layout: dict, sample: dict, rowptr, cols, weights) -> None:
     screen = project(positions)
     rates = np.asarray(sample["rates"], dtype=float)
     node_count = min(len(positions), len(rates))
-    peak = max(float(np.abs(rates[:node_count]).max()), 1e-9)
+    # The edge pulses read the published fly rate vector; the nodes read the
+    # belief slots. Two sources, two scales — the console's split exactly.
+    rate_peak = max(float(np.abs(rates[:node_count]).max()), 1e-9)
+    intensity = node_intensity(sample, len(positions))[:node_count]
+    intensity_peak = max(float(intensity.max()), 1e-9)
+    intensity = intensity / intensity_peak
     max_weight = max(max(weights), 1)
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8), dpi=110)
@@ -160,7 +190,7 @@ def figure_firing(layout: dict, sample: dict, rowptr, cols, weights) -> None:
     for source, destination, weight in edges_of(rowptr, cols, weights):
         if source >= node_count or destination >= node_count:
             continue
-        flux = min(weight * abs(rates[source]) / (peak * max_weight), 1.0)
+        flux = min(weight * abs(rates[source]) / (rate_peak * max_weight), 1.0)
         ax.plot(
             [screen[source, 0], screen[destination, 0]],
             [screen[source, 1], screen[destination, 1]],
@@ -168,7 +198,6 @@ def figure_firing(layout: dict, sample: dict, rowptr, cols, weights) -> None:
             linewidth=0.8 + 3.2 * flux,
             zorder=1,
         )
-    intensity = np.abs(rates[:node_count]) / peak
     ax.scatter(
         screen[:node_count, 0],
         screen[:node_count, 1],
@@ -182,7 +211,7 @@ def figure_firing(layout: dict, sample: dict, rowptr, cols, weights) -> None:
     )
     for index in range(node_count):
         ax.annotate(
-            f"{index}  {rates[index]:.3f}",
+            f"{index}  {intensity[index]:.3f}",
             (screen[index, 0], screen[index, 1]),
             color=INK,
             fontsize=8.0,
@@ -191,8 +220,8 @@ def figure_firing(layout: dict, sample: dict, rowptr, cols, weights) -> None:
             textcoords="offset points",
         )
     ax.set_title(
-        f"firing — rate vector step {sample['sim_step']}, peak {peak:.3f}; "
-        "edges pulse by weight x rate[source]",
+        f"firing — nodes lit by belief activity (layer = type mod {LAYERS}); "
+        f"edges pulse by weight x rate[source], peak {rate_peak:.3f}",
         color=INK,
         fontsize=10.0,
         fontfamily="DejaVu Sans Mono",
@@ -273,8 +302,10 @@ def main() -> int:
     figure_firing(layout, sample, rowptr, cols, weights)
     figure_matrices(sample, sample["history"], sample["markers"])
 
+    intensity = node_intensity(sample, type_count)
     print(
         f"figures: {type_count} nodes, {edge_count} edges, "
+        f"belief node peak {max(intensity, default=0.0):.4f}, "
         f"peak rate {max(abs(rate) for rate in sample['rates']):.4f}, "
         f"{len(sample['layers'])} layers, {len(sample['history'])} history frames, "
         f"{len(sample['markers'])} markers"

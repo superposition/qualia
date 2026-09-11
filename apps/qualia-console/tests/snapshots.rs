@@ -189,8 +189,10 @@ fn default_arrangement() {
 
 #[test]
 fn brain_fresh() {
-    // A region with one published fly-model state and one lidar scan: the graph
-    // fires, the cloud draws, and the panels below carry the matrices.
+    // A region with one published fly-model state, one written belief layer per
+    // layer and one lidar scan: the graph's nodes light from the belief slots,
+    // its edges pulse from the fly rate vector, the cloud draws, and the panels
+    // below carry the matrices.
     let name = region_name("brain");
     let region = ShmRegion::create(&name).expect("create region");
     let mut payload = FlySimPayload {
@@ -202,6 +204,23 @@ fn brain_fresh() {
     };
     payload.state[..5].copy_from_slice(&[0.90, 0.40, 0.72, 0.20, 0.55]);
     region.fly_sim().publish(payload).expect("publish fly sim");
+    // Node intensity reads `BeliefSlot.mean`: layer 0 bright, the rest dimmer,
+    // each type reading its own layer's slot.
+    for layer in 0..qualia_types::NUM_LAYERS {
+        let writer = qualia_shm::LayerWriter::new(region.layer_slot(layer));
+        let slot = writer.back_buffer();
+        for index in 0..qualia_types::STATE_DIM {
+            slot.mean[index] = if layer == 0 {
+                0.85
+            } else {
+                0.20 + 0.06 * layer as f32
+            };
+        }
+        slot.vfe = 0.08;
+        slot.layer = layer as u8;
+        slot.timestamp_ns = 1_500;
+        writer.publish();
+    }
     let scan = LidarScanSnapshot {
         scan_start_ns: 1_000,
         scan_end_ns: 2_000,
@@ -227,6 +246,7 @@ fn brain_fresh() {
     harness.get_by_label("connectome");
     harness.get_by_label("point cloud");
     harness.get_by_label("fly sim");
+    harness.get_by_label("node intensity");
     harness.get_by_label("prior graph");
     harness.get_by_label("braid markers");
     harness.get_by_label("PromotionAccepted g12");

@@ -4,8 +4,9 @@ The braid's operator console: one native `egui` + `eframe` binary showing six vi
 state — **Mission** (the braid the agent reports on `GET /braid`), **Belief** (the belief layers in
 the shared region), **World** (pose, map and voxels), **Evidence** (sealed MCAP segments, quarantined
 partials and the belief ledger), **Telemetry** (the newest frame each sensing runner published) and
-**Brain** (the fly brain: the connectome prior in its committed 3D layout, lit by the rate model's
-observe-only slot, the lidar cloud and the world voxels, and the per-layer belief matrices).
+**Brain** (the fly brain: the connectome prior in its committed 3D layout, its nodes lit by the
+belief layers' activity and its edges pulsing by the published fly rate vector, the lidar cloud and
+the world voxels, and the per-layer belief matrices).
 
 The six views are floating windows on one page — movable, resizable, closable and arranged in a 3×2
 grid so the whole picture is readable at once instead of one view at a time — and the slim strip
@@ -60,9 +61,9 @@ Seven named states — `mission_healthy`, `mission_degraded`, `belief_stale`, `e
 as image snapshots under `tests/snapshots/`. The first four are driven from that same fixture;
 `world_fresh` opens a fresh shared region and pins that an attached but never-written World region
 reads `pose: no fix`, `map: not published` and `voxels: not published` instead of zeroes;
-`brain_fresh` publishes one fly-model state and one lidar scan into a fresh region and pins the
-firing graph, the matrices and the braid marker; `default_arrangement` pins the opening picture, all
-six floating windows at their grid positions. To accept an intentional visual change, re-run with
+`brain_fresh` publishes one fly-model state, the belief slots and one lidar scan into a fresh region
+and pins the belief-lit graph, the matrices and the braid marker; `default_arrangement` pins the
+opening picture, all six floating windows at their grid positions. To accept an intentional visual change, re-run with
 `UPDATE_SNAPSHOTS=1`.
 
 The snapshot harness drives `egui_kittest` with the wgpu backend (`.wgpu()`), so the test host needs

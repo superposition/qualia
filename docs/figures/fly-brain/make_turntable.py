@@ -36,6 +36,12 @@ FRAMES = 60
 MAX_NODES = 512
 MAX_EDGES = 2048
 
+# The console's node-intensity source (`views/brain/mod.rs::node_intensity`):
+# type `t` reads layer `t % LAYERS`' belief mean at index `t / LAYERS`. These
+# mirror `qualia_types::NUM_LAYERS` and `STATE_DIM`.
+LAYERS = 8
+BELIEF_DIM = 1024
+
 NODE_BASE_RADIUS = 0.018
 NODE_RATE_RADIUS = 0.045
 EDGE_RADIUS = 0.004
@@ -44,6 +50,22 @@ EDGE_RADIUS = 0.004
 INK = "#edf0f5"
 ACCENT = "#91dbba"
 MUTED = "#5c6673"
+
+
+def node_intensity(sample: dict, type_count: int) -> list[float]:
+    """Per-node belief intensity, normalized to the peak, as the scene scales it."""
+    layers = {int(layer["layer"]): layer for layer in sample["layers"]}
+    intensity = [0.0] * type_count
+    for node in range(type_count):
+        reading = layers.get(node % LAYERS)
+        if reading is None:
+            continue
+        belief = reading["belief"]
+        index = (node // LAYERS) % BELIEF_DIM
+        if index < len(belief):
+            intensity[node] = abs(float(belief[index]))
+    peak = max(intensity, default=0.0) or 1.0
+    return [value / peak for value in intensity]
 
 
 def srgb_to_linear(value: float) -> float:
@@ -87,6 +109,8 @@ def main() -> int:
     rates = sample["rates"]
     peak = max((abs(rate) for rate in rates), default=0.0) or 1.0
     max_weight = max((weight for _, _, weight in edges), default=1) or 1
+    # Nodes read the belief slots; edges pulse from the published rate vector.
+    intensities = node_intensity(sample, type_count)
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
@@ -113,8 +137,8 @@ def main() -> int:
     parts = []
     nodes_written = 0
     for index in range(min(type_count, MAX_NODES)):
-        rate = abs(rates[index]) / peak if index < len(rates) else 0.0
-        intensity = min(max(rate, 0.0), 1.0)
+        intensity = intensities[index] if index < len(intensities) else 0.0
+        intensity = min(max(intensity, 0.0), 1.0)
         location = positions[index]
         bpy.ops.mesh.primitive_uv_sphere_add(
             segments=12,
@@ -192,7 +216,8 @@ def main() -> int:
     print(
         f"turntable: {nodes_written} nodes, {edges_written} edges, "
         f"{FRAMES} frames -> {GLB_PATH} ({GLB_PATH.stat().st_size} bytes); "
-        f"prior {type_count} types / {edge_count} edges, peak rate {peak:.4f}"
+        f"prior {type_count} types / {edge_count} edges, "
+        f"belief node peak {max(intensities, default=0.0):.4f}, peak rate {peak:.4f}"
     )
     return 0
 

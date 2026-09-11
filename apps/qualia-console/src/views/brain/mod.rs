@@ -8,19 +8,25 @@
 //! - **cloud** — the live lidar returns (`runners/lidar`), per-point bearing and
 //!   range, drawn as points in the accent ramp;
 //! - **brain** — the connectome prior (`QUALIA_FLY_PRIOR_PATH`, or the committed
-//!   `assets/brain/prior`) in its committed layout: a node is lit by its type's
-//!   rate from the fly model's observe-only slot (`FlySimSlot`), and an edge
-//!   pulses by `weight × rate[source]`, which is exactly the coupling term
-//!   `crates/fly-circuit` integrates;
+//!   `assets/brain/prior`) in its committed layout: a node is lit by the belief
+//!   activity (`BeliefSlot.mean`) of the layer its type is assigned to, and an
+//!   edge pulses by `weight × rate[source]` from the fly model's observe-only
+//!   slot (`FlySimSlot`), which is exactly the coupling term `crates/fly-circuit`
+//!   integrates;
 //! - **matrices** — the per-layer generative weight matrix and belief vector as
 //!   decimated heatmaps with a short time axis, and the braid markers on it.
 //!
 //! The scene is presentation and never measurement (`docs/frontend-lessons.md`
 //! §"the 20 fps poll loop … presentation, not measurement"). It reads the region
 //! and never writes it, every layer is capped, and the frame happens beside the
-//! poller's own thread, so drawing cannot pace the runners. The prior carries no
-//! type-to-layer map, so per-layer belief is shown in the matrix panels and is
-//! never invented onto a node.
+//! poller's own thread, so drawing cannot pace the runners.
+//!
+//! The prior carries no type-to-layer map, so the crossing is stated rather than
+//! implied: type `t` reads layer `t % NUM_LAYERS`' belief slot, and its intensity
+//! is that layer's decimated belief mean at index `t / NUM_LAYERS`. Node intensity
+//! therefore follows live belief activity; the edge pulses render the published
+//! fly rate vector faithfully, so while the fly drive is not wired (T30/T31) the
+//! vector is zero and the pulses are flat — the view never fabricates motion.
 
 pub mod layout;
 pub mod matrices;
@@ -221,6 +227,30 @@ impl BrainView {
             selected_layer: 0,
             counts: SceneCounts::default(),
         }
+    }
+
+    /// The intensity the scene paints for each prior type, from the belief
+    /// slots' activity.
+    ///
+    /// #173 step 2 names the belief slot as the node source, and the prior
+    /// carries no type-to-layer map, so the crossing is fixed and stated: type
+    /// `t` reads the `belief` slot of layer `t % NUM_LAYERS`, and its intensity
+    /// is that layer's decimated belief mean (`BeliefSlot.mean`, the same 32×32
+    /// decimation the matrix panels read) at index `t / NUM_LAYERS`. A layer the
+    /// stack has not written leaves its types dark — the guard is the value
+    /// itself, not a timestamp, so a zero belief is honestly zero.
+    pub fn node_intensity(&self, type_count: usize) -> Vec<f32> {
+        let mut intensity = vec![0.0_f32; type_count];
+        for (node, value) in intensity.iter_mut().enumerate() {
+            let layer = node % NUM_LAYERS;
+            let index = (node / NUM_LAYERS) % matrices::MATRIX_CELLS;
+            if let Some(reading) = self.layers.get(layer) {
+                if let Some(belief) = reading.belief.get(index) {
+                    *value = belief.abs();
+                }
+            }
+        }
+        intensity
     }
 
     /// Record the braid's promotion events as timeline markers.
@@ -573,6 +603,12 @@ pub fn render(ui: &mut Ui, state: &mut ConsoleState) {
     }
     theme::field(
         ui,
+        "node intensity",
+        &format!("belief mean (layer = type mod {NUM_LAYERS}, index = type div {NUM_LAYERS})"),
+        None,
+    );
+    theme::field(
+        ui,
         "lidar points",
         &view.cloud.points.len().to_string(),
         Some("returns"),
@@ -648,6 +684,56 @@ mod tests {
         assert!(view.cloud.points.is_empty());
         assert_eq!(view.layers.len(), NUM_LAYERS);
         assert!(view.layers.iter().all(|layer| !layer.is_written()));
+    }
+
+    #[test]
+    fn node_intensity_follows_the_belief_slot_of_its_layer() {
+        let name = format!("/qualia_console_brain_intensity_{}", std::process::id());
+        let region = ShmRegion::create(&name).expect("create region");
+        let type_count = 5;
+
+        // Nothing written: every node is dark, not merely small.
+        let dark = BrainView::sample(&region);
+        assert!(
+            dark.node_intensity(type_count)
+                .iter()
+                .all(|value| *value == 0.0),
+            "an unwritten region must not light a node"
+        );
+
+        // Write layer 0's belief mean: type 0 (layer 0, index 0) lights, while
+        // type 1 reads layer 1 — still unwritten — and stays dark.
+        {
+            let writer = qualia_shm::LayerWriter::new(region.layer_slot(0));
+            let slot = writer.back_buffer();
+            slot.mean[0] = 0.75;
+            slot.layer = 0;
+            slot.timestamp_ns = 42;
+            writer.publish();
+        }
+        let lit = BrainView::sample(&region);
+        let intensity = lit.node_intensity(type_count);
+        assert!(
+            (intensity[0] - 0.75).abs() < 1e-6,
+            "type 0 must read layer 0's belief mean, got {}",
+            intensity[0]
+        );
+        assert_eq!(intensity[1], 0.0, "an unwritten layer leaves its type dark");
+
+        // Zero the layer and publish: the node goes dark again.
+        {
+            let writer = qualia_shm::LayerWriter::new(region.layer_slot(0));
+            let slot = writer.back_buffer();
+            slot.mean[0] = 0.0;
+            slot.timestamp_ns = 43;
+            writer.publish();
+        }
+        let zeroed = BrainView::sample(&region);
+        assert_eq!(
+            zeroed.node_intensity(type_count)[0],
+            0.0,
+            "a zero belief frame is dark, not carried over"
+        );
     }
 
     #[test]
