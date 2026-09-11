@@ -1,0 +1,36 @@
+[package]
+name = "qualia-console"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native egui operator console for the braid: mission, belief, world, evidence, telemetry"
+
+[lib]
+name = "qualia_console"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qualia-console"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.33", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "wgpu",
+] }
+egui = "0.33"
+qualia-mcap.workspace = true
+qualia-shm.workspace = true
+qualia-types.workspace = true
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+egui_kittest = { version = "0.33", features = ["snapshot", "wgpu"] }
+tempfile = "3"
