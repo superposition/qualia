@@ -62,10 +62,11 @@ notes: <count>
   table, enum variant, field list, manifest key), not copied logic. Line endings are a checkout
   setting, not authored content: the reference tree is a Windows checkout of LF blobs
   (`core.autocrlf=true`), so the gate folds CRLF to LF before it compares and reports two classes —
-  `IDENTICAL` (fatal, byte-for-byte, only when no line-ending difference can explain the match) and
-  `EOL-IDENTICAL` (reported, the same text once endings are folded: the interface-forced manifests).
-  The verdict is the same from a CRLF and an LF worktree, so no `core.autocrlf` value and no
-  `checkout-index` workaround is needed to run the gate.
+  `IDENTICAL` (fatal: the bytes match the reference and the working file is not this worktree's
+  rendition of its own committed content, so the match is not a checkout accident) and
+  `EOL-IDENTICAL` (reported: the same text once endings are folded — the interface-forced manifests,
+  and our own content rendered CRLF). The verdict is the same from a CRLF and an LF worktree, so no
+  `core.autocrlf` value and no `checkout-index` workaround is needed to run the gate.
 - **contract** — package name, feature flags, public types, function signatures, constants and wire or
   JSON field names match the reference interface; the diff touches only the files the ticket names.
 

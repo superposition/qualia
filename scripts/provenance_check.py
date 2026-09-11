@@ -4,8 +4,10 @@
 Nothing is copied from the private engine. Two things are fatal, two are
 reported:
 
-FATAL   byte-identical whole file, where the match cannot be a line-ending
-        accident (see EOL-IDENTICAL below);
+FATAL   whole-file identity: the bytes match the reference and the working
+        file is not this worktree's rendition of its own recorded content.
+        The match is then not a line-ending accident — the bytes were written
+        into the tree — so it is the copy this gate exists to catch;
 FATAL   a run of more than two consecutive identical *comment or doc* lines
         (prose is never forced by an interface, so shared prose means copied
         prose);
@@ -19,10 +21,15 @@ REPORT  files whose text equals the reference's once line endings are folded
         (`core.autocrlf=true`), so the same text reaches it as CRLF and a
         worktree of this repository as LF; a file that legitimately coincides
         with the reference — a manifest whose keys the interface fixes — is
-        therefore identical modulo line endings and not byte-identical. Line
-        endings are a checkout setting, not authored content: no
-        `core.autocrlf` value and no way of checking out a worktree may change
-        this gate's verdict.
+        therefore identical modulo line endings and not byte-identical, and so
+        is our own content rendered CRLF by a CRLF checkout. Line endings are
+        a checkout setting, not authored content: no `core.autocrlf` value and
+        no way of checking out a worktree may change this gate's verdict.
+
+A file whose text is the reference's and not our own recorded text, but whose
+working bytes differ, is reported by the share and code-run metrics below
+rather than treated as fatal — the same report the gate has always given a
+reimplementation that shares declaration text.
 
 Generated files are excluded from the run metrics; they are machine output,
 not authorship.
@@ -127,6 +134,33 @@ def normalise_eol(data):
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 
+def recorded_bytes(rel):
+    """The bytes this repository records for `rel` at HEAD, or None.
+
+    The blob is the stored content, before any checkout filter: it is what the
+    path is supposed to hold, not what a particular checkout rendered.
+    """
+    out = subprocess.run(
+        ["git", "cat-file", "blob", "HEAD:" + rel], cwd=ROOT, capture_output=True
+    )
+    if out.returncode != 0:
+        return None
+    return out.stdout
+
+
+def carries_own_text(rel, data):
+    """True when `data` is a line-ending rendition of this path's own content.
+
+    A working file whose text equals the text recorded at HEAD was produced by
+    the checkout of our own content; a working file whose text is not the
+    recorded text was written by something else. The test is deliberately
+    independent of `core.autocrlf`: it asks what the bytes are, not which
+    filter produced them.
+    """
+    recorded = recorded_bytes(rel)
+    return recorded is not None and normalise_eol(recorded) == normalise_eol(data)
+
+
 def trivial(line):
     stripped = line.strip()
     if not stripped:
@@ -204,14 +238,16 @@ def main(argv):
         with open(mine, "rb") as handle_a, open(other, "rb") as handle_b:
             our_bytes = handle_a.read()
             ref_bytes = handle_b.read()
-        if our_bytes == ref_bytes and b"\r" not in our_bytes:
+        if our_bytes == ref_bytes and not carries_own_text(rel, our_bytes):
+            # The working file holds the reference's bytes and not our own
+            # text, so no checkout setting explains the match.
             print("IDENTICAL: %s" % rel)
             identical += 1
             continue
         if normalise_eol(our_bytes) == normalise_eol(ref_bytes):
             # Same text, different line endings: the reference's CRLF is its
-            # checkout, this worktree's LF is ours. Reported, not fatal, and
-            # still measured for code runs and shared prose below.
+            # checkout, and either LF or CRLF here is ours. Reported, not
+            # fatal, and still measured for code runs and shared prose below.
             print("EOL-IDENTICAL: %s" % rel)
             eol_identical += 1
 
