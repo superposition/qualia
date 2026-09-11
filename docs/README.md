@@ -12,5 +12,6 @@ meanings are fixed for their version.
 | [`waves.md`](waves.md) | The parallel execution plan. |
 | [`journal-template.md`](journal-template.md) | The required shape of a journal entry. |
 | [`journal-review.md`](journal-review.md) | The accuracy, teaching and style checklists. |
+| [`journal-pipeline.md`](journal-pipeline.md) | The writer, the three editors and the publish gate. |
 | [`evidence/`](evidence/) | mage captures, one directory per ticket that needs one. |
 | [`figures/`](figures/) | Journal figures, one directory per entry slug. |
