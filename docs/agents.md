@@ -22,6 +22,12 @@ evidence: <path or URL, or none>
 
 The remainder of the comment is prose for a human.
 
+A working agent posts a fresh block at every step boundary — when a step starts and when it ends — so
+the comment stream, not the agent's memory, is the state. Keep the fields true at the moment you post:
+`commit:` is the last pushed commit, `next:` is one imperative action, `evidence:` is a path or URL a
+later agent can open. Posting the block before a long step is what makes a crash cost one step instead
+of a session.
+
 ## Claiming
 
 A claim comment also runs:
@@ -78,3 +84,18 @@ For anything already claimed, the last `braid` block in the issue's comments is 
 and if `next:` is actionable, continue; if its `state:` is `claimed` and `updatedAt` is older than four
 hours, relabel it `resume` and take it over with a comment explaining that you did. Never edit another
 agent's breadcrumb — add a new comment.
+
+## Recovery after a crash
+
+Recovery reads GitHub, never a dead session's memory.
+
+1. `gh issue list --label ticket --state open` and take the ticket whose last block is stale.
+2. Read the issue's last `braid` block. `git fetch` the branch it names and compare `commit:` with
+   `git log` in its worktree; work past that commit is the step that was in flight.
+3. Run the ticket's own commands and `python scripts/provenance_check.py`; keep what passes, redo the
+   rest.
+4. Post your own block with `state: working` and the recovered `commit:`, then continue from `next:`.
+
+If a worktree file is unreadable or filled with NUL bytes, the machine died mid-write: restore it with
+`git checkout -- <path>` — the content was either committed or lost with the step in flight — and say
+so in the block.
