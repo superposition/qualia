@@ -20,7 +20,9 @@
 #endif
 
 // qualia_types::AppliedActionSlot — one completed post-safety interval.
-struct __attribute__((aligned(64))) AppliedActionSlotLayout {
+// `alignas(64)` rather than the GNU attribute: nvcc's MSVC host pass rejects
+// `__attribute__((aligned(64)))`, and both front ends are C++11 or newer.
+struct alignas(64) AppliedActionSlotLayout {
     unsigned long long seq;
     unsigned long long producer_epoch;
     unsigned long long action_sequence;
@@ -47,7 +49,7 @@ static_assert(__alignof__(AppliedActionSlotLayout) == 64ULL, "AppliedActionSlot 
 static const unsigned int APPLIED_ACTION_HISTORY_CAPACITY = 4096;
 
 // qualia_types::AppliedActionHistory — the lossless action ring.
-struct __attribute__((aligned(64))) AppliedActionHistoryLayout {
+struct alignas(64) AppliedActionHistoryLayout {
     unsigned long long write_seq;
     unsigned char pad[56];
     unsigned long long entry_seq[APPLIED_ACTION_HISTORY_CAPACITY];
@@ -58,7 +60,7 @@ static_assert(sizeof(AppliedActionHistoryLayout) == 557120ULL, "AppliedActionHis
 static_assert(__alignof__(AppliedActionHistoryLayout) == 64ULL, "AppliedActionHistory alignment");
 
 // qualia_types::JepaEvidencePayload — one coherent inference result.
-struct __attribute__((aligned(64))) JepaEvidencePayloadLayout {
+struct alignas(64) JepaEvidencePayloadLayout {
     unsigned int abi_version;
     unsigned int backend;
     unsigned int mode;
@@ -95,7 +97,7 @@ static_assert(sizeof(JepaEvidencePayloadLayout) == 23808ULL, "JepaEvidencePayloa
 static_assert(__alignof__(JepaEvidencePayloadLayout) == 64ULL, "JepaEvidencePayload alignment");
 
 // qualia_types::JepaTelemetryPayload — counters around the same inference.
-struct __attribute__((aligned(64))) JepaTelemetryPayloadLayout {
+struct alignas(64) JepaTelemetryPayloadLayout {
     unsigned int abi_version;
     unsigned int backend;
     unsigned int mode;
@@ -128,13 +130,13 @@ static_assert(sizeof(JepaTelemetryPayloadLayout) == 512ULL, "JepaTelemetryPayloa
 static_assert(__alignof__(JepaTelemetryPayloadLayout) == 64ULL, "JepaTelemetryPayload alignment");
 
 // The seqlock header keeps the payload on its own cache line.
-struct __attribute__((aligned(64))) JepaEvidenceSlotLayout {
+struct alignas(64) JepaEvidenceSlotLayout {
     unsigned long long seq;
     unsigned char pad[56];
     JepaEvidencePayloadLayout payload;
 };
 
-struct __attribute__((aligned(64))) JepaTelemetrySlotLayout {
+struct alignas(64) JepaTelemetrySlotLayout {
     unsigned long long seq;
     unsigned char pad[56];
     JepaTelemetryPayloadLayout payload;

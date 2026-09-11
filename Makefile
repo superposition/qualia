@@ -45,6 +45,13 @@ run-cuda-service:
 
 # The 4090 is the development target and QUALIA_CUDA_SM selects the device at
 # runtime, so one fatbin carrying both architectures is what ships.
+#
+# `crates/cuda/build.rs` reads both variables: CUDAARCHS names the targets nvcc
+# compiles (`NN-real` is a cubin, `NN-virtual` is PTX, `NN` is both) and NVCC
+# names the compiler. A host whose nvcc cannot find its own C++ compiler —
+# Windows without a Visual Studio environment — sets NVCC_CCBIN to the
+# directory holding cl.exe. With CUDAARCHS unset the crate needs no toolkit and
+# compiles its kernels with NVRTC at run time.
 cuda-fatbin:
 	CUDAARCHS='$(CUDAARCHS)' NVCC=$(NVCC) cargo build -p qualia-cuda --features cuda --release
 

@@ -1,7 +1,8 @@
 // belief_update.cu
 //
 // The per-layer predictive-coding update for the qualia belief stack.
-// NVRTC compiles this at process start, so it may not include any CUDA header;
+// Two front ends read this file: NVRTC at process start, and nvcc at build
+// time when `CUDAARCHS` asks for a fatbin. It may not include any CUDA header;
 // device builtins and the device math functions are supplied by the compiler.
 //
 // Launch shape: one block of 1024 threads, one thread per belief dimension.
@@ -19,7 +20,10 @@
 // pinned from Rust, against these same constants, in
 // `crates/cuda/tests/kernel_abi.rs`.
 
-struct __attribute__((aligned(64))) QualiaBeliefSlot {
+// `alignas(64)` is the standard spelling of the alignment: nvcc's MSVC host
+// pass rejects the GNU `__attribute__((aligned(64)))` form, and both front
+// ends are C++11 or newer.
+struct alignas(64) QualiaBeliefSlot {
     float mean[1024];
     float precision[1024];
     float vfe;
