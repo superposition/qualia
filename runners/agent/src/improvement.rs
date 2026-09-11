@@ -26,9 +26,20 @@
 //! The bound the queue enforces is also the caller's: a seal that arrives while
 //! a job is in flight is refused rather than queued, and a runner that fails
 //! publishes no promotion event — there is no report to verify.
+//!
+//! Training is serialized against planner work by the gate that admits it, not
+//! by a shared queue: a job is submitted only for a seal with `open_missions ==
+//! 0`, and planner work belongs to a running mission (`runners/explore` is the
+//! mission's planner), so the two windows are disjoint by construction — which
+//! is what D-011's one-GPU-touching-command-at-a-time rule requires here.
+//! `runners/cuda-service` brokers no submissions of its own to share: its
+//! worker accepts a connection and spawns a task per request, so the queue this
+//! caller submits on is `qualia-braid`'s `TrainingQueue`, run under the same
+//! discipline (one job, a 120 s bound).
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -94,9 +105,11 @@ impl TrainingRunner for ProcessRunner {
 
 /// Run one binary, bounded by `deadline`.
 ///
-/// The child's output is small (one manifest path), so the poll reads it after
-/// the exit; a child that outlives its bound is killed rather than waited on
-/// forever.
+/// Both pipes are drained by readers while the poll waits: a trainer that logs
+/// per epoch fills a pipe (64 KiB on the host) and would block until its own
+/// deadline if nobody read it, so the output is read concurrently and joined
+/// after the exit. A child that outlives its bound is killed rather than waited
+/// on forever.
 fn run_bounded(program: &str, argv: &[String], deadline: Duration) -> Result<String, String> {
     let mut child = Command::new(program)
         .args(argv)
@@ -105,31 +118,48 @@ fn run_bounded(program: &str, argv: &[String], deadline: Duration) -> Result<Str
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("spawn {program}: {error}"))?;
+    let stdout = child.stdout.take().map(drain);
+    let stderr = child.stderr.take().map(drain);
     let started = Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|error| format!("collect {program} output: {error}"))?;
-                if !status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("{program} exited {}: {}", status, stderr.trim()));
-                }
-                return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
-            }
+            Ok(Some(status)) => break Ok(status),
             Ok(None) if started.elapsed() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!(
+                break Err(format!(
                     "{program} exceeded its {} ms deadline",
                     deadline.as_millis()
                 ));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(error) => return Err(format!("wait for {program}: {error}")),
+            Err(error) => break Err(format!("wait for {program}: {error}")),
         }
+    };
+    let stdout = stdout.map(join_reader).unwrap_or_default();
+    let stderr = stderr.map(join_reader).unwrap_or_default();
+    let status = status?;
+    if !status.success() {
+        return Err(format!(
+            "{program} exited {status}: {}",
+            String::from_utf8_lossy(&stderr).trim()
+        ));
     }
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
+}
+
+/// Read one of the child's pipes to end on its own thread.
+fn drain(mut pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
+/// The bytes a drain thread collected; a reader that panicked yields none.
+fn join_reader(handle: std::thread::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    handle.join().unwrap_or_default()
 }
 
 /// The loop's caller, as this process holds it.
@@ -145,6 +175,9 @@ pub struct ImprovementRuntime {
     runner: Arc<dyn TrainingRunner>,
     registry: PathBuf,
     generation_file: PathBuf,
+    /// Set while a queue entry is being run, so one job runs even if the
+    /// supervisor is somehow called twice.
+    running: Arc<AtomicBool>,
 }
 
 impl ImprovementRuntime {
@@ -166,6 +199,7 @@ impl ImprovementRuntime {
             runner,
             registry: config.registry.clone(),
             generation_file: config.generation_file.clone(),
+            running: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -196,12 +230,31 @@ impl ImprovementRuntime {
     /// Run the in-flight job's binaries, hand the candidate to the registry's
     /// gates, and fold the promotion's event into the braid.
     ///
-    /// A job whose binaries fail publishes nothing: there is no training report
-    /// to verify. A job whose candidate a gate refuses is a
-    /// [`PromotionOutcome::RolledBack`] — a real answer, not an error — and the
-    /// braid records it exactly as [`verify_and_promote`] reports it.
+    /// The queue holds the job for the whole run, so a seal that arrives while
+    /// the binaries are running is refused like one that arrives while a job is
+    /// queued: the submission bound is the run's, not the dequeue's. A job whose
+    /// binaries fail publishes nothing — there is no training report to verify.
+    /// A job whose candidate a gate refuses is a
+    /// [`PromotionOutcome::RolledBack`], a real answer rather than an error, and
+    /// the braid records it exactly as [`verify_and_promote`] reports it.
     pub async fn run_in_flight(&self) -> Option<PromotionOutcome> {
-        let job = self.queue.lock().expect("training queue lock").finish()?;
+        if self.running.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        let outcome = self.run_queued_job().await;
+        self.queue.lock().expect("training queue lock").finish();
+        self.running.store(false, Ordering::Release);
+        outcome
+    }
+
+    /// The queued job's run; the queue still holds it until this returns.
+    async fn run_queued_job(&self) -> Option<PromotionOutcome> {
+        let job = self
+            .queue
+            .lock()
+            .expect("training queue lock")
+            .in_flight()
+            .cloned()?;
         let runner = Arc::clone(&self.runner);
         let submitted = job.clone();
         let manifest = match tokio::task::spawn_blocking(move || runner.run(&submitted)).await {
@@ -231,9 +284,15 @@ impl ImprovementRuntime {
                 return None;
             }
         };
+        // `checkpoint_dir` is the trainer's output root, and the trainer writes
+        // the candidate one level below it (`write_candidate_checkpoint` does
+        // `root.join(checkpoint_id)`); the registry reads `manifest.json` from
+        // the per-candidate directory it is handed, so the gate gets the nested
+        // path, not the root.
+        let candidate = job.checkpoint_dir.join(&job.checkpoint_id);
         let outcome = verify_and_promote(
             &registry,
-            &job.checkpoint_dir,
+            &candidate,
             &manifest,
             &self.generation_file,
             crate::now_ms(),

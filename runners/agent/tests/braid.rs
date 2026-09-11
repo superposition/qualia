@@ -33,6 +33,62 @@ async fn open_missions(harness: &Harness) -> u64 {
         .expect("the count is a number")
 }
 
+/// A seal under a closed mission arms one bounded training job — the
+/// improvement loop's only integration point in this process. A seal under an
+/// open mission arms none, and a second while the job is still queued is
+/// refused.
+#[tokio::test]
+async fn a_seal_under_a_closed_mission_arms_one_training_job() {
+    let harness = Harness::new();
+    let digest = "9f2c".repeat(16);
+
+    // The mission is open: the seal is folded, and the loop defers it.
+    report(
+        &harness,
+        json!({ "event": "mission_opened", "mission_id": "m-1" }),
+    )
+    .await;
+    report(
+        &harness,
+        json!({ "event": "evidence_sealed", "sha256": &digest }),
+    )
+    .await;
+    assert!(
+        harness.state.improvement.in_flight().is_none(),
+        "an open mission defers the seal"
+    );
+
+    // The mission closes; the same seal now arms exactly one job, named for the
+    // evidence it came from.
+    report(
+        &harness,
+        json!({ "event": "mission_closed", "mission_id": "m-1", "outcome": "completed" }),
+    )
+    .await;
+    report(
+        &harness,
+        json!({ "event": "evidence_sealed", "sha256": &digest }),
+    )
+    .await;
+    let job = harness
+        .state
+        .improvement
+        .in_flight()
+        .expect("the seal armed a training job");
+    assert_eq!(job.checkpoint_id, format!("cnn-{}", &digest[..12]));
+
+    // A second seal while that job is still queued is refused, and the braid
+    // view is unmoved by it.
+    let view = harness.get("/braid").await.json();
+    report(
+        &harness,
+        json!({ "event": "evidence_sealed", "sha256": &digest }),
+    )
+    .await;
+    assert_eq!(harness.state.improvement.in_flight().as_ref(), Some(&job));
+    assert_eq!(harness.get("/braid").await.json(), view);
+}
+
 #[tokio::test]
 async fn braid_endpoint_reports_state() {
     let harness = Harness::new();
