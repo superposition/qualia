@@ -1,3 +1,8 @@
+# The L0 runner is a process front door: the layer's loop and kernels live in
+# the backend this manifest selects, and a binary builds exactly one of them.
+# `src/main.rs` carries the dispatch and the mutual exclusion of the two
+# backends; the shared ABI crates are listed because this runner is a member of
+# the same fleet as L1-L6 and its manifest is read as their shape.
 [package]
 name = "qualia-l0-superposition"
 version.workspace = true
