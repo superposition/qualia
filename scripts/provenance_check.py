@@ -4,11 +4,10 @@
 Nothing is copied from the private engine. Two things are fatal, two are
 reported:
 
-FATAL   whole-file identity: the text matches the reference's recorded
-        content and the working file is not this worktree's rendition of our
-        own recorded content. The match is then not a line-ending accident —
-        the text was written into the tree — so it is the copy this gate
-        exists to catch;
+FATAL   whole-file identity: the text is the reference's and is not the text
+        the merge base with `origin/main` already had at that path, so this
+        worktree is its author and the match is the copy the gate exists to
+        catch;
 FATAL   a run of more than two consecutive identical *comment or doc* lines
         (prose is never forced by an interface, so shared prose means copied
         prose);
@@ -17,19 +16,19 @@ REPORT  the longest run of identical code lines, and the share of this file's
         reported rather than fatal because a faithful reimplementation of a
         fixed interface necessarily shares declaration lines: constant tables,
         enum variants, struct field lists, `name = "..."` manifest entries;
-REPORT  files whose text equals the reference's once line endings are folded
-        (EOL-IDENTICAL). The reference tree is a Windows checkout of LF blobs
-        (`core.autocrlf=true`), so the same text reaches it as CRLF and a
-        worktree of this repository as LF; a file that legitimately coincides
-        with the reference — a manifest whose keys the interface fixes — is
-        therefore identical modulo line endings and not byte-identical, and so
-        is our own content rendered CRLF by a CRLF checkout. Line endings are
-        a checkout setting, not authored content: no `core.autocrlf` value and
-        no way of checking out a worktree may change this gate's verdict.
+REPORT  files whose text is the reference's and is the text the base revision
+        already had at that path (EOL-IDENTICAL): a manifest whose keys the
+        interface fixes, which was already there before this work, and our own
+        content that a CRLF checkout rendered CRLF. The reference tree is a
+        Windows checkout of LF blobs (`core.autocrlf=true`), so the same text
+        reaches it as CRLF and a worktree of this repository as LF.
 
-Both identity tests fold line endings and judge the reference on the content
-it records at its HEAD, not on the content its own checkout rendered, so
-neither repository's checkout settings enter the verdict.
+Line endings are a checkout setting, not authored content: both identity tests
+fold CRLF to LF and judge the reference on the content it records at its HEAD,
+not on the content its own checkout rendered, so no `core.autocrlf` value and
+no way of checking out a worktree changes this gate's verdict. Content that
+arrived at the merge base has already been reviewed — the gate judges the work,
+not history.
 
 Generated files are excluded from the run metrics; they are machine output,
 not authorship.
@@ -134,33 +133,41 @@ def normalise_eol(data):
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 
-def recorded_bytes(rel):
-    """The bytes this repository records for `rel` at HEAD, or None.
+def recorded_bytes(rev, rel):
+    """The bytes `rev` records for `rel`, or None.
 
     The blob is the stored content, before any checkout filter: it is what the
-    path is supposed to hold, not what a particular checkout rendered. None
-    when the path is not recorded at HEAD — a file added but not yet committed
-    — which the caller reads as nothing yet establishing the bytes as ours.
+    path holds in that revision, not what a particular checkout rendered. None
+    when `rev` is None, or the path is not recorded there — a file added since
+    — which the caller reads as nothing yet having reviewed those bytes.
     """
+    if rev is None:
+        return None
     out = subprocess.run(
-        ["git", "cat-file", "blob", "HEAD:" + rel], cwd=ROOT, capture_output=True
+        ["git", "cat-file", "blob", "%s:%s" % (rev, rel)],
+        cwd=ROOT,
+        capture_output=True,
     )
     if out.returncode != 0:
         return None
     return out.stdout
 
 
-def carries_own_text(rel, data):
-    """True when `data` is a line-ending rendition of this path's own content.
+def base_revision():
+    """The revision this worktree's work starts from, or None.
 
-    A working file whose text equals the text recorded at HEAD was produced by
-    the checkout of our own content; a working file whose text is not the
-    recorded text was written by something else. The test is deliberately
-    independent of `core.autocrlf`: it asks what the bytes are, not which
-    filter produced them.
+    The merge base with `origin/main` (else `main`): the content at that
+    revision has already been reviewed, so a path whose text still equals the
+    reference's there is a pre-existing coincidence the gate reports, while a
+    path whose text departs from it is this worktree's authorship and its
+    identity with the reference is fatal. None when there is no such revision,
+    and the caller then falls back to our own HEAD text.
     """
-    recorded = recorded_bytes(rel)
-    return recorded is not None and normalise_eol(recorded) == normalise_eol(data)
+    for candidate in ("origin/main", "main"):
+        merge = git_output(["merge-base", "HEAD", candidate], ROOT)
+        if merge:
+            return merge
+    return None
 
 
 def recorded_reference_text(reference, rel):
@@ -237,6 +244,10 @@ def main(argv):
         sys.stderr.write("provenance: reference root %r is not a directory\n" % (reference,))
         return 2
 
+    # Content at the base revision is reviewed; identity with the reference
+    # there is reported, and identity authored here is fatal.
+    base_rev = base_revision()
+
     checked = 0
     skipped_generated = 0
     identical = 0
@@ -262,16 +273,17 @@ def main(argv):
         if our_text == ref_text or our_text == recorded_reference_text(
             reference, rel
         ):
-            if carries_own_text(rel, our_bytes):
-                # Our own text, coinciding with the reference's, or our own
-                # content rendered CRLF by a CRLF checkout. Reported, not
-                # fatal, and still measured for code runs and prose below.
+            # The text is the reference's. It is fatal when this worktree's
+            # text is not the text the base revision already had at this path:
+            # pre-existing content is the interface-forced coincidence the
+            # gate reports, anything else was written here.
+            base = recorded_bytes(
+                base_rev if base_rev is not None else "HEAD", rel
+            )
+            if base is not None and normalise_eol(base) == our_text:
                 print("EOL-IDENTICAL: %s" % rel)
                 eol_identical += 1
             else:
-                # The reference's text, and not ours: written into the tree,
-                # in either line-ending convention, so not a checkout
-                # accident.
                 print("IDENTICAL: %s" % rel)
                 identical += 1
                 continue
@@ -298,7 +310,7 @@ def main(argv):
 
     print(
         "provenance: compared %d authored file(s) (%d generated skipped); "
-        "%d byte-identical, %d EOL-identical, %d code runs over %d, "
+        "%d identical, %d EOL-identical, %d code runs over %d, "
         "%d prose runs over %d"
         % (
             checked,
