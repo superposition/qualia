@@ -42,6 +42,13 @@ pub fn measure(
         return DriftReport { mahalanobis: 0.0, sample_count: 0 };
     }
 
+    // Reject non-finite log-variance before the `exp`: `exp(-(+inf))` is a
+    // finite `0.0`, a precision the JEPA math accepts, so a saturated predictor
+    // would otherwise read as a perfect prediction instead of no opinion.
+    if !predicted_log_variance.iter().all(|log_variance| log_variance.is_finite()) {
+        return DriftReport { mahalanobis: 0.0, sample_count: 0 };
+    }
+
     let precision = predicted_log_variance
         .iter()
         .map(|log_variance| (-log_variance).exp())
