@@ -494,7 +494,7 @@ pub fn parameter_count(var_map: &VarMap) -> usize {
         .sum()
 }
 
-/// Replace backend-specific random initialization with a stable named stream.
+/// Seed every parameter from a named host-side stream instead of backend RNG.
 ///
 /// Values are produced on the host and copied to each parameter's device, so a
 /// seed and architecture produce bit-identical weights on CPU and on an
@@ -560,7 +560,7 @@ fn splitmix64(state: u64) -> u64 {
     value ^ (value >> 31)
 }
 
-/// Apply a no-gradient exponential moving average to a target parameter set.
+/// Move a target parameter set toward the online one with the given EMA decay.
 pub fn ema_update(target: &VarMap, online: &VarMap, decay: f64) -> CandleResult<()> {
     ema_update_prefix(target, online, decay, "")
 }
@@ -782,7 +782,7 @@ impl TrainingReport {
     }
 }
 
-/// Require the candidate to beat both frozen baselines on one held-out split.
+/// Whether one held-out split beats the constant and flat baselines outright.
 ///
 /// The trainer computes its summary booleans from this same split-local
 /// predicate, so the registry cannot be talked into a different decision.
@@ -797,7 +797,7 @@ pub fn split_predictive_gate_passes(split: &SplitEvaluation) -> bool {
         && candidate.rollout_error < split.flat_mlp.rollout_error
 }
 
-/// Require calibrated uncertainty and non-trivial grounding on one split.
+/// Whether a split's uncertainty is calibrated and its occupancy informative.
 pub fn split_grounding_calibration_gate_passes(split: &SplitEvaluation) -> bool {
     validate_split_evaluation(split).is_ok()
         && split.calibration.passes_contract()
@@ -870,7 +870,7 @@ pub fn effective_action_axes(left: f32, right: f32, speed_scale: f32) -> (f32, f
     (forward, turn)
 }
 
-/// Derive the exact proposal envelope from accepted training evidence only.
+/// Measure the joint action/time envelope from the train split's samples alone.
 ///
 /// Trainer and registry both call this, so a serialized checkpoint cannot
 /// widen, narrow, or relabel the measured joint action/time support.
@@ -1156,8 +1156,8 @@ fn checkpoint_variables(online_vars: &VarMap, target_encoder_vars: &VarMap) -> M
     Ok(checkpoint)
 }
 
-/// Validate the complete immutable safetensors schema before registration or
-/// runtime loading.
+/// Check every stored tensor against the frozen architecture inventory before
+/// registration or runtime loading.
 ///
 /// A matching digest proves byte identity but not that the bytes hold every
 /// required online and EMA tensor with the frozen shape, so the inventory is
