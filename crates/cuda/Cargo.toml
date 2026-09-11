@@ -7,10 +7,20 @@ description = "CUDA compute backend for Jetson Orin Nano (sm_87)"
 
 [features]
 cuda = ["dep:cudarc"]
+# Belief coupling from the loaded connectome prior is off unless a build asks
+# for it. The flag carries the `cuda` feature with it because the coupling is
+# applied to a layer's device context; with it off `couple_prior` is the zero
+# no-op the interface fixes.
+fly-prior = ["cuda"]
 
 [dependencies]
 qualia-types.workspace = true
 qualia-shm.workspace = true
+# The prior is data, not code (D-001): the coupling arithmetic is the CPU
+# reference contract in qualia-jepa, so the backend links it and launches no
+# kernel for it. It is not optional because the no-coupling build still names
+# `CouplingPrior` in `couple_prior`'s signature.
+qualia-jepa.workspace = true
 # cudarc is behind the `cuda` feature so the default build stays pure Rust.
 # It is loaded dynamically: libcuda/libnvrtc are resolved at runtime, so a
 # machine without CUDA can still build and test the rest of the workspace.
