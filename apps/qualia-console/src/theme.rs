@@ -406,7 +406,7 @@ pub fn menu_strip(ui: &mut Ui, state: &mut crate::ConsoleState) {
 }
 
 /// One floating panel: a movable, resizable, collapsible, closable window at
-/// its own default cascade position, with a scrolling body.
+/// its own default grid position, with a scrolling body.
 pub fn panel(
     ctx: &egui::Context,
     view: crate::View,

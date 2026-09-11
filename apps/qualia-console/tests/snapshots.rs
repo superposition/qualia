@@ -1,5 +1,5 @@
 //! The named states: the committed fixture, plus one fresh region the test
-//! creates, plus the default staggered arrangement.
+//! creates, plus the default grid arrangement.
 //!
 //! `docs/frontend-lessons.md` (source 3) is the reason this file exists before
 //! the views grew: image snapshots of named degraded states, driven from a
@@ -9,8 +9,8 @@
 //!
 //! Assertions are accessible labels, not pixels alone. The image snapshots are
 //! written beside them through `egui_kittest`'s own snapshot mechanism; each
-//! state pins its own panel, and `default_arrangement` pins the cascade of all
-//! five at once.
+//! state pins its own panel, and `default_arrangement` pins the grid of all six
+//! at once.
 
 mod support;
 

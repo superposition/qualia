@@ -27,8 +27,8 @@
 //! - assertions are accessible labels, not pixels alone — source 3;
 //! - `GET /braid` is polled off the UI thread through a command/message channel
 //!   — source 2;
-//! - every dataset is a floating panel on one page, staggered so the whole
-//!   console is visible at once, with the Mission panel naming the agent,
+//! - every dataset is a floating panel on one page, arranged in a 3×2 grid so
+//!   the whole console is visible at once, with the Mission panel naming the agent,
 //!   session and generation behind every other panel's numbers — sources 1, 2
 //!   and 4;
 //! - presentation lives in [`theme`], one palette, one family and one 8 px
@@ -51,7 +51,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use poller::Poller;
 
-/// The six operator screens, in cascade order.
+/// The six operator screens, in grid order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     Mission,
@@ -63,7 +63,7 @@ pub enum View {
 }
 
 /// One label table drives the window titles, the `Console` menu's checkboxes
-/// and the cascade order (source 1's lesson: never write the binding twice).
+/// and the grid order (source 1's lesson: never write the binding twice).
 pub const VIEWS: [View; 6] = [
     View::Mission,
     View::Belief,
@@ -99,7 +99,7 @@ impl Connection {
     }
 }
 
-/// Which floating panels are showing. Every panel starts open and staggered, so
+/// Which floating panels are showing. Every panel starts open at its grid place, so
 /// the console opens on the whole picture; the `Windows` menu re-opens one the
 /// operator closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -21,7 +21,7 @@ five existing front ends taught; every design decision in the source cites the l
 cargo run -p qualia-console
 ```
 
-Configuration is four environment variables and nothing else:
+Configuration is six environment variables and nothing else:
 
 |Variable|Meaning|Unset behaviour|
 |---|---|---|
