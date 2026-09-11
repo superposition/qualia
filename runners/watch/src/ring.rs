@@ -1,10 +1,12 @@
 //! Sequence-number change detection and the record types the panels render.
 //!
-//! The engine publishes into seqlocked rings: a writer appends at
-//! `sequence % capacity` and then bumps the shared write sequence. A reader
-//! keeps the last sequence it rendered and asks for the half-open window after
-//! it, so a redraw is driven by published bytes rather than by a timer — and an
-//! unchanged stack costs one atomic load per ring.
+//! The engine publishes into seqlocked rings: a writer claims the next sequence
+//! and only then writes the row at `sequence % capacity`. A reader keeps the
+//! last sequence it rendered and asks for the half-open window after it, so a
+//! redraw is driven by published bytes rather than by a timer — and an
+//! unchanged stack costs one atomic load per ring. A claimed-but-unwritten row
+//! has a slot whose `seq` does not match, so the reader stops on it and retries
+//! it next tick.
 //!
 //! The ring types are re-exported here so a [`LedgerSource`]/[`ThoughtSource`]
 //! implementation (and its tests) can be written without depending on
@@ -45,16 +47,23 @@ impl SeqCursor {
         Self { last: 0 }
     }
 
-    /// The last sequence handed out.
+    /// The next sequence the reader will read.
     pub const fn last(&self) -> u64 {
         self.last
     }
 
-    /// Take the window after the last sequence and advance to `current`.
-    pub fn take(&mut self, current: u64, capacity: u64) -> Range<u64> {
-        let window = seq_window(self.last, current, capacity);
-        self.last = current;
-        window
+    /// The window of sequences to read now, without advancing the cursor.
+    ///
+    /// The cursor moves only as rows are rendered ([`Self::commit`]), so a row
+    /// the writer has claimed but not finished stays in the window for the next
+    /// tick.
+    pub fn window(&self, current: u64, capacity: u64) -> Range<u64> {
+        seq_window(self.last, current, capacity)
+    }
+
+    /// Resume at `seq` — the next sequence to read.
+    pub fn commit(&mut self, seq: u64) {
+        self.last = seq;
     }
 }
 
@@ -98,24 +107,21 @@ pub trait ThoughtSource {
 
 /// Append every newly published ledger row to `out`; returns how many.
 ///
-/// A slot whose stored `seq` is not the one being read is a write in flight and
-/// is skipped, leaving the cursor at `current` so the next tick tries again.
+/// A slot whose stored `seq` is not the one being read is a row the writer has
+/// claimed but not finished. The drain stops there and leaves the cursor on that
+/// sequence, so the next tick retries it rather than skipping it.
 pub fn drain_ledger<S: LedgerSource + ?Sized>(
     source: &S,
     cursor: &mut SeqCursor,
     capacity: u64,
     out: &mut Vec<LedgerRecord>,
 ) -> usize {
-    let window = cursor.take(source.ledger_seq(), capacity);
     let mut appended = 0;
-    for seq in window {
+    for seq in cursor.window(source.ledger_seq(), capacity) {
         let index = (seq % capacity) as usize;
-        let Some(entry) = source.ledger_entry(index) else {
-            continue;
+        let Some(entry) = source.ledger_entry(index).filter(|entry| entry.seq == seq) else {
+            break;
         };
-        if entry.seq != seq {
-            continue;
-        }
         out.push(LedgerRecord {
             seq,
             timestamp_ns: entry.timestamp_ns,
@@ -124,27 +130,28 @@ pub fn drain_ledger<S: LedgerSource + ?Sized>(
             detail: ledger_detail(entry.event, entry.vfe, entry.residual_norm, entry.compression),
         });
         appended += 1;
+        cursor.commit(seq + 1);
     }
     appended
 }
 
 /// Append every newly published thought to `out`; returns how many.
+///
+/// As in [`drain_ledger`], a slot whose stored `seq` is not the one being read
+/// is a thought the writer has claimed but not finished; the drain stops there
+/// and retries it on the next tick.
 pub fn drain_thoughts<S: ThoughtSource + ?Sized>(
     source: &S,
     cursor: &mut SeqCursor,
     capacity: u64,
     out: &mut Vec<ThoughtRecord>,
 ) -> usize {
-    let window = cursor.take(source.thought_seq(), capacity);
     let mut appended = 0;
-    for seq in window {
+    for seq in cursor.window(source.thought_seq(), capacity) {
         let index = (seq % capacity) as usize;
-        let Some(entry) = source.thought(index) else {
-            continue;
+        let Some(entry) = source.thought(index).filter(|entry| entry.seq == seq) else {
+            break;
         };
-        if entry.seq != seq {
-            continue;
-        }
         out.push(ThoughtRecord {
             seq,
             timestamp_ns: entry.timestamp_ns,
@@ -153,6 +160,7 @@ pub fn drain_thoughts<S: ThoughtSource + ?Sized>(
             text: read_cstr(&entry.text),
         });
         appended += 1;
+        cursor.commit(seq + 1);
     }
     appended
 }

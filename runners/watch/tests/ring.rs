@@ -52,10 +52,18 @@ impl FakeLedger {
         }
     }
 
+    /// Mirrors `ShmRegion::append_ledger`: the write sequence is bumped before
+    /// the slot is written, so a claimed row is visible before its bytes are.
     fn publish(&mut self, entry: LedgerEntry) {
         let index = (entry.seq as usize) % self.rows.len();
-        self.rows[index] = Some(entry);
         self.seq = entry.seq + 1;
+        self.rows[index] = Some(entry);
+    }
+
+    /// Claim the next sequence without writing its slot, as the producer is
+    /// between the bump and the write.
+    fn claim(&mut self, seq: u64) {
+        self.seq = seq + 1;
     }
 
     fn reset_to(&mut self, seq: u64) {
@@ -87,10 +95,17 @@ impl FakeThoughts {
         }
     }
 
+    /// Mirrors `ShmRegion::emit_thought`: the write sequence is bumped before
+    /// the slot is stamped and filled.
     fn publish(&mut self, entry: ThoughtEntry) {
         let index = (entry.seq as usize) % self.rows.len();
-        self.rows[index] = Some(entry);
         self.seq = entry.seq + 1;
+        self.rows[index] = Some(entry);
+    }
+
+    /// Claim the next sequence without writing its slot.
+    fn claim(&mut self, seq: u64) {
+        self.seq = seq + 1;
     }
 }
 
@@ -138,12 +153,14 @@ fn a_zero_capacity_reads_nothing() {
 }
 
 #[test]
-fn a_cursor_tracks_the_last_sequence_it_saw() {
+fn a_cursor_tracks_the_last_sequence_it_committed() {
     let mut cursor = SeqCursor::new();
-    assert_eq!(cursor.take(7, 512), 0..7);
+    assert_eq!(cursor.window(7, 512), 0..7);
+    assert_eq!(cursor.last(), 0, "peeking does not advance the cursor");
+    cursor.commit(7);
     assert_eq!(cursor.last(), 7);
-    assert!(cursor.take(7, 512).is_empty());
-    assert_eq!(cursor.take(9, 512), 7..9);
+    assert!(cursor.window(7, 512).is_empty());
+    assert_eq!(cursor.window(9, 512), 7..9);
 }
 
 // ── ledger ring ─────────────────────────────────────────────────────────
@@ -184,27 +201,58 @@ fn a_second_drain_without_writes_appends_nothing() {
 }
 
 #[test]
-fn a_torn_row_is_skipped_rather_than_shown() {
-    // The slot for sequence 1 holds a row the writer has not finished, so its
-    // `seq` does not match. The reader shows nothing for it and tries again
-    // after the next write.
+fn a_row_claimed_but_not_yet_written_is_delivered_on_the_next_tick() {
+    // `append_ledger` bumps the write sequence before it writes the slot, so a
+    // tick can land between the two: sequence 2 is claimed while slot 2 is
+    // still empty. One cursor across ticks must retry that row, not skip it.
     let mut source = FakeLedger::new(16);
     source.publish(ledger_row(0, 0.1, LedgerEvent::Confirm, 1));
     source.publish(ledger_row(1, 0.2, LedgerEvent::Confirm, 2));
+    source.claim(2);
+
+    let mut cursor = SeqCursor::new();
+    let mut out = Vec::new();
+    assert_eq!(drain_ledger(&source, &mut cursor, 16, &mut out), 2);
+    let seqs: Vec<u64> = out.iter().map(|row| row.seq).collect();
+    assert_eq!(seqs, vec![0, 1]);
+    assert_eq!(cursor.last(), 2, "the cursor waits on the unfinished row");
+
+    // The writer completes the row and publishes one more.
+    source.publish(ledger_row(2, 0.3, LedgerEvent::Confirm, 3));
+    source.publish(ledger_row(3, 0.4, LedgerEvent::Confirm, 4));
+
+    out.clear();
+    assert_eq!(drain_ledger(&source, &mut cursor, 16, &mut out), 2);
+    let seqs: Vec<u64> = out.iter().map(|row| row.seq).collect();
+    assert_eq!(
+        seqs,
+        vec![2, 3],
+        "the row written between ticks is delivered exactly once"
+    );
+    assert_eq!(cursor.last(), 4);
+}
+
+#[test]
+fn a_torn_row_holds_the_cursor_until_the_write_completes() {
+    // Sequence 1 is claimed but its slot still holds the previous row, so the
+    // reader shows nothing for it this tick and retries it on the same cursor.
+    let mut source = FakeLedger::new(16);
+    source.publish(ledger_row(0, 0.1, LedgerEvent::Confirm, 1));
+    source.claim(1);
     source.rows[1] = Some(ledger_row(99, 9.9, LedgerEvent::Escalate, 9));
 
     let mut cursor = SeqCursor::new();
     let mut out = Vec::new();
     assert_eq!(drain_ledger(&source, &mut cursor, 16, &mut out), 1);
     assert_eq!(out[0].seq, 0);
+    assert_eq!(cursor.last(), 1, "the torn row stays in the window");
 
     source.rows[1] = Some(ledger_row(1, 0.2, LedgerEvent::Confirm, 2));
-    source.seq = 2;
     out.clear();
-    cursor = SeqCursor::new();
-    drain_ledger(&source, &mut cursor, 16, &mut out);
-    assert_eq!(out.len(), 2);
-    assert_eq!(out[1].seq, 1);
+    assert_eq!(drain_ledger(&source, &mut cursor, 16, &mut out), 1);
+    assert_eq!(out[0].seq, 1);
+    assert_eq!(out[0].detail, "vfe=0.200");
+    assert_eq!(cursor.last(), 2);
 }
 
 #[test]
@@ -241,14 +289,14 @@ fn a_recreated_ring_is_read_again_from_zero() {
 }
 
 #[test]
-fn a_missing_row_does_not_panic() {
-    let source = FakeLedger::new(4);
+fn a_missing_slot_is_retried_rather_than_panicking() {
+    let mut source = FakeLedger::new(4);
+    // Sequence 0 is claimed but its slot was never written.
+    source.claim(0);
     let mut cursor = SeqCursor::new();
     let mut out = Vec::new();
-    // Sequence claims two rows exist but the ring has none in those slots.
-    let mut source = source;
-    source.seq = 2;
     assert_eq!(drain_ledger(&source, &mut cursor, 4, &mut out), 0);
+    assert_eq!(cursor.last(), 0, "an unwritten slot keeps its sequence");
 }
 
 // ── thought ring ────────────────────────────────────────────────────────
@@ -277,6 +325,25 @@ fn an_unchanged_thought_ring_appends_nothing() {
     drain_thoughts(&source, &mut cursor, 8, &mut out);
     assert_eq!(drain_thoughts(&source, &mut cursor, 8, &mut out), 0);
     assert_eq!(out.len(), 1);
+}
+
+#[test]
+fn a_thought_claimed_but_not_yet_written_is_delivered_on_the_next_tick() {
+    let mut source = FakeThoughts::new(8);
+    source.publish(thought_row(0, "first", 0, 1));
+    source.claim(1);
+
+    let mut cursor = SeqCursor::new();
+    let mut out = Vec::new();
+    assert_eq!(drain_thoughts(&source, &mut cursor, 8, &mut out), 1);
+    assert_eq!(cursor.last(), 1, "the cursor waits on the unfinished thought");
+
+    source.publish(thought_row(1, "second", 2, 4));
+    out.clear();
+    assert_eq!(drain_thoughts(&source, &mut cursor, 8, &mut out), 1);
+    assert_eq!(out[0].seq, 1);
+    assert_eq!(out[0].text, "second");
+    assert_eq!(out[0].kind, 4);
 }
 
 #[test]
