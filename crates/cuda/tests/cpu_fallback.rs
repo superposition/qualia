@@ -5,7 +5,10 @@
 //! oracle the device tests in `gpu.rs` compare against.
 
 use qualia_cuda::cpu;
-use qualia_cuda::{BeliefSlot, STATE_DIM, WEIGHT_COUNT};
+use qualia_cuda::{
+    BeliefSlot, JEPA_OCCUPANCY_CELLS, STATE_DIM, VOXEL_D, VOXEL_H, VOXEL_TOTAL, VOXEL_W,
+    WEIGHT_COUNT,
+};
 
 const DIM: usize = STATE_DIM;
 
@@ -324,4 +327,120 @@ fn smoke_kernel_fallback_adds_one() {
     let mut zeroed = [0.0f32; 4];
     cpu::add_one(&mut zeroed);
     assert_eq!(zeroed, [1.0, 1.0, 1.0, 1.0]);
+}
+
+/// The three perception/action kernels against the reference arithmetic.
+///
+/// `belief_couple` uses the connectome fixture from `crates/jepa/tests/prior.rs`
+/// (types 3, edges 4) so the expected factors are the ones the reference
+/// coupling derives from the same graph: in-strength 4 / 8 / 2 against a peak
+/// of 8, so 0.5 / 1.0 / 0.25 and 1.75 applied. `perception_voxel`'s grid and
+/// index mapping are the world lattice in `qualia_types` (`idx = vx * VOXEL_D *
+/// VOXEL_H + vz * VOXEL_H + vy`), and `action_score` scores the same midpoint
+/// integration and central-collision footprint `crates/jepa-model`'s planner
+/// documents, so its expected numbers are hand-computed from those formulas.
+#[test]
+fn oracle_matches_reference_math() {
+    // ── belief_couple: normalised in-strength scales each mapped slot ──────
+    let mut belief = vec![10.0f32, 20.0, 40.0];
+    let applied = cpu::belief_couple(
+        &mut belief,
+        &[1, 1, 2, 0],
+        &[3, 5, 2, 4],
+        &[(0, 0), (1, 1), (2, 2)],
+    );
+    assert_eq!(belief, vec![5.0, 20.0, 10.0]);
+    assert_eq!(applied, 1.75);
+
+    // A pair naming a type outside the graph or a slot outside the belief is
+    // ignored, never a panic, and contributes nothing to the applied weight.
+    let mut untouched = vec![1.0f32, 2.0, 3.0];
+    assert_eq!(
+        cpu::belief_couple(&mut untouched, &[1, 1, 2, 0], &[3, 5, 2, 4], &[(7, 0), (1, 9)]),
+        0.0
+    );
+    assert_eq!(untouched, vec![1.0, 2.0, 3.0]);
+
+    // ── perception_voxel: flat ground-plane points feed the voxel lattice ──
+    let empty = cpu::perception_voxel(&[], 0.25, -2.0, 1.5).expect("empty sweep is valid");
+    assert_eq!(empty.len(), VOXEL_TOTAL);
+    assert!(empty.iter().all(|logit| *logit == -2.0));
+
+    // (0.125, 2.625) is the centre of cell vx = 16, vz = 10 at 0.25 m/cell, so
+    // exactly that column rises by one hit's log-odds and the rest stays prior.
+    let hit = cpu::perception_voxel(&[0.125, 2.625], 0.25, -2.0, 1.5).expect("one point");
+    let column = 16 * VOXEL_D * VOXEL_H + 10 * VOXEL_H;
+    for vy in 0..VOXEL_H {
+        assert_eq!(hit[column + vy], -0.5, "voxel {vy} of the struck column");
+    }
+    assert_eq!(hit.iter().filter(|logit| **logit == -0.5).count(), VOXEL_H);
+
+    // ── action_score: terminal distance and worst central collision ────────
+    // A straight unit step at 1 m/s reaches (0, 1); the goal is (0, 1) with a
+    // 0.1 m tolerance, so the terminal distance is zero. The only grounding
+    // cell above the prior is the centre of the footprint, sigmoid(2) =
+    // 0.88079703, which is the maximum the footprint selects.
+    let mut logits = vec![-5.0f32; JEPA_OCCUPANCY_CELLS];
+    logits[32 * 64 + 32] = 2.0;
+    let score = cpu::action_score(
+        &[1.0, 1.0, 1.0, 1.0],
+        &logits,
+        &cpu::ActionScoreConfig {
+            max_wheel_speed_mps: 1.0,
+            track_width_m: 0.5,
+            resolution_m: 0.25,
+            collision_radius_m: 0.5,
+            goal_lateral_m: 0.0,
+            goal_forward_m: 1.0,
+            goal_tolerance_m: 0.1,
+        },
+    )
+    .expect("a well-formed rollout scores");
+    assert_eq!(score.terminal_goal_distance_m, 0.0);
+    assert!((score.max_collision_probability - 0.880_797_03).abs() < 1e-6);
+}
+
+#[test]
+fn perception_voxel_rejects_malformed_inputs() {
+    // Coordinates come in pairs; an odd tail is a shape error.
+    assert!(cpu::perception_voxel(&[1.0, 2.0, 3.0], 0.25, -2.0, 1.5).is_err());
+    // The lattice needs a positive, finite cell size.
+    assert!(cpu::perception_voxel(&[], 0.0, -2.0, 1.5).is_err());
+    assert!(cpu::perception_voxel(&[], f32::NAN, -2.0, 1.5).is_err());
+    // A non-finite return is refused rather than smeared across the volume.
+    assert!(cpu::perception_voxel(&[f32::INFINITY, 0.0], 0.25, -2.0, 1.5).is_err());
+    // A corner point still lands inside the clamped lattice.
+    let corner = cpu::perception_voxel(&[0.0, 0.0], 0.25, -2.0, 1.5).expect("corner");
+    assert_eq!(corner.len(), VOXEL_TOTAL);
+    assert!(corner.iter().any(|logit| *logit == -0.5));
+    assert_eq!(VOXEL_W, 32);
+}
+
+#[test]
+fn action_score_rejects_bad_shapes() {
+    let config = cpu::ActionScoreConfig {
+        max_wheel_speed_mps: 1.0,
+        track_width_m: 0.5,
+        resolution_m: 0.25,
+        collision_radius_m: 0.5,
+        goal_lateral_m: 0.0,
+        goal_forward_m: 1.0,
+        goal_tolerance_m: 0.1,
+    };
+    // A step is four floats.
+    assert!(cpu::action_score(&[1.0, 1.0, 1.0], &vec![0.0; JEPA_OCCUPANCY_CELLS], &config).is_err());
+    // One grounding map per step.
+    assert!(
+        cpu::action_score(&[1.0, 1.0, 1.0, 1.0], &vec![0.0; JEPA_OCCUPANCY_CELLS - 1], &config)
+            .is_err()
+    );
+    // A zero-radius footprint selects no cells, which cannot be scored.
+    let zero_radius = cpu::ActionScoreConfig {
+        collision_radius_m: 0.0,
+        ..config
+    };
+    assert!(
+        cpu::action_score(&[1.0, 1.0, 1.0, 1.0], &vec![0.0; JEPA_OCCUPANCY_CELLS], &zero_radius)
+            .is_err()
+    );
 }
