@@ -31,6 +31,7 @@ pub mod braid;
 pub mod compute;
 pub mod config;
 pub mod health;
+pub mod improvement;
 pub mod leash;
 pub mod mcp;
 pub mod media;
@@ -117,6 +118,7 @@ pub struct AppState {
     pub config: Arc<AgentConfig>,
     pub auth: auth::AuthConfig,
     pub braid: braid::BraidRuntime,
+    pub improvement: improvement::ImprovementRuntime,
     pub mission_control: mission_control::MissionControlRuntime,
     pub thought_theater: Arc<ThoughtTheaterConfig>,
     pub entity_profiles: Arc<Vec<qualia_types::EntityProfile>>,
@@ -152,11 +154,13 @@ pub fn build_state(config: AgentConfig) -> Result<AppState, String> {
     let entity_profiles = config::load_entity_profiles(&config)?;
     let braid = braid::BraidRuntime::new();
     let mission_control = mission_control::MissionControlRuntime::from_config(&config, braid.clone());
+    let improvement = improvement::ImprovementRuntime::new(braid.clone(), &config.promotion);
     Ok(AppState {
         thought_theater: Arc::new(config.thought_theater.clone()),
         certificate_sha256: Arc::new(String::new()),
         auth: config.auth.clone(),
         braid,
+        improvement,
         mission_control,
         entity_profiles: Arc::new(entity_profiles),
         pose_authority: Arc::new(Mutex::new(media::PoseAuthority::default())),
@@ -165,10 +169,12 @@ pub fn build_state(config: AgentConfig) -> Result<AppState, String> {
     })
 }
 
-/// Start the background loops the process needs: the mission supervisor and the
-/// mission broker adapter when a broker is configured.
+/// Start the background loops the process needs: the mission supervisor, the
+/// promotion loop's training supervisor, and the mission broker adapter when a
+/// broker is configured.
 pub fn start_background(state: &AppState) {
     mission_control::start(state.clone());
+    improvement::start(state.clone());
 }
 
 /// The whole HTTP surface, in one place.

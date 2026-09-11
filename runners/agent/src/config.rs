@@ -34,6 +34,24 @@ pub const DEFAULT_BLUEPRINT_NAME: &str = "Thought Theater";
 pub const DEFAULT_ORIN_CAMERA_DEVICE: &str = "/dev/video0";
 /// `QUALIA_ORIN_SNAPSHOT_INTERVAL_MS`, default `500`.
 pub const DEFAULT_ORIN_SNAPSHOT_INTERVAL_MS: u64 = 500;
+/// `QUALIA_JEPA_CATALOG`, default `artifacts/jepa/catalog.json`, the catalog of
+/// sealed session evidence Step 31's dataset binary reads.
+pub const DEFAULT_JEPA_CATALOG: &str = "artifacts/jepa/catalog.json";
+/// `QUALIA_JEPA_DATASET_DIR`, default `artifacts/jepa/datasets` — the dataset
+/// binary's own default output directory.
+pub const DEFAULT_JEPA_DATASET_DIR: &str = "artifacts/jepa/datasets";
+/// `QUALIA_JEPA_CHECKPOINT_DIR`, default `artifacts/jepa/checkpoints` — the
+/// trainer's own default output directory.
+pub const DEFAULT_JEPA_CHECKPOINT_DIR: &str = "artifacts/jepa/checkpoints";
+/// `QUALIA_JEPA_BACKEND`, default `cpu`; the JEPA runtime reads the same key.
+pub const DEFAULT_JEPA_BACKEND: &str = "cpu";
+/// `QUALIA_JEPA_REGISTRY`, default `artifacts/jepa/registry.turso` — the
+/// registry command line's own default database.
+pub const DEFAULT_JEPA_REGISTRY: &str = "artifacts/jepa/registry.turso";
+/// `QUALIA_JEPA_GENERATION_FILE`, default `artifacts/jepa/active-generation.json`
+/// — the registry command line's own default pointer file, and the same key the
+/// JEPA runtime hot-swaps.
+pub const DEFAULT_JEPA_GENERATION_FILE: &str = "artifacts/jepa/active-generation.json";
 
 /// Where the mission broker pushes envelopes from, when one is configured.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +94,72 @@ pub struct OrinConfig {
     pub snapshot_interval_ms: u64,
 }
 
+/// Step 31's paths, as the process's environment names them: the sealed catalog
+/// the dataset binary reads, where the manifest and the candidate are written,
+/// the trainer backend, the registry the gates run against, and the generation
+/// pointer a promotion moves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromotionConfig {
+    /// `QUALIA_JEPA_CATALOG`.
+    pub catalog: PathBuf,
+    /// `QUALIA_JEPA_DATASET_DIR`, where the immutable manifest lands.
+    pub dataset_dir: PathBuf,
+    /// `QUALIA_JEPA_CHECKPOINT_DIR`, where the trainer writes the candidate.
+    pub checkpoint_dir: PathBuf,
+    /// `QUALIA_JEPA_BACKEND`; the JEPA runtime resolves the same key.
+    pub backend: String,
+    /// `QUALIA_JEPA_REGISTRY`, the gates' database.
+    pub registry: PathBuf,
+    /// `QUALIA_JEPA_GENERATION_FILE`, the pointer the registry publishes and
+    /// the JEPA runtime hot-swaps between ticks.
+    pub generation_file: PathBuf,
+}
+
+impl Default for PromotionConfig {
+    fn default() -> Self {
+        Self {
+            catalog: PathBuf::from(DEFAULT_JEPA_CATALOG),
+            dataset_dir: PathBuf::from(DEFAULT_JEPA_DATASET_DIR),
+            checkpoint_dir: PathBuf::from(DEFAULT_JEPA_CHECKPOINT_DIR),
+            backend: DEFAULT_JEPA_BACKEND.to_string(),
+            registry: PathBuf::from(DEFAULT_JEPA_REGISTRY),
+            generation_file: PathBuf::from(DEFAULT_JEPA_GENERATION_FILE),
+        }
+    }
+}
+
+impl PromotionConfig {
+    /// Resolve the paths from the process environment.
+    pub fn from_env() -> Self {
+        Self {
+            catalog: env_path("QUALIA_JEPA_CATALOG", DEFAULT_JEPA_CATALOG),
+            dataset_dir: env_path("QUALIA_JEPA_DATASET_DIR", DEFAULT_JEPA_DATASET_DIR),
+            checkpoint_dir: env_path("QUALIA_JEPA_CHECKPOINT_DIR", DEFAULT_JEPA_CHECKPOINT_DIR),
+            backend: env_string("QUALIA_JEPA_BACKEND")
+                .unwrap_or_else(|| DEFAULT_JEPA_BACKEND.to_string()),
+            registry: env_path("QUALIA_JEPA_REGISTRY", DEFAULT_JEPA_REGISTRY),
+            generation_file: env_path("QUALIA_JEPA_GENERATION_FILE", DEFAULT_JEPA_GENERATION_FILE),
+        }
+    }
+
+    /// The improvement loop's view of the same paths.
+    pub fn improvement(&self) -> qualia_braid::improvement::ImprovementConfig {
+        qualia_braid::improvement::ImprovementConfig {
+            catalog: self.catalog.clone(),
+            dataset_dir: self.dataset_dir.clone(),
+            checkpoint_dir: self.checkpoint_dir.clone(),
+            backend: self.backend.clone(),
+        }
+    }
+}
+
+/// An environment key holding a path, or its default.
+fn env_path(name: &str, fallback: &str) -> PathBuf {
+    env_string(name)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(fallback))
+}
+
 /// Everything read from the environment, resolved once at start.
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -91,6 +175,9 @@ pub struct AgentConfig {
     pub thought_theater: ThoughtTheaterConfig,
     pub mission_broker: Option<MissionBrokerEndpoint>,
     pub leash: Option<LeashEndpoint>,
+    /// Step 31's paths: the improvement loop's inputs and the promotion's
+    /// registry pointer.
+    pub promotion: PromotionConfig,
     pub replica: ReplicaConfig,
     pub orin: OrinConfig,
     pub auth: AuthConfig,
@@ -127,6 +214,7 @@ impl Default for AgentConfig {
             },
             mission_broker: None,
             leash: None,
+            promotion: PromotionConfig::default(),
             replica: ReplicaConfig {
                 id: DEFAULT_REPLICA_ID.to_string(),
                 role: ReplicaRole::Host,
@@ -187,6 +275,7 @@ impl AgentConfig {
             },
             mission_broker: mission_broker_from_env(),
             leash: leash_from_env(),
+            promotion: PromotionConfig::from_env(),
             replica: ReplicaConfig {
                 id: replica_id,
                 role: env_string("QUALIA_REPLICA_ROLE")
