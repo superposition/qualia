@@ -65,14 +65,23 @@ impl CircuitSim {
         let bytes = fs::read(&graph_path).map_err(|error| read_error(&graph_path, error))?;
         let type_count = manifest.type_count as usize;
         let edge_count = manifest.edge_count as usize;
-        let rowptr_bytes = (type_count + 1) * std::mem::size_of::<u64>();
-        let edge_bytes = edge_count * std::mem::size_of::<u32>();
-        if bytes.len() != rowptr_bytes + 2 * edge_bytes {
-            return Err(PriorError::Read(format!(
-                "{}: {} bytes do not match {type_count} types and {edge_count} edges",
-                graph_path.display(),
-                bytes.len()
-            )));
+        let rowptr_bytes = type_count
+            .checked_add(1)
+            .and_then(|rows| rows.checked_mul(std::mem::size_of::<u64>()));
+        let edge_bytes = edge_count.checked_mul(std::mem::size_of::<u32>());
+        let sections = rowptr_bytes
+            .zip(edge_bytes)
+            .and_then(|(rowptr_bytes, edge_bytes)| {
+                edge_bytes
+                    .checked_mul(2)
+                    .and_then(|tails| rowptr_bytes.checked_add(tails))
+                    .map(|total_bytes| (rowptr_bytes, edge_bytes, total_bytes))
+            });
+        let Some((rowptr_bytes, edge_bytes, total_bytes)) = sections else {
+            return Err(length_error(&graph_path, bytes.len(), type_count, edge_count));
+        };
+        if bytes.len() != total_bytes {
+            return Err(length_error(&graph_path, bytes.len(), type_count, edge_count));
         }
 
         let rowptr = decode_u64(&bytes[..rowptr_bytes]);
@@ -146,6 +155,18 @@ impl CircuitSim {
 
 fn read_error(path: &Path, error: std::io::Error) -> PriorError {
     PriorError::Read(format!("{}: {error}", path.display()))
+}
+
+fn length_error(
+    graph_path: &Path,
+    bytes: usize,
+    type_count: usize,
+    edge_count: usize,
+) -> PriorError {
+    PriorError::Read(format!(
+        "{}: {bytes} bytes do not match {type_count} types and {edge_count} edges",
+        graph_path.display()
+    ))
 }
 
 fn decode_u64(bytes: &[u8]) -> Vec<u64> {

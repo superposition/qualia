@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use qualia_connectome_prior::{Attribution, TypeGraph, write_prior};
+use qualia_connectome_prior::{Attribution, PriorError, TypeGraph, write_prior};
 use qualia_fly_circuit::CircuitSim;
 use tempfile::TempDir;
 
@@ -108,4 +108,24 @@ fn load_reports_a_graph_that_disagrees_with_the_manifest() {
     std::fs::write(&graph, &bytes[..bytes.len() - 4]).expect("truncated graph writes");
 
     assert!(CircuitSim::load(directory.path()).is_err());
+}
+
+#[test]
+fn load_reports_a_manifest_with_an_impossible_edge_count() {
+    let (directory, _) = fixture();
+    let manifest = directory.path().join("manifest.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).expect("manifest reads"))
+            .expect("manifest parses");
+    value["edge_count"] = serde_json::Value::from(u64::MAX);
+    std::fs::write(
+        &manifest,
+        serde_json::to_vec(&value).expect("manifest serializes"),
+    )
+    .expect("hostile manifest writes");
+
+    let error = CircuitSim::load(directory.path())
+        .err()
+        .expect("an edge count that cannot be sized is rejected");
+    assert!(matches!(error, PriorError::Read(_)));
 }
