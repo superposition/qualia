@@ -4716,9 +4716,11 @@ name = "qualia-l1-belief"
 version = "0.1.0"
 dependencies = [
  "qualia-cuda",
+ "qualia-jepa",
  "qualia-metal",
  "qualia-shm",
  "qualia-types",
+ "sha2",
 ]
 
 [[package]]
@@ -4726,9 +4728,11 @@ name = "qualia-l2-belief"
 version = "0.1.0"
 dependencies = [
  "qualia-cuda",
+ "qualia-jepa",
  "qualia-metal",
  "qualia-shm",
  "qualia-types",
+ "sha2",
 ]
 
 [[package]]
@@ -4736,9 +4740,11 @@ name = "qualia-l3-belief"
 version = "0.1.0"
 dependencies = [
  "qualia-cuda",
+ "qualia-jepa",
  "qualia-metal",
  "qualia-shm",
  "qualia-types",
+ "sha2",
 ]
 
 [[package]]

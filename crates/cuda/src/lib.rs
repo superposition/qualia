@@ -23,6 +23,10 @@ pub use cuda_impl::{
     run_layer, CostmapStats, CostmapStatsContext, CudaCognitionStack, CudaContext, SmokeContext,
 };
 
+// The active coupling is off by default, so the entry point that carries a
+// verified prior exists only in a build that asked for it.
+#[cfg(feature = "fly-prior")]
+pub use cuda_impl::run_layer_with_prior;
 #[cfg(feature = "cuda")]
 use qualia_jepa::prior::CouplingPrior;
 
