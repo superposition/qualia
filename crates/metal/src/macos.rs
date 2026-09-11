@@ -10,7 +10,7 @@ use metal::*;
 
 use crate::gpu::{download, upload};
 
-const BELIEF_KERNEL_SRC: &str = include_str!("../kernels/belief_update.metal");
+const BELIEF_KERNEL_SRC: &str = include_str!("../../../kernels/belief_update.metal");
 
 /// Thought kinds recorded in the shared thought ring.
 const THOUGHT_OBSERVE: u8 = 0;

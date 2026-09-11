@@ -11,7 +11,7 @@ use metal::*;
 
 use crate::gpu::{copy, download, upload};
 
-const COGNITION_KERNEL_SRC: &str = include_str!("../kernels/cognition_update.metal");
+const COGNITION_KERNEL_SRC: &str = include_str!("../../../kernels/cognition_update.metal");
 
 /// Layers this stack carries, matching `qualia-agent`'s L3-L6 band.
 const LAYER_COUNT: usize = 4;
