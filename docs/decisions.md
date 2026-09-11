@@ -207,6 +207,24 @@ The guard's supervised name is `resmon5` from this restart: the `resmon4` record
 left completed-but-unstartable after the crash. Same script (`C:/tmp/resmon4.py`), same log
 (`C:/tmp/resmon.log`), `persist: true`; read `hub ps` / `hub logs` under the new name.
 
+## D-016 — Board build facts the legs discovered (fp16, the crate cache, the overlay)
+
+Measured by the restart's first board job on 2026-09-11 (its comments on PRs #169/#165/#180/#184/#192,
+issues #75/#76/#108/#38/#102); every future board build inherits these:
+
+- **candle-bearing crates need `RUSTFLAGS="-C target-feature=+fp16"` on the board.** `gemm-f16`'s
+  inline asm is rejected by the default `neon`-only aarch64 target ("instruction requires: fullfp16");
+  the Orin's A78AE has the feature. Invisible on x86_64, absent from `Cross.toml`, and not needed by
+  non-candle packages.
+- **The board's crate cache is not the dev host's.** It had no `turso` at all; the 0.7.2 closure
+  (103 `.crate` files plus index entries) was shipped to `~/.cargo` by hand. Offline board builds of
+  any new dependency set must ship its closure the same way.
+- **Merge order matters for board trees.** C10/C42 could not build at their own heads (they call the
+  C09 crate); their legs were cut as head + `crates/jepa-model` at `7b30678f`. After `ea823dd`
+  (#169), `ad30020` (#165) and `d7ab633` (#180) landed, that overlay is no longer needed.
+- **A board run is one job at a time.** Board legs are serialized through one agent; the queue is
+  Main's, not a free-for-all.
+
 ## D-003 — Repository
 
 
