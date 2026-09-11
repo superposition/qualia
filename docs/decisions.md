@@ -101,6 +101,25 @@ is ~10 days behind the dev host (TLS to anything remote will complain), and a Wi
 CRLF into the working tree, which breaks shell scripts and the cross-build Dockerfile on Linux — ship
 `git archive` output, not a working copy.
 
+## D-011 — GPU work is serial because the host's stability risk is the display driver
+
+The 2026-09-11 session that took the swarm down was followed by Windows System events
+`nvlddmkm` Id 153 (display-driver error) at 05:53 — while the machine's SSD (`WD_BLACK SN850X`,
+`HealthStatus = Healthy`) and RAM (never above ~21 GiB of 64) showed nothing wrong. Two storage
+signals appeared the same day: the WSL2 rootfs aborted its ext4 journal into a read-only mount, and
+the deploy clone wrote CRLF.
+
+Consequences for every agent:
+
+- **One GPU-touching command at a time**, never two CUDA jobs concurrently, and prefer bounded runs
+  (a test binary with a timeout, a capture with an iteration cap) over open-ended loops or benchmarks
+  that can occupy the device for minutes.
+- `ncu`/`nsys` captures count as GPU work; announce them (as `ProfileJepa` did) so peers hold off.
+- WSL2 output directories go on the Windows filesystem (`/mnt/c/...`) when the ext4 mount has logged
+  errors; the committed evidence stays small and in-repo per `docs/evidence/README.md`.
+- A read-only WSL mount is recovered with `wsl.exe --terminate <distro>` (journal replay); do not fsck
+  a mounted root and do not rebuild the distro while it boots.
+
 ## D-003 — Repository
 
 
