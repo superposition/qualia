@@ -1,0 +1,111 @@
+{
+  "schema": "qualia.agent-loop-figures.v1",
+  "note": "The two committed recordings the figures draw: the braid's own fold of a mission sequence (the crate's test and the agent edge's test), and the belief pace gate's constants and the stale publications its two tests assert. `make_figures.py` re-folds the sequences and re-reads the constants before it draws.",
+  "lifecycle": [
+    {
+      "series": "crates/braid (the state machine's own test)",
+      "source": "crates/braid/tests/braid.rs::mission_lifecycle_updates_open_count",
+      "events": [
+        "mission_opened mission-1",
+        "mission_opened mission-2",
+        "mission_closed mission-1 done",
+        "mission_closed mission-2 done",
+        "mission_closed mission-never-seen done"
+      ],
+      "open_missions": [1, 2, 1, 0, 0],
+      "asserted": [
+        "two opened missions are both open: 2",
+        "closing one leaves the other open: 1",
+        "the count returns to zero: 0",
+        "a close with nothing open is a no-op: 0 (the count does not wrap)"
+      ]
+    },
+    {
+      "series": "runners/agent (the write edge's test)",
+      "source": "runners/agent/tests/braid.rs::braid_endpoint_reports_state",
+      "events": ["mission_opened m-1", "mission_closed m-1 aborted"],
+      "open_missions": [1, 0],
+      "asserted": [
+        "the count the operator page shows is the braid's, not a second copy: 1 then 0"
+      ],
+      "state_before": {
+        "generation": 0,
+        "session_id": "",
+        "open_missions": 0,
+        "last_promotion_ns": 0,
+        "last_quarantine_ns": null
+      },
+      "state_after_promotion": {
+        "generation": 7,
+        "note": "promotion_accepted stamps last_promotion_ns; a later promotion_rolled_back moves the generation to 3 and keeps that stamp"
+      }
+    }
+  ],
+  "owners": {
+    "what": "Who reports into the braid, and which of them cross the write edge",
+    "source": "runners/agent/src/braid.rs (module doc; is_strand_report; UNSUPPORTED_EVENT)",
+    "in_process": [
+      "mission broker — mission_opened / mission_closed, calling observe directly because it runs in this process"
+    ],
+    "other_process": [
+      "evidence recorder — EvidenceSealed over POST /braid",
+      "JEPA runtime — PromotionAccepted / PromotionRolledBack over POST /braid, when the generation pointer moves"
+    ],
+    "refused": [
+      "recovery — BraidEvent::Quarantined is not a strand report: the edge answers 400 and the rename dispatch stays in the crate's fold, over a local root"
+    ]
+  },
+  "pace": {
+    "constants": {
+      "pace_ms": 250,
+      "stale_windows": 8,
+      "sources": [
+        "runners/map/src/main.rs (DEFAULT_BELIEF_PACE_MS = 250, BELIEF_PACE_STALE_WINDOWS = 8)",
+        "runners/pose/src/main.rs (the same two constants)"
+      ]
+    },
+    "observations": [
+      {
+        "what": "map: a belief tick ten seconds old under the default window",
+        "source": "runners/map/tests/runtime.rs::publishes_when_belief_lag_exceeded",
+        "pace_ms": 250,
+        "lag_ms_low": 10000,
+        "lag_ms_high": 11000,
+        "asserted": "(10_000..11_000).contains(lag_ms), and the map still advanced (map_seq 2)"
+      },
+      {
+        "what": "map: a belief tick 300 ms old under a 200 ms window",
+        "source": "runners/map/tests/runtime.rs::waits_while_belief_is_inside_the_stale_window",
+        "pace_ms": 200,
+        "lag_ms_low": 1600,
+        "lag_ms_high": 1600,
+        "asserted": "waited >= 1.0 s and lag_ms >= 1_600: the 200 x 8 ms stale window releases it"
+      }
+    ]
+  },
+  "braid_state_fields": {
+    "source": "crates/braid/src/lib.rs (BraidState) and apps/qualia-console/tests/fixtures/braid-state.json",
+    "fields": [
+      "schema_version qualia.braid-state.v1",
+      "generation",
+      "session_id",
+      "open_missions",
+      "last_promotion_ns",
+      "last_quarantine_ns"
+    ],
+    "fixture": {
+      "generation": 12,
+      "session_id": "sess-2026-09-11-explore-frontier",
+      "open_missions": 1,
+      "last_promotion_ns": 1789084800000000000,
+      "last_quarantine_ns": 1789081200000000000,
+      "drift": {"mahalanobis": 4.2, "sample_count": 512}
+    }
+  },
+  "sources": [
+    "crates/braid/src/lib.rs (observe, BraidState, BraidEvent)",
+    "crates/braid/tests/braid.rs, runners/agent/tests/braid.rs, runners/agent/tests/mission_broker.rs",
+    "runners/map/src/main.rs, runners/map/tests/runtime.rs, runners/pose/src/main.rs",
+    "apps/qualia-console/tests/fixtures/braid-state.json"
+  ]
+}

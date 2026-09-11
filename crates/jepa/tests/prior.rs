@@ -9,7 +9,10 @@
 use std::fs;
 use std::path::Path;
 
-use qualia_jepa::prior::{CouplingPrior, PriorError, GRAPH_FILE, MANIFEST_FILE};
+use qualia_jepa::prior::{
+    CouplingPrior, PriorError, COUPLING_SCALE_CEILING, COUPLING_SCALE_DEFAULT,
+    COUPLING_SCALE_FLOOR, GRAPH_FILE, MANIFEST_FILE,
+};
 use sha2::{Digest, Sha256};
 
 /// Three types, four edges, in-strength `4`, `8` and `2`.
@@ -136,11 +139,38 @@ fn couple_scales_slots_by_normalised_in_strength() {
     let prior = CouplingPrior::load(dir.path()).expect("a faithful artifact loads");
 
     let mut belief = vec![10.0f32, 20.0, 40.0];
-    let applied = prior.couple(&mut belief, &[(0, 0), (1, 1), (2, 2)]);
+    let applied = prior.couple(&mut belief, &[(0, 0), (1, 1), (2, 2)], COUPLING_SCALE_DEFAULT);
 
     // In-strength 4 / 8 / 2 against a peak of 8: factors 0.5, 1.0, 0.25.
     assert_eq!(belief, vec![5.0, 20.0, 10.0]);
     assert_eq!(applied, 1.75);
+}
+
+#[test]
+fn couple_applies_the_dial_and_bounds_it() {
+    let dir = tempfile::tempdir().expect("temporary directory");
+    write_artifact(dir.path());
+    let prior = CouplingPrior::load(dir.path()).expect("a faithful artifact loads");
+
+    // The dial the agent steps is what the applied weight is multiplied by: at
+    // twice the dial the same graph applies twice the weight.
+    let mut belief = vec![10.0f32, 20.0, 40.0];
+    let applied = prior.couple(&mut belief, &[(0, 0), (1, 1), (2, 2)], 2.0);
+    assert_eq!(belief, vec![10.0, 40.0, 20.0]);
+    assert_eq!(applied, 3.5);
+
+    // A reading outside the floor..ceiling range is applied at the bound, so a
+    // hand-edited manifest cannot drive a coupling to zero or to infinity.
+    let mut belief = vec![10.0f32, 20.0, 40.0];
+    assert_eq!(
+        prior.couple(&mut belief, &[(0, 0)], 0.0),
+        COUPLING_SCALE_FLOOR * 0.5
+    );
+    let mut belief = vec![10.0f32, 20.0, 40.0];
+    assert_eq!(
+        prior.couple(&mut belief, &[(0, 0)], f32::INFINITY),
+        COUPLING_SCALE_CEILING * 0.5
+    );
 }
 
 #[test]
@@ -150,11 +180,14 @@ fn couple_is_a_no_op_without_mapped_slots() {
     let prior = CouplingPrior::load(dir.path()).expect("a faithful artifact loads");
 
     let mut belief = vec![1.0f32, 2.0, 3.0];
-    assert_eq!(prior.couple(&mut belief, &[]), 0.0);
+    assert_eq!(prior.couple(&mut belief, &[], COUPLING_SCALE_DEFAULT), 0.0);
     assert_eq!(belief, vec![1.0, 2.0, 3.0]);
 
     // A slot outside the belief or a type outside the graph is ignored, never
     // a panic.
-    assert_eq!(prior.couple(&mut belief, &[(7, 0), (1, 9)]), 0.0);
+    assert_eq!(
+        prior.couple(&mut belief, &[(7, 0), (1, 9)], COUPLING_SCALE_DEFAULT),
+        0.0
+    );
     assert_eq!(belief, vec![1.0, 2.0, 3.0]);
 }

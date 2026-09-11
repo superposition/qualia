@@ -12,7 +12,7 @@
 //! `compute.v1` request's `belief_risk` field.
 
 use qualia_braid::{observe, BraidError, BraidEvent, BraidState};
-use qualia_jepa::prior::CouplingPrior;
+use qualia_jepa::prior::{clamp_coupling_scale, CouplingPrior, COUPLING_SCALE_DEFAULT};
 use qualia_shm::ShmRegion;
 use qualia_types::{BinaryMapGrid, NavGoal};
 use serde::{Deserialize, Serialize};
@@ -116,9 +116,13 @@ impl RunnerConfig {
 /// artifact directory; only `prior` loads it. Any other mode, an unset path, or
 /// an artifact [`CouplingPrior::load`] rejects disables the prior with a log
 /// line and an `off` runner — the runner must never fail to start because of
-/// the prior.
+/// the prior. `QUALIA_FLY_COUPLING_SCALE` is the agent's dial on how hard the
+/// prior is applied: it is read at the coupling's bound, so a hand-edited
+/// manifest cannot drive the coupling to zero or to infinity.
 struct FlyPrior {
     prior: CouplingPrior,
+    /// The bounded dial reading the coupling is applied at.
+    scale: f32,
 }
 
 impl FlyPrior {
@@ -126,6 +130,7 @@ impl FlyPrior {
         Self::from_settings(
             std::env::var("QUALIA_FLY_MODE").ok(),
             std::env::var("QUALIA_FLY_PRIOR_PATH").ok(),
+            std::env::var("QUALIA_FLY_COUPLING_SCALE").ok(),
         )
     }
 
@@ -133,7 +138,11 @@ impl FlyPrior {
     ///
     /// Split from the environment so every disabled path is a pure function of
     /// its inputs and can be tested without touching the process environment.
-    fn from_settings(mode: Option<String>, path: Option<String>) -> Option<Self> {
+    fn from_settings(
+        mode: Option<String>,
+        path: Option<String>,
+        scale: Option<String>,
+    ) -> Option<Self> {
         let mode = mode.unwrap_or_else(|| "off".to_string());
         if mode != "prior" {
             if mode != "off" {
@@ -146,8 +155,11 @@ impl FlyPrior {
             println!("fly prior: disabled (QUALIA_FLY_PRIOR_PATH is unset)");
             return None;
         }
+        let scale = scale
+            .and_then(|raw| raw.trim().parse::<f32>().ok())
+            .map_or(COUPLING_SCALE_DEFAULT, clamp_coupling_scale);
         match CouplingPrior::load(Path::new(&path)) {
-            Ok(prior) => Some(Self { prior }),
+            Ok(prior) => Some(Self { prior, scale }),
             Err(error) => {
                 println!("fly prior: disabled ({error})");
                 None
@@ -199,7 +211,9 @@ async fn main() {
     }
 
     let prior = FlyPrior::from_env();
-    let belief_risk = PlannerBeliefRiskContext::from_prior(prior.as_ref().map(|fly| &fly.prior));
+    let belief_risk = PlannerBeliefRiskContext::from_prior(
+        prior.as_ref().map(|fly| (&fly.prior, fly.scale)),
+    );
     if let Some(risk) = belief_risk {
         println!(
             "fly prior: risk uncertainty_weight={} semantic_novelty={}",
@@ -700,17 +714,18 @@ impl PlannerBeliefRiskContext {
     ///
     /// `uncertainty_weight` is the mean weight the prior applies per coupled
     /// type: [`CouplingPrior::couple`] returns the summed peak-normalised
-    /// in-strength over the slots it is handed, and dividing that total by the
-    /// type count keeps the value inside the unit range the planner contract
-    /// fixes instead of saturating at the strongest type's unit weight — a
-    /// uniformly innervated graph reads `1.0`, one whose in-strength is
-    /// concentrated in a few types reads lower. `semantic_novelty` is `0.0`
+    /// in-strength over the slots it is handed, times the dial the pair
+    /// carries, and dividing that total by the type count keeps the value
+    /// inside the unit range the planner contract fixes instead of saturating
+    /// at the strongest type's unit weight — a uniformly innervated graph at
+    /// the default dial reads `1.0`, one whose in-strength is concentrated in
+    /// a few types reads lower. `semantic_novelty` is `0.0`
     /// because no runtime artifact carries per-type `dimorphism`; the dated
     /// resolution on issue #38 records that gap. With the prior off — or
     /// coupling nothing — the whole context is absent, so the request leaves
     /// `belief_risk` unset exactly as an ungoverned runner does.
-    fn from_prior(prior: Option<&CouplingPrior>) -> Option<Self> {
-        let prior = prior?;
+    fn from_prior(prior: Option<(&CouplingPrior, f32)>) -> Option<Self> {
+        let (prior, scale) = prior?;
         let type_count = prior.type_count as usize;
         if type_count == 0 {
             return None;
@@ -719,7 +734,7 @@ impl PlannerBeliefRiskContext {
         let slots: Vec<(u32, usize)> = (0..prior.type_count)
             .map(|index| (index, index as usize))
             .collect();
-        let total_applied = prior.couple(&mut belief, &slots);
+        let total_applied = prior.couple(&mut belief, &slots, scale);
         let uncertainty_weight = (total_applied / type_count as f32).clamp(0.0, 1.0);
         if uncertainty_weight <= 0.0 {
             return None;
@@ -1164,8 +1179,11 @@ mod tests {
             cols: vec![1, 0],
             weights: vec![1, 7],
         };
-        let risk = PlannerBeliefRiskContext::from_prior(Some(&skewed))
-            .expect("a loaded prior reports risk");
+        let risk = PlannerBeliefRiskContext::from_prior(Some((
+            &skewed,
+            COUPLING_SCALE_DEFAULT,
+        )))
+        .expect("a loaded prior reports risk");
         assert!(
             risk.uncertainty_weight > 0.0 && risk.uncertainty_weight < 1.0,
             "a skewed prior reads strictly inside the unit range: {}",
@@ -1181,8 +1199,11 @@ mod tests {
             cols: vec![1, 0, 0, 1],
             weights: vec![5, 5, 5, 5],
         };
-        let risk = PlannerBeliefRiskContext::from_prior(Some(&uniform))
-            .expect("a loaded prior reports risk");
+        let risk = PlannerBeliefRiskContext::from_prior(Some((
+            &uniform,
+            COUPLING_SCALE_DEFAULT,
+        )))
+        .expect("a loaded prior reports risk");
         assert!(
             (risk.uncertainty_weight - 1.0).abs() < 1e-6,
             "a uniform prior reads the unit ceiling: {}",
@@ -1195,22 +1216,61 @@ mod tests {
         // Off by default, and every path that cannot load an artifact answers
         // `None` rather than failing: another mode, a missing path, a path
         // whose artifact does not exist.
-        assert!(FlyPrior::from_settings(None, None).is_none(), "off by default");
+        assert!(FlyPrior::from_settings(None, None, None).is_none(), "off by default");
         assert!(
-            FlyPrior::from_settings(Some("sim".to_string()), Some("C:/tmp".to_string())).is_none(),
+            FlyPrior::from_settings(Some("sim".to_string()), Some("C:/tmp".to_string()), None).is_none(),
             "an unknown mode does not load a prior"
         );
         assert!(
-            FlyPrior::from_settings(Some("prior".to_string()), None).is_none(),
+            FlyPrior::from_settings(Some("prior".to_string()), None, None).is_none(),
             "prior mode without a path stays off"
         );
         assert!(
             FlyPrior::from_settings(
                 Some("prior".to_string()),
-                Some("C:/tmp/qualia-explore-no-such-prior".to_string())
+                Some("C:/tmp/qualia-explore-no-such-prior".to_string()),
+                None
             )
             .is_none(),
             "a rejected artifact stays off"
+        );
+    }
+
+    /// The dial the manifest hands down is read at the coupling's bounds: a
+    /// hand-edited manifest cannot drive the planner's prior to zero or to
+    /// infinity.
+    #[test]
+    fn the_dial_is_read_at_the_coupling_bounds() {
+        use qualia_jepa::prior::{COUPLING_SCALE_CEILING, COUPLING_SCALE_FLOOR};
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("assets")
+            .join("brain")
+            .join("prior")
+            .to_string_lossy()
+            .into_owned();
+        for (raw, expected) in [
+            ("0", COUPLING_SCALE_FLOOR),
+            ("inf", COUPLING_SCALE_CEILING),
+            ("nan", COUPLING_SCALE_DEFAULT),
+            ("2.5", 2.5),
+        ] {
+            let prior = FlyPrior::from_settings(
+                Some("prior".to_string()),
+                Some(path.clone()),
+                Some(raw.to_string()),
+            )
+            .unwrap_or_else(|| panic!("the committed prior loads for dial {raw:?}"));
+            assert_eq!(prior.scale, expected, "dial {raw:?}");
+        }
+
+        let unset = FlyPrior::from_settings(Some("prior".to_string()), Some(path), None)
+            .expect("the committed prior loads with no dial");
+        assert_eq!(
+            unset.scale, COUPLING_SCALE_DEFAULT,
+            "an unset dial is the identity"
         );
     }
 
@@ -1251,7 +1311,7 @@ mod tests {
             cols: Vec::new(),
             weights: Vec::new(),
         };
-        assert_eq!(PlannerBeliefRiskContext::from_prior(Some(&empty)), None);
+        assert_eq!(PlannerBeliefRiskContext::from_prior(Some((&empty, COUPLING_SCALE_DEFAULT))), None);
     }
 
     #[tokio::test]

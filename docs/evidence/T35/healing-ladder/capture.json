@@ -1,0 +1,24 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "~/t47-target/debug/deps/heal-f96c58e469ce4c8b",
+    "--test-threads=1"
+  ],
+  "profiler_argv": [
+    "/usr/local/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=~/mage-capture-scratch/T47/heal-mage2/mage-nsys-yteulr8z/capture",
+    "~/t47-target/debug/deps/heal-f96c58e469ce4c8b",
+    "--test-threads=1"
+  ],
+  "command": "~/t47-target/debug/deps/heal-f96c58e469ce4c8b --test-threads=1",
+  "capture_range": "all",
+  "status": "failed",
+  "returncode": 0,
+  "error": "RuntimeError: nsys captured no CUDA kernel launches. Check the target and capture range. Reports: ~/mage-capture-scratch/T47/heal-mage2/mage-nsys-yteulr8z"
+}

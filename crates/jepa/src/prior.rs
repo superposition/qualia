@@ -27,6 +27,59 @@ pub const GRAPH_FILE: &str = "graph.bin";
 /// The manifest schema this loader understands.
 const PRIOR_SCHEMA: &str = "qualia.connectome-prior.v1";
 
+/// The lowest scale a coupling is ever applied at.
+///
+/// The bound is the load-bearing part of the agent's dial (T30, #46): a failed
+/// mission carries the scale down one step, and this is what stops a run of
+/// failures from ever coupling a belief at zero.
+pub const COUPLING_SCALE_FLOOR: f32 = 0.25;
+
+/// The highest scale a coupling is ever applied at, so no run of successes can
+/// take the coupling to infinity.
+pub const COUPLING_SCALE_CEILING: f32 = 4.0;
+
+/// The scale a coupling is applied at when nothing declares a dial.
+pub const COUPLING_SCALE_DEFAULT: f32 = 1.0;
+
+/// The factor a successful mission carries the dial up by.
+pub const COUPLING_STEP_UP: f32 = 1.10;
+
+/// The factor a failed mission carries the dial down by.
+///
+/// The braid's `default_rules()` fires a failed mission as
+/// `BraidAction::LowerCoupling` with this same factor, so the rule an operator
+/// reads and the dial the agent steps cannot disagree.
+pub const COUPLING_STEP_DOWN: f32 = 0.90;
+
+/// Bounds a dial reading to the range a coupling may be applied at.
+///
+/// An infinite reading is the bound it points at rather than a coupling a
+/// belief cannot survive. Only a reading that is not a number at all — a
+/// manifest that spells `NaN` — is the default dial.
+pub fn clamp_coupling_scale(scale: f32) -> f32 {
+    if scale.is_nan() {
+        COUPLING_SCALE_DEFAULT
+    } else {
+        scale.clamp(COUPLING_SCALE_FLOOR, COUPLING_SCALE_CEILING)
+    }
+}
+
+/// One step of the agent's bounded dial (T30, #46), after a mission closed.
+///
+/// `outcome_ok` is whether the mission that closed succeeded: a success carries
+/// the coupling up by [`COUPLING_STEP_UP`], anything else carries it down by
+/// [`COUPLING_STEP_DOWN`]. The result is always inside
+/// [`COUPLING_SCALE_FLOOR`]..[`COUPLING_SCALE_CEILING`], so neither a run of
+/// failures nor a run of successes can leave the bounded range.
+pub fn next_coupling_scale(scale: f32, outcome_ok: bool) -> f32 {
+    let step = if outcome_ok {
+        COUPLING_STEP_UP
+    } else {
+        COUPLING_STEP_DOWN
+    };
+    clamp_coupling_scale(scale * step)
+}
+
 /// A prior artifact that was rejected while loading.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PriorError {
@@ -163,17 +216,24 @@ impl CouplingPrior {
         Ok(prior)
     }
 
-    /// Scales each mapped belief slot by its type's normalised in-strength.
+    /// Scales each mapped belief slot by its type's normalised in-strength,
+    /// then by the agent's dial.
     ///
     /// A type's in-strength is the summed weight of the edges that end on it,
     /// normalised by the largest in-strength of any type: the most strongly
     /// innervated type couples at unit weight and every other type scales
-    /// down in proportion, so coupling can attenuate a belief but never
-    /// amplify it. `slots` pairs a type index with the belief slot it feeds;
-    /// a pair naming a type outside the graph or a slot outside `belief` is
-    /// ignored. Returns the weight actually applied, which is zero when
-    /// `slots` is empty — the state when no prior is loaded.
-    pub fn couple(&self, belief: &mut [f32], slots: &[(u32, usize)]) -> f32 {
+    /// down in proportion. `scale` is the dial's reading (T30, #46): the
+    /// applied weight is the normalised weight times `scale`, bounded to
+    /// [`COUPLING_SCALE_FLOOR`]..[`COUPLING_SCALE_CEILING`], so a dial above
+    /// one amplifies the coupling and one below it attenuates further. A
+    /// caller with no dial passes [`COUPLING_SCALE_DEFAULT`], the identity.
+    ///
+    /// `slots` pairs a type index with the belief slot it feeds; a pair naming
+    /// a type outside the graph or a slot outside `belief` is ignored. Returns
+    /// the weight actually applied, which is zero when `slots` is empty — the
+    /// state when no prior is loaded.
+    pub fn couple(&self, belief: &mut [f32], slots: &[(u32, usize)], scale: f32) -> f32 {
+        let scale = clamp_coupling_scale(scale);
         let mut in_strength = vec![0u64; self.type_count as usize];
         let mut peak = 0u64;
         for (column, weight) in self.cols.iter().zip(self.weights.iter()) {
@@ -193,7 +253,7 @@ impl CouplingPrior {
             let Some(value) = belief.get_mut(slot) else {
                 continue;
             };
-            let factor = *strength as f32 / peak as f32;
+            let factor = *strength as f32 / peak as f32 * scale;
             *value *= factor;
             applied += factor;
         }

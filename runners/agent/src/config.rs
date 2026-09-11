@@ -171,6 +171,13 @@ pub struct AgentConfig {
     pub shm_autocreate: bool,
     pub session_store: String,
     pub mission_journal: String,
+    /// `QUALIA_STACK_MANIFEST`: the manifest the supervisor spawns the stack's
+    /// children from, when the environment names one. There is no default: a
+    /// launch that names none has no manifest the supervisor will read the
+    /// coupling dial from (`runners/init` falls back to its *embedded*
+    /// `config/stack-manifest.default.json`), so the handover is inert rather
+    /// than rewriting the product's tracked manifest in place (T30, #46).
+    pub stack_manifest: Option<String>,
     pub compute: ComputeConfig,
     pub thought_theater: ThoughtTheaterConfig,
     pub mission_broker: Option<MissionBrokerEndpoint>,
@@ -205,6 +212,7 @@ impl Default for AgentConfig {
             shm_autocreate: false,
             session_store: DEFAULT_SESSION_STORE.to_string(),
             mission_journal: DEFAULT_MISSION_JOURNAL.to_string(),
+            stack_manifest: None,
             compute: ComputeConfig::default(),
             thought_theater: ThoughtTheaterConfig {
                 enabled: false,
@@ -266,6 +274,7 @@ impl AgentConfig {
                 .unwrap_or_else(|| DEFAULT_SESSION_STORE.to_string()),
             mission_journal: env_string("QUALIA_MISSION_CONTROL_JOURNAL")
                 .unwrap_or_else(|| DEFAULT_MISSION_JOURNAL.to_string()),
+            stack_manifest: env_string("QUALIA_STACK_MANIFEST"),
             compute: ComputeConfig::from_env(),
             thought_theater: ThoughtTheaterConfig {
                 enabled: !viewer_url.trim().is_empty(),

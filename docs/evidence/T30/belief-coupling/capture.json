@@ -1,0 +1,206 @@
+{
+  "backend": "ncu",
+  "argv": [
+    "qualia-l1-belief"
+  ],
+  "env": {
+    "QUALIA_FLY_MODE": "prior",
+    "QUALIA_FLY_PRIOR_PATH": "assets/brain/prior",
+    "QUALIA_FLY_COUPLING_SCALE": "2.5",
+    "QUALIA_SHM_NAME": "/qualia_t30_smoke"
+  },
+  "profiler_argv": [
+    "sudo",
+    "env",
+    "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+    "/usr/local/cuda/bin/ncu",
+    "--target-processes",
+    "all",
+    "--launch-count",
+    "12",
+    "--export",
+    "t30-capture3/capture",
+    "--force-overwrite",
+    "/usr/bin/env",
+    "QUALIA_FLY_MODE=prior",
+    "QUALIA_FLY_PRIOR_PATH=assets/brain/prior",
+    "QUALIA_FLY_COUPLING_SCALE=2.5",
+    "QUALIA_SHM_NAME=/qualia_t30_smoke",
+    "target/debug/qualia-l1-belief"
+  ],
+  "returncode": 9,
+  "status": "complete",
+  "status_note": "the profiled runner ticks continuously, so after the twelfth launch ncu kept the app alive; the app was killed (as root, the sudo child) and ncu exited 9. The report was already written and the details-page import exits 0.",
+  "kernel_count": 12,
+  "commit": "58e5b6e728aebca577e710d49732c51c05e4272a",
+  "ticket": "T30 (#46), PR #210",
+  "board": {
+    "name": "Pinkie - Waveshare-carried Jetson Orin NX",
+    "uname_m": "aarch64",
+    "driver": "NVRM 540.4.0",
+    "cuda_toolkit": "12.9",
+    "ncu": "2025.2.0.0 (build 35613519)",
+    "compute_capability": "8.7",
+    "ld_library_path": "/usr/local/cuda-12.9/compat",
+    "arena_owner": "qualia-init QUALIA_INIT_OWNER_ONLY=1 (the only process that may create the arena)"
+  },
+  "build": {
+    "command": "cargo build -p qualia-l1-belief --no-default-features --features cuda,fly-prior --offline -j 2",
+    "rustc": "1.94.0 (4a4ef493e 2026-03-02)",
+    "rustflags": "-C target-feature=+fp16"
+  },
+  "dial": {
+    "readings": {
+      "1.0": "2.7878788",
+      "2.5": "6.969697"
+    },
+    "ratio": 2.5,
+    "expected_ratio": 2.5,
+    "line": "fly prior: applied {total}",
+    "logs": [
+      "t30-scale-1.0.log",
+      "t30-scale-2.5.log"
+    ]
+  },
+  "changed_number_vs_T16": {
+    "kernel": "belief_update",
+    "board_ms_median": 3.53,
+    "board_ms_first": 1.73,
+    "t16_4090_us": 1573.013,
+    "board_over_4090": 2.24,
+    "note": "same kernel, block 1024x1, grid 1x1; the ratio divides the Orin's ncu replay clock (SM 306 MHz) by the 4090's, as docs/evidence/T50 states"
+  },
+  "launches": [
+    {
+      "id": 0,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.52",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 1,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 2,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 3,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 4,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "1.73",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 5,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 6,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.52",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 7,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 8,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.52",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 9,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 10,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.52",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 11,
+      "kernel": "belief_update",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "3.53",
+      "duration_unit": "ms"
+    }
+  ],
+  "runs": [],
+  "files": {
+    "kernels.csv": {
+      "bytes": 7717,
+      "sha256": "4f2b0ab967a0f3fde1cf467762c706573694fad0ddefadc81eba579d622d249e"
+    },
+    "kernels.json": {
+      "bytes": 46864,
+      "sha256": "6f16be5a34b7d881d92b7dc2065585abd6188200a1c68a20864b0d89f57bb82c"
+    },
+    "metrics.csv": {
+      "bytes": 113527,
+      "sha256": "fac3f1d866288c236d799c4c555a307475bca3a0a78d16b371c8a3146ae26dac"
+    },
+    "capture.ncu-rep": {
+      "bytes": 676472,
+      "sha256": "cc1548ba50bae87b9a6949ac254e5a04ce275bc03e8c17d6568b8a2f4961719d"
+    },
+    "ncu-run.log": {
+      "bytes": 649299,
+      "sha256": "66774aa69feb881249f29dd70ffd1de8fdf7a878a94628505951731c00baee42"
+    },
+    "t30-scale-1.0.log": {
+      "bytes": 56346,
+      "sha256": "e116033a0020ad6dfa0d8cb630207ab684b888a1a8fcff5928ba250dfce5f6e2"
+    },
+    "t30-scale-2.5.log": {
+      "bytes": 55305,
+      "sha256": "4744bbac0d49fb463c477e55523866950bf69e96bb0dee7716977a81ddcd62fe"
+    },
+    "board-run.log": {
+      "bytes": 5449,
+      "sha256": "c4fa873568a0da6ea6533dfbea64910f46427ea75ab83ba009eeeb20488f78ca"
+    }
+  }
+}

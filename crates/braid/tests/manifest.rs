@@ -33,4 +33,16 @@ fn stack_manifest_has_fly_keys() {
         .get("QUALIA_FLY_PRIOR_PATH")
         .expect("QUALIA_FLY_PRIOR_PATH is declared so operators can point at an artifact");
     assert_eq!(prior, "", "unset by default; the runners disable the prior when it is empty");
+
+    // The dial ships at its default so the console and the belief layers read
+    // the same value when the agent has stepped nothing yet (T30, #46).
+    let scale = env
+        .get("QUALIA_FLY_COUPLING_SCALE")
+        .expect("QUALIA_FLY_COUPLING_SCALE is declared so the dial has one home");
+    assert_eq!(scale, "1.0", "the shipped dial is the coupling's identity");
+    assert_eq!(
+        scale.as_str().and_then(|text| text.parse::<f32>().ok()),
+        Some(qualia_jepa::prior::COUPLING_SCALE_DEFAULT),
+        "the manifest's spelling parses to the coupling's own default"
+    );
 }
