@@ -4601,6 +4601,7 @@ name = "qualia-fly-circuit"
 version = "0.1.0"
 dependencies = [
  "qualia-connectome-prior",
+ "serde_json",
  "tempfile",
 ]
 
