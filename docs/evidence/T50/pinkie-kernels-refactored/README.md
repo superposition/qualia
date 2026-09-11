@@ -18,8 +18,8 @@ separately at `docs/evidence/T50/kernels-serial-walks/` and is not mixed with th
 
 | kernel | duration before (committed) | duration after (this capture) | speed-up | `l1tex__t_bytes.sum` before → after | sectors after (`…mem_global_op_ld.sum`) | regs before → after | static shared |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `belief_update` | 12.976 ms / 12.995 ms | **3.407 ms** | **3.81×** | 100 717 696 → **25 220 224** B (3.99× fewer) | **525 281** | 44 → **42** | 8192 B both |
-| `cognition_update` | 13.046 / 12.991 / 13.005 / 13.015 ms | **3.589 / 3.595 ms** | **3.62×** | 104 892 416 → **29 394 944** B (3.57× fewer) | **656 192** | 48 → **40** | 8192 B both |
+| `belief_update` | 12.976 ms / 12.995 ms | **3.407 ms** | **3.81×** | 100 717 696 → **25 220 224** B (matrix 100 663 296 → 25 165 824, **4.000×**) | **525 281** | 44 → **42** | 8192 B both |
+| `cognition_update` | 13.046 / 12.991 / 13.005 / 13.015 ms | **3.589 / 3.595 ms** | **3.62×** | 104 892 416 → **29 394 944** B (matrix 104 857 600 → 29 360 128, **3.571×**) | **656 192** | 48 → **40** | 8192 B both |
 
 **Against the previous capture:**
 `docs/evidence/T50/pinkie-kernels/` is the board's measurement of the **unrefactored** kernels —
@@ -36,11 +36,28 @@ stay valid for the five kernels this PR does not touch.
   memory 8192 B per block, dynamic 0 — only the register count moved (44 → 42, 48 → 40), which is the
   refactor's own footprint.
 * **The counter the refactor moves is available on this driver**:
-  `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` (525 281 and 656 192 sectors) — no fallback to
-  `l1tex__t_bytes` was needed, and `l1tex__t_bytes.sum` is reported alongside it.
-* `dram__bytes.sum` is still `n/a` on the Tegra driver, so the L1-side bandwidth is derived from the byte
-  counter and the launch duration: **7.40 GB/s** (`belief_update`) and **8.18 GB/s** (`cognition_update`).
-  L2 traffic fell with it: 42.7 MB → 16.9 MB and 47.6 MB → 21.0 MB (`lts__t_bytes.sum`).
+  `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` (525 281 and 656 192 sectors per launch) — no fallback
+  to `l1tex__t_bytes` was needed, and `l1tex__t_bytes.sum` is reported alongside it. One sector per
+  `float4` access is exactly the 2× state above.
+* **The fetch is 8× the useful bytes before and 2× after — not 1×.** A 4-byte scalar element at a
+  4096-byte lane stride takes a whole 32-byte sector; a 16-byte `float4` takes *half* of one, so the two
+  halves of a 32-byte chunk are two accesses inside one sector and the sector is still fetched for the
+  first of them. The matrix traffic per launch is therefore `3 × 32 MiB → 3 × 8 MiB` for `belief_update`
+  (its two row reads and one row write, **4.000×**) and `32 + 4 + 32 + 32 → 8 + 4 + 8 + 8 MiB` for
+  `cognition_update` (its two strided rows, its coalesced transposed gradient and its row write,
+  **3.571×**) — see the two matrix figures in the table, which are the measured totals less the
+  non-matrix traffic that is identical on both sides (54 400 B and 34 816 B). The sector counter confirms
+  the after side directly: 525 281 load sectors against the 524 288 `float4` lane-accesses the two
+  `belief_update` row walks issue, i.e. one 32-byte sector per 16-byte access.
+* `dram__bytes.sum` is still `n/a` on the Tegra driver, so the L1-side rate is derived from the byte
+  counter and the launch duration. It is **flat across the change**: 100 717 696 B / 12.976 ms =
+  **7.76 GB/s** before and 25 220 224 / 3.407 ms = **7.40 GB/s** after for `belief_update`; 104 892 416 /
+  13.046 ms = **8.04 GB/s** and 29 394 944 / 3.589 ms = **8.19 GB/s** for `cognition_update`. The duration
+  fell with the traffic at a constant rate, so these two kernels are bound by **L1/LSU throughput, not by
+  DRAM** — and a DRAM figure would not be reachable anyway from a one-block launch (one SM draws a small
+  fraction of 1008 GB/s). [INFERENCE] on the attribution; the flat rate and the traffic-proportional
+  duration are measured. L2 traffic fell with it: 42.7 MB → 16.9 MB and 47.6 MB → 21.0 MB
+  (`lts__t_bytes.sum`).
 
 ## Method
 
@@ -68,9 +85,20 @@ kernels this ticket changes appear once and twice, exactly as the metric spec re
 
 `kernels-refactored.csv` is the `ncu --csv` output verbatim, and `kernels.csv`/`kernels.json` are its
 hand-normalised projection (one object per launch under a `run` column, the raw metric identifiers kept,
-thousands separators removed — `dram__bytes_sum` stays `n/a` as the export has it, and no data file
-carries a filesystem path). `metrics.csv` + `capture.ncu-rep` are the same configuration's details-page
-export and report, committed whole as the convention has it for `ncu`.
+thousands separators removed — `dram__bytes_sum` stays `n/a` as the export has it). `metrics.csv` +
+`capture.ncu-rep` are the same configuration's details-page export and report, committed whole as the
+convention has it for `ncu`.
+
+Two committed files carry the board's own deploy path, and that is corrected here rather than elided:
+
+* `kernels-refactored.csv` carries it once, in the profiled process's command line:
+  `/home/jetson/qualia-deploy/T50c/target/release/deps/gpu-e5293633ad869b15`. The file is a verbatim
+  export, so redacting it would break both that claim and the hash the board's comment records for it
+  (`2718fea8…`), and the path is the board's own deploy directory, not a secret.
+* `capture.ncu-rep` carries the same path family, as every `ncu` report does, because a report embeds the
+  profiled command line and the convention commits it whole for that reason — the committed
+  `docs/evidence/T50/pinkie-kernels/base-capture.ncu-rep` carries it the same way.
+* `capture.json`, `kernels.csv`, `kernels.json` and `metrics.csv` carry no filesystem path.
 
 | file | bytes | sha256 |
 | --- | --- | --- |
@@ -89,7 +117,30 @@ committed, as the convention has it for a capture's transcripts: `board-run.log`
 `201c2baa2528b609cbbd05f827f17ef4289cb25164fc2cff75b2cebf7ba0f95e`). The first two carry the board's
 absolute scratch paths (`/home/jetson/qualia-deploy/T50c/…`) and the suite's result line is already
 recorded in `capture.json`'s `suite` block; all three stay named with their sizes and hashes in
-`capture.json`'s `files` map, which is committed byte-identical to what the board staged.
+`capture.json`'s `files` map, which is committed byte-identical to what the board staged. Their bytes are
+on the capturing machine, so a reader cannot re-derive those three hashes from this repository — that is
+the convention's own trade for a run's transcripts, and the sizes and hashes are recorded so a copy
+produced from the board can be checked against them.
 
 `capture.json` keeps mage's manifest field names (`argv`, `profiler_argv`, `returncode`, `status`,
-`kernel_count`) and adds the board, build, suite, changed-kernel and unavailable-metric facts.
+`kernel_count`) and adds the board, build, suite, changed-kernel and unavailable-metric facts. Its
+`commit` field pins `5eb7c9f`, the head the board checked out, built and profiled; **the device code it
+measured is the kernels commit `4d441d8`**, which introduced both kernel files, and the two commits after
+it (`5eb7c9f`, `a32139c`) change evidence text only.
+
+### Power state and clock control: not recorded, and what that costs
+
+This capture did not record the board's NV power mode, and it carries no `--clock-control` setting and no
+`--clock-control none` repeat of the kind the committed `pinkie-kernels/` capture has. Two things follow,
+one supporting and one limiting.
+
+* Supporting, and derivable from the committed rows: `sm__cycles_elapsed.avg` over the duration is
+  1 038 752 / 3.407 ms = **304.9 MHz** here, against 3 973 383 / 12.976 ms = **306.2 MHz** in the
+  committed `pinkie-kernels/` capture. Both captures ran at the same ~305 MHz state — the committed
+  README identifies that state as the board's 10 W mode — so the before/after rows above compare like
+  for like in clock, and the refactor does not win by being measured at a faster one.
+* Limiting: the absolute **3.407 ms is one `ncu` sample at that state**, not a base-clock-controlled
+  repeat, so it should be read as reproducible to about the spread the committed capture saw between its
+  own two runs (~0.2 %) rather than as a pinned number. The counts this capture turns on — 525 281 and
+  656 192 sectors, 25 220 224 and 29 394 944 L1 bytes, 42 and 40 registers, and the launch shape — are
+  power-state-independent.

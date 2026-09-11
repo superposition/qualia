@@ -61,20 +61,28 @@ its own 32-byte sector. Every element therefore costs a **fully fetched 32-byte 
 bytes of it — 8× the sectors the data needs**. For one pass over the 4 MiB matrix:
 
 ```text
-scalar walk: 4 194 304 B / 4 B per element = 1 048 576 sectors × 32 B = 33 554 432 B (32 MiB)
-vector walk: 4 194 304 B / 32 B per element =   131 072 sectors × 32 B =  4 194 304 B ( 4 MiB)
+scalar walk: 4 194 304 B of data / 4 B per access  = 1 048 576 accesses × 32 B fetched = 33 554 432 B (32 MiB)
+float4 walk: 4 194 304 B of data / 16 B per access =   262 144 accesses × 32 B fetched =  8 388 608 B ( 8 MiB)
 ```
 
-8× the sector traffic, from an access pattern the compiler cannot coalesce: `weights + tid * 1024`
-is 16-byte aligned but nvcc cannot vectorize a `float*` it only knows is 4-byte aligned, so the
-before kernel issues 1024 scalar loads per thread where 256 `float4` loads carry the same bytes.
+So the vector walk takes the fetch from **8× the useful bytes to 2×** — not to 1×. A `float4` is 16 B
+and the lanes are still 4096 B apart, so each 16-byte access takes a 32-byte sector half used: the two
+halves of a 32-byte chunk are two accesses inside one sector, and the sector is fetched once for both.
+The board capture measures exactly this (see [`../pinkie-kernels-refactored/`](../pinkie-kernels-refactored/README.md)):
+the tick's three passes over the matrix move 100 663 296 B → 25 165 824 B, a flat **4.000×**, with the
+non-matrix traffic identical on both sides. Reaching 1× would need one whole 32-byte sector per lane per
+access, which these walks do not do and which is the experiment the capture leaves open (see below).
+
+The access pattern is one the compiler cannot coalesce on its own: `weights + tid * 1024` is 16-byte
+aligned but nvcc cannot vectorize a `float*` it only knows to be 4-byte aligned, so the before kernel
+issues 1024 scalar loads per thread where 256 `float4` loads carry the same bytes.
 
 ## before / after
 
 Committed pair: `before-*` is the first run of the repeat set below, `after-*` is the first run
 of the final build; the repeats are tabulated under the table.
 
-| Kernel | Launches | Before (µs) | After (µs) | Ratio | Bytes moved per tick | Before GB/s | After GB/s | Peak % before → after |
+| Kernel | Launches | Before (µs) | After (µs) | Ratio | Useful bytes per tick | Before GB/s used | After GB/s used | Peak % before → after |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `belief_update` | 1 | **1582.071** | **417.336** | **3.79×** | 12 582 912 (read 2×, write 1×) | 7.95 | 30.15 | 0.79 % → 2.99 % |
 | `cognition_update` | 2 | **1651.925 + 1648.709** | **465.606 + 464.836** | **3.55×** | 16 777 216 per launch (read 3×, write 1×) | 10.17 | 36.06 | 1.01 % → 3.58 % |
@@ -126,21 +134,28 @@ DRAM peak, and the report's memory floor for one pass over the 4 MiB matrix is
 | `belief_update`, one tick with the gate open | 417.336 µs | 12.48 µs | **33.4×** |
 | `cognition_update`, one tick | 465.221 µs | 16.64 µs | **28.0×** |
 
-The refactor closes the **sector** half of the gap and cannot close the rest, and the reason is the
-launch shape rather than the walk. `grid_dim: (1, 1, 1)` puts the whole kernel on **one SM**, and
-every byte of the 12.58 MB a `belief_update` tick moves crosses that one SM's L1/LSU. A DRAM
-roofline is a whole-device number — 1008 GB/s is what 128 SMs draw together — and one block cannot
-draw it whatever its access pattern. [INFERENCE] The single-SM consequence is why the achieved rate
-lands at 30.15 GB/s rather than at the DRAM peak, and it is consistent with the two measured facts
-around it: the same matrix read is now sector-perfect (the 8× over-fetch above is gone, and each
-pass reads its bytes exactly once), and **widening the unroll from 4 to 8 changed nothing**
-(`belief_update` 416.69 µs with `#pragma unroll 8` — inside the 414.70–423.64 µs spread with
-`#pragma unroll 4`, so no gain — and cognition's first launch 723.22 µs against 461.3–472.9 µs, so
-worse), so the residual is not load issue or scheduling slack. What remains is the latency of one block's memory pipe with the data it must
-cross; splitting the reduction across blocks is the only lever left, and it is **not available
-without breaking the ABI**: the VFE reduction is a fixed 1024-term binary tree in one block's shared
-memory, the scalar fields are written by thread 0, and `dispatch_belief_update` launches one kernel.
-That change is a different ticket's, not this one's.
+The refactor cuts the fetched sectors **4×** and the time with them: on the board the L1-side rate is
+**flat across the change** (7.76 → 7.40 GB/s for `belief_update`, 8.04 → 8.19 GB/s for
+`cognition_update`) while the duration falls 3.81× and 3.62× and the L1 byte counter falls exactly
+4.000× and 3.571×. That is the signature of a kernel bound by **L1/LSU throughput rather than by
+DRAM**: the bytes it must fetch are what buy the time, at a rate one SM's L1 sustains. A DRAM roofline
+is a whole-device number — 1008 GB/s is what 128 SMs draw together — and the launch shape is
+`grid_dim: (1, 1, 1)`, one block on one SM, so the 12.48 µs DRAM floor for a tick is not reachable
+from this shape whatever its access pattern. [INFERENCE] on that attribution; the flat L1 rate and the
+traffic-proportional time are measured, on the board, in the capture named above.
+
+**Widening the unroll from 4 to 8 changed nothing** (`belief_update` 416.69 µs with
+`#pragma unroll 8` — inside the 414.70–423.64 µs spread with `#pragma unroll 4` — and cognition's first
+launch 723.22 µs against 461.3–472.9 µs, so worse), so the residual is not load-issue slack.
+
+Two things are left, and neither belongs to this PR. The first is a further **2× in fetched sectors**:
+one whole 32-byte sector per lane per access, i.e. two `float4`s per iteration, would take the fetch
+from 2× to 1×. Whether that buys time depends on whether the binding resource is fetched sectors or LSU
+wavefronts, and the capture above cannot separate the two — the four-fold fall in both is consistent
+with either — so it is named here as the honest next experiment, not as headroom this PR claims. The
+second is the launch shape: splitting the reduction across blocks is **not available without breaking
+the ABI** — the VFE reduction is a fixed 1024-term binary tree in one block's shared memory, the scalar
+fields are written by thread 0, and `dispatch_belief_update` launches one kernel.
 
 ## What changed, and what was rejected
 
@@ -157,10 +172,10 @@ block-per-row-tile reduction, and a reduction changes the order of the 1024 adds
 `crates/cuda/src/cpu.rs`, whose `belief_update` accumulates each row in ascending column order and
 whose own doc comment calls the ordering part of the twin: *"the same clamps, the same reduction
 order for the VFE tree, and the same ordering of the belief, weight and precision updates. Any
-change to one side must be mirrored in the other."* Reordering a row is a value change; D-008/D-009
-make emitted values interface, and there is no measured reason to pay it: the order-preserving
-vector walk above already reads each byte once at one sector per 32-byte chunk, which is the traffic
-floor for this shape. The tiled reduction is refused, not deferred.
+change to one side must be mirrored in the other."* Reordering a row is a value change, and D-008/D-009
+make emitted values interface: that is the whole ground of the refusal, and it does not rest on what is
+left on the table. The order-preserving walks above keep the oracle's values bit for bit while cutting
+the fetched sectors 4×; the tiled reduction is refused, not deferred.
 
 **The two-walk fold is not available here, and the reason is a gate, not an oversight.** For
 `belief_update` the weight step is gated by `vfe > threshold`, a **block-wide** predicate that
@@ -169,8 +184,8 @@ updated until the whole matrix has been walked. For `cognition_update` the coeff
 is row-local, but it exists only once that row's dot product has completed — the same walk the
 thread has just finished. Holding a row on chip to fold the two is out of reach: 1024 floats per
 thread against a 48 KiB static budget. What the refactor does instead is make the second walk cost
-its minimum — one sector per 32-byte chunk, read-modify-write, no over-fetch — which the numbers
-above show it does.
+the same half-sector access as the first — a 16-byte `float4` chunk, two accesses per 32-byte sector,
+read-modify-write — which is where the 4× in fetched sectors above comes from.
 
 ## Values: bit-identical, and how that was checked
 
