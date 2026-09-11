@@ -357,6 +357,80 @@ fn open_of_an_unknown_name_reports_an_os_error() {
     assert!(matches!(ShmRegion::open(&name), Err(ShmError::OsError(_))));
 }
 
+#[test]
+fn error_display_renders_the_reference_wording() {
+    // These strings reach operators: `qualia-init` prints
+    // `[init] Failed to create shm: {err}`, and the other runners surface the
+    // same text, so the rendered line — not the variant — is the contract.
+    assert_eq!(ShmError::OsError(13).to_string(), "OS error 13");
+    assert_eq!(
+        ShmError::BadMagic.to_string(),
+        "bad magic number in shared memory header"
+    );
+    assert_eq!(
+        ShmError::SizeMismatch.to_string(),
+        "shared memory size mismatch"
+    );
+    assert_eq!(
+        ShmError::VersionMismatch {
+            expected: 2,
+            found: 11,
+        }
+        .to_string(),
+        "shared memory version mismatch: expected 2, found 11"
+    );
+    assert_eq!(
+        ShmError::LayoutMismatch.to_string(),
+        "shared memory layout contract mismatch"
+    );
+}
+
+#[test]
+fn error_debug_renders_the_reference_spelling() {
+    assert_eq!(format!("{:?}", ShmError::OsError(13)), "ShmError::OsError(13)");
+    assert_eq!(format!("{:?}", ShmError::BadMagic), "ShmError::BadMagic");
+    assert_eq!(
+        format!("{:?}", ShmError::SizeMismatch),
+        "ShmError::SizeMismatch"
+    );
+    assert_eq!(
+        format!(
+            "{:?}",
+            ShmError::VersionMismatch {
+                expected: 2,
+                found: 11,
+            }
+        ),
+        "ShmError::VersionMismatch { expected: 2, found: 11 }"
+    );
+    assert_eq!(
+        format!("{:?}", ShmError::LayoutMismatch),
+        "ShmError::LayoutMismatch"
+    );
+}
+
+#[test]
+#[should_panic(expected = "ledger index out of range")]
+fn a_ledger_index_past_the_ring_is_rejected_with_the_reference_message() {
+    let name = region_name("ledger-bounds");
+    let region = ShmRegion::create(&name).expect("create");
+    let _ = region.ledger_entry(MAX_LEDGER_ENTRIES);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_name_the_platform_cannot_use_renders_the_operator_line() {
+    // A malformed `QUALIA_SHM_NAME` reaches the supervisor as this line, so the
+    // whole line — prefix, wording and code — is what an operator reads.
+    match ShmRegion::create("") {
+        Err(err) => assert_eq!(
+            format!("[init] Failed to create shm: {err}"),
+            "[init] Failed to create shm: OS error 22"
+        ),
+        Ok(_) => panic!("an empty name must not map a region"),
+    }
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_names_are_normalised_across_separators() {
