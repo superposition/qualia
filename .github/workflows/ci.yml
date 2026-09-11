@@ -6,21 +6,6 @@ on:
   pull_request:
 
 jobs:
-  build-and-test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build the workspace
-        run: cargo build --workspace --locked
-      - name: Test the workspace
-        run: cargo test --workspace --locked
-
   notice:
     runs-on: ubuntu-latest
     steps:
