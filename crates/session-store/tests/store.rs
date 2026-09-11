@@ -2,11 +2,15 @@
 //! temporary SQLite databases (never `:memory:`) so that reopen and on-disk
 //! schema behaviour are exercised.
 
-use qualia_session_store::mission_types::{AnalysisJobKind, AnalysisJobStatus};
+use qualia_session_store::mission_types::{
+    AnalysisJobKind, AnalysisJobStatus, CandidateState, ExactnessKind, GraphForm, GraphKind,
+    LinkKind, PlanStatus, RegionKind,
+};
 use qualia_session_store::{
     AbstractStateSample, AbstractionEpochUpsert, AbstractionSpaceUpsert, AnalysisJobUpsert,
+    DeliberatePlanRequest, DeliberatePlanThresholds, GraphFragmentUpsert, MergeCandidateThresholds,
     MissionInstanceUpsert, MissionPhaseUpsert, MissionPortfolioUpsert, OutcomeAssessmentUpsert,
-    SessionStore, SessionUpsert,
+    SessionStore, SessionUpsert, WorldRegionUpsert,
 };
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -435,4 +439,254 @@ fn unstamped_legacy_database_gains_the_full_schema_in_place() {
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("version");
     assert_eq!(version, 1);
+}
+
+/// A session with one completed analysis job: the least a stored fragment needs.
+struct Seeded {
+    session_id: i64,
+    job_id: i64,
+}
+
+fn seed_session(store: &SessionStore, path: &str) -> Seeded {
+    let session_id = store.upsert_session(&session(path)).expect("session");
+    let job_id = store
+        .upsert_analysis_job(&AnalysisJobUpsert {
+            session_id,
+            environment_id: Some(1),
+            job_kind: AnalysisJobKind::GraphInference,
+            status: AnalysisJobStatus::Complete,
+            requested_at: "2026-09-11T01:00:00Z".to_string(),
+            started_at: Some("2026-09-11T01:00:01Z".to_string()),
+            completed_at: Some("2026-09-11T01:00:02Z".to_string()),
+            window_start_sec: Some(0.0),
+            window_end_sec: Some(1.0),
+            spec_json: "{}".to_string(),
+            summary_json: "{}".to_string(),
+            failure_json: None,
+        })
+        .expect("analysis job");
+    Seeded { session_id, job_id }
+}
+
+/// Stores one region backed by a fragment whose inference was exact, which is
+/// what makes the planner willing to route through it.
+#[allow(clippy::too_many_arguments)]
+fn exact_region(
+    store: &SessionStore,
+    seeded: &Seeded,
+    environment_id: i64,
+    region_key: &str,
+    centroid_json: &str,
+    confidence: f64,
+    region_kind: RegionKind,
+    signature_hash: &str,
+    support_point_count: i64,
+) -> i64 {
+    let fragment_id = store
+        .upsert_graph_fragment(&GraphFragmentUpsert {
+            analysis_job_id: seeded.job_id,
+            session_id: seeded.session_id,
+            epoch_id: None,
+            stream_key: "camera.front".to_string(),
+            fragment_key: format!("fragment-{region_key}"),
+            graph_kind: GraphKind::LocalSpace,
+            graph_form: GraphForm::Tree,
+            exactness: ExactnessKind::Exact,
+            variable_count: 3,
+            factor_count: 2,
+            tree_width: Some(2),
+            root_variable_key: Some("x0".to_string()),
+            window_start_sec: 0.0,
+            window_end_sec: 1.0,
+            summary_json: "{}".to_string(),
+        })
+        .expect("graph fragment");
+
+    store
+        .upsert_world_region(&WorldRegionUpsert {
+            environment_id: Some(environment_id),
+            session_id: seeded.session_id,
+            source_fragment_id: fragment_id,
+            region_key: region_key.to_string(),
+            region_kind,
+            support_point_count,
+            confidence,
+            centroid_json: centroid_json.to_string(),
+            bounds_json: "{}".to_string(),
+            signature_hash: signature_hash.to_string(),
+            metadata_json: "{}".to_string(),
+        })
+        .expect("world region")
+}
+
+fn plan_request(
+    environment_id: i64,
+    source_region_id: i64,
+    target_region_id: i64,
+    started_at: &str,
+) -> DeliberatePlanRequest {
+    DeliberatePlanRequest {
+        environment_id,
+        planner_kind: "deliberate".to_string(),
+        started_at: started_at.to_string(),
+        completed_at: Some("2026-09-11T04:00:00Z".to_string()),
+        source_region_id,
+        target_region_id,
+        thresholds: DeliberatePlanThresholds::default(),
+    }
+}
+
+#[test]
+fn deliberate_plan_walks_exact_regions_and_records_each_step() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = database_path(&dir);
+    let store = SessionStore::open(&path).expect("open store");
+    let seeded = seed_session(&store, "/tmp/plan.mp4");
+
+    let start = exact_region(&store, &seeded, 7, "start", "[0.0,0.0,0.0]", 0.92, RegionKind::Corridor, "sig-start", 40);
+    let mid = exact_region(&store, &seeded, 7, "mid", "[8.0,0.0,0.0]", 0.80, RegionKind::Corridor, "sig-mid", 30);
+    let goal = exact_region(&store, &seeded, 7, "goal", "[30.0,0.0,0.0]", 0.90, RegionKind::Corridor, "sig-goal", 35);
+    assert!(exact_region(&store, &seeded, 7, "rock", "[8.0,6.0,0.0]", 0.30, RegionKind::ObstacleCluster, "sig-rock", 10) > 0);
+
+    // The direct hop is 30 ft, past the 25 ft edge cap, so the route has to be
+    // walked through the midpoint.
+    let run = store
+        .generate_deliberate_plan(&plan_request(7, start, goal, "2026-09-11T02:00:00Z"))
+        .expect("plan");
+
+    assert_eq!(run.status, PlanStatus::Complete);
+    assert_eq!(run.source_region_id, Some(start));
+    assert_eq!(run.target_region_id, Some(goal));
+    assert!(run.path_cost > 0.0, "route cost should be positive");
+    // The riskliest hop is mid -> goal, at 0.2125.
+    assert!((run.risk_score - 0.2125).abs() < 1e-9, "{}", run.risk_score);
+    // The obstacle sits 6 ft from the midpoint, which caps the route clearance.
+    assert!((run.clearance_min_ft - 6.0).abs() < 1e-9, "{}", run.clearance_min_ft);
+
+    let steps = store.list_plan_run_regions(run.id).expect("steps");
+    assert_eq!(
+        steps.iter().map(|step| step.region_id).collect::<Vec<_>>(),
+        vec![start, mid, goal]
+    );
+    assert_eq!(
+        steps.iter().map(|step| step.step_index).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    assert!(steps.windows(2).all(|pair| pair[0].cumulative_cost < pair[1].cumulative_cost));
+    assert!(steps.windows(2).all(|pair| pair[0].cumulative_risk <= pair[1].cumulative_risk));
+
+    let summary: serde_json::Value = serde_json::from_str(&run.summary_json).expect("summary json");
+    assert_eq!(summary["path_region_ids"], serde_json::json!([start, mid, goal]));
+}
+
+#[test]
+fn deliberate_plan_reports_why_no_route_exists() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = database_path(&dir);
+    let store = SessionStore::open(&path).expect("open store");
+    let seeded = seed_session(&store, "/tmp/no-path.mp4");
+
+    let start = exact_region(&store, &seeded, 7, "start", "[0.0,0.0,0.0]", 0.92, RegionKind::Corridor, "sig-start", 40);
+    let faint = exact_region(&store, &seeded, 7, "faint", "[4.0,0.0,0.0]", 0.40, RegionKind::Corridor, "sig-faint", 20);
+    let far = exact_region(&store, &seeded, 7, "far", "[400.0,0.0,0.0]", 0.95, RegionKind::Corridor, "sig-far", 20);
+
+    // A target under the free-space confidence floor is refused before the
+    // frontier is expanded.
+    let gated = store
+        .generate_deliberate_plan(&plan_request(7, start, faint, "2026-09-11T03:00:00Z"))
+        .expect("gated plan");
+    assert_eq!(gated.status, PlanStatus::NoFeasiblePath);
+    let summary: serde_json::Value = serde_json::from_str(&gated.summary_json).expect("summary");
+    assert_eq!(summary["reason"], "confidence_or_exactness_gate_failed");
+    assert!(store.list_plan_run_regions(gated.id).expect("steps").is_empty());
+
+    // A target past every edge's distance cap is simply unreachable.
+    let unreachable = store
+        .generate_deliberate_plan(&plan_request(7, start, far, "2026-09-11T03:01:00Z"))
+        .expect("unreachable plan");
+    assert_eq!(unreachable.status, PlanStatus::NoFeasiblePath);
+    let summary: serde_json::Value = serde_json::from_str(&unreachable.summary_json).expect("summary");
+    assert_eq!(summary["reason"], "no_connected_path");
+
+    assert_eq!(store.list_plan_runs(7).expect("runs").len(), 2);
+}
+
+#[test]
+fn merge_candidate_generation_keeps_only_pairs_over_the_thresholds() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = database_path(&dir);
+    let store = SessionStore::open(&path).expect("open store");
+    let left = seed_session(&store, "/tmp/merge-left.mp4");
+    let right = seed_session(&store, "/tmp/merge-right.mp4");
+
+    let left_corridor = exact_region(&store, &left, 9, "left-corridor", "[0.0,0.0,0.0]", 0.90, RegionKind::Corridor, "shared-signature", 40);
+    let left_field = exact_region(&store, &left, 9, "left-field", "[50.0,0.0,0.0]", 0.50, RegionKind::LandmarkField, "left-only", 10);
+    let right_corridor = exact_region(&store, &right, 9, "right-corridor", "[1.0,0.0,0.0]", 0.88, RegionKind::Corridor, "shared-signature", 38);
+    let right_other = exact_region(&store, &right, 9, "right-other", "[50.0,0.0,0.0]", 0.50, RegionKind::ObstacleCluster, "right-only", 10);
+    assert!(left_field > 0 && right_other > 0);
+
+    let report = store
+        .generate_session_merge_candidates(
+            left.session_id,
+            right.session_id,
+            &MergeCandidateThresholds::default(),
+        )
+        .expect("generation");
+
+    assert_eq!(report.evaluated_pairs, 4, "every left/right region pair is scored");
+    assert_eq!(report.persisted_candidates, 1, "only the matching corridor pair clears the thresholds");
+    assert_eq!(report.persisted_region_links, 1);
+
+    let candidates = store
+        .list_session_merge_candidates(left.session_id, right.session_id)
+        .expect("candidates");
+    assert_eq!(candidates.len(), 1);
+    let kept = &candidates[0];
+    assert_eq!(kept.left_region_id, left_corridor);
+    assert_eq!(kept.right_region_id, right_corridor);
+    assert_eq!(kept.candidate_kind, LinkKind::Overlap);
+    assert_eq!(kept.state, CandidateState::Proposed);
+    assert!((kept.score - 0.9725).abs() < 1e-9, "{}", kept.score);
+    assert!((kept.transform_consistency - 0.945).abs() < 1e-9, "{}", kept.transform_consistency);
+    assert!((kept.contradiction_score - 0.02525).abs() < 1e-9, "{}", kept.contradiction_score);
+
+    let reasons: serde_json::Value = serde_json::from_str(&kept.reason_json).expect("reason json");
+    assert_eq!(reasons["factors"]["signature_score"], 1.0);
+    assert_eq!(reasons["thresholds"]["overlap_min"], 0.55);
+
+    assert_eq!(
+        store
+            .list_session_merge_candidates_for_session(left.session_id)
+            .expect("for session")
+            .len(),
+        1
+    );
+
+    let links = store.list_region_links(left_corridor).expect("links");
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].right_region_id, right_corridor);
+    assert_eq!(links[0].state, CandidateState::Proposed);
+    let transform: serde_json::Value =
+        serde_json::from_str(&links[0].relative_transform_json).expect("transform json");
+    assert!(transform["translation"].is_object(), "{transform}");
+    assert!(store.list_region_links(left_field).expect("rejected pair").is_empty());
+
+    // A stricter pass writes nothing new and leaves the earlier candidates alone.
+    let stricter = MergeCandidateThresholds {
+        overlap_min: 0.99,
+        transform_consistency_min: 0.99,
+        contradiction_max: 0.01,
+    };
+    let report = store
+        .generate_session_merge_candidates(left.session_id, right.session_id, &stricter)
+        .expect("strict generation");
+    assert_eq!(report.persisted_candidates, 0);
+    assert_eq!(report.persisted_region_links, 0);
+    assert_eq!(
+        store
+            .list_session_merge_candidates(left.session_id, right.session_id)
+            .expect("unchanged")
+            .len(),
+        1
+    );
 }
