@@ -1,7 +1,7 @@
-# Figures — the licence and the clean-room snapshot
+# Figures — the licence and the snapshot
 
 Two figures for the journal entry
-[`the-licence-and-the-clean-room-snapshot`](https://superposition.github.io/journal/the-licence-and-the-clean-room-snapshot/).
+[`the-licence-and-the-snapshot`](https://superposition.github.io/journal/the-licence-and-the-snapshot/).
 
 | File | Kind | What it encodes |
 | --- | --- | --- |
