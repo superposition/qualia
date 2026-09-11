@@ -16,6 +16,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # `qualia-drive` links `serialport`, whose Linux backend builds
+      # `libudev-sys`; the runner image ships no udev headers.
+      - name: Install libudev (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Build the workspace
         run: cargo build --workspace --locked
       - name: Test the workspace
