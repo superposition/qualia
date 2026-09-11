@@ -55,6 +55,19 @@ The plan says the psi geometry is authored "in the journal repo". `superposition
 each other or from a second copy; the two sites receive the inlined geometry and the favicon in
 ticket T41.
 
+## D-008 — Runner operator logs are interface
+
+Runner log lines (`qualia-pose: pose_seq=…`, `qualia-lidar: scan ok`, …) are operator-visible output:
+the contract pass checks them line for line against the reference, and operators and the journal read
+them. They stay byte-identical to the reference even where a label (`tx`, `weight`, `keyframes`) uses
+vocabulary the re-authored internals no longer share.
+
+`scripts/provenance_check.py` is the arbiter of copied text — it measures code runs and prose runs,
+and a single-line format string is below its thresholds. Ticket #91 does not list the log lines among
+the things its rewrite changes, and the lidar scrub (#137) treated the same question the same way.
+C25's clean-room request to re-author the two `qualia-pose:` format strings is declined on this basis;
+the composition-order finding in #135 stands.
+
 ## D-003 — Repository
 
 Public repository is `superposition/qualia`. The former private repository is
