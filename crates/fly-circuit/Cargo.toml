@@ -7,9 +7,19 @@ description = "Rate model over the connectome type graph, behind the `sim` featu
 
 [features]
 default = []
-sim = []
+# The simulator is off unless a build asks for it, so nothing from this crate
+# is compiled into the motor path; with it off the crate has no dependencies.
+sim = ["dep:qualia-connectome-prior", "dep:serde_json"]
+
+[[test]]
+name = "sim"
+path = "tests/sim.rs"
+required-features = ["sim"]
 
 [dev-dependencies]
 tempfile = "3"
-[dependencies]
 qualia-connectome-prior = { workspace = true }
+
+[dependencies]
+qualia-connectome-prior = { workspace = true, optional = true }
+serde_json = { version = "1", optional = true }
