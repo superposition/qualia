@@ -127,6 +127,44 @@ impl TrainingEpochAccumulator {
     }
 }
 
+/// Render the per-epoch stderr progress line.
+///
+/// The wording is emitted interface (docs/decisions.md D-008/D-009), so it is
+/// produced by a pure function that a test can pin without running the
+/// pipeline — the promotion gate this binary enforces needs 4096 held-out
+/// transitions per split before training starts.
+fn epoch_log_line(
+    epoch: usize,
+    epochs: usize,
+    backend: &str,
+    stats: &TrainingEpochAccumulator,
+    seconds: f64,
+    samples_per_second: f64,
+) -> String {
+    format!(
+        "jepa train epoch={}/{} backend={} samples={} batches={} cnn_total={:.6} cnn_nll={:.6} cnn_var={:.6} cnn_cov={:.6} cnn_ground={:.6} flat_total={:.6} flat_nll={:.6} seconds={:.3} samples_per_second={:.2}",
+        epoch,
+        epochs,
+        backend,
+        stats.seen_samples,
+        stats.seen_batches,
+        stats.mean(stats.candidate_total),
+        stats.mean(stats.candidate_nll),
+        stats.mean(stats.candidate_variance),
+        stats.mean(stats.candidate_covariance),
+        stats.mean(stats.candidate_grounding),
+        stats.mean(stats.baseline_total),
+        stats.mean(stats.baseline_nll),
+        seconds,
+        samples_per_second
+    )
+}
+
+/// Render the constant-baseline calibration stderr line.
+fn calibration_log_line(samples: usize) -> String {
+    format!("jepa calibrate constant_baseline_samples={}", samples)
+}
+
 impl MetricAccumulator {
     fn push(
         &mut self,
@@ -226,10 +264,7 @@ fn run() -> CliResult<()> {
     }
     let skipped_singletons =
         train_epochs(&mut candidate, &mut baseline, &mut training_examples, &args)?;
-    eprintln!(
-        "jepa calibrate constant_baseline_samples={}",
-        training_examples.len()
-    );
+    eprintln!("{}", calibration_log_line(training_examples.len()));
     candidate.calibrate_constant_baseline(&training_examples)?;
     let (validation, test, held_out_representations) =
         measure_holdout(&mut candidate, &mut baseline, &held_out_sessions)?;
@@ -452,21 +487,15 @@ fn train_epochs(
             0.0
         };
         eprintln!(
-            "jepa train epoch={}/{} backend={} samples={} batches={} cnn_total={:.6} cnn_nll={:.6} cnn_var={:.6} cnn_cov={:.6} cnn_ground={:.6} flat_total={:.6} flat_nll={:.6} seconds={:.3} samples_per_second={:.2}",
-            epoch + 1,
-            args.epoch_count,
-            args.backend_name,
-            stats.seen_samples,
-            stats.seen_batches,
-            stats.mean(stats.candidate_total),
-            stats.mean(stats.candidate_nll),
-            stats.mean(stats.candidate_variance),
-            stats.mean(stats.candidate_covariance),
-            stats.mean(stats.candidate_grounding),
-            stats.mean(stats.baseline_total),
-            stats.mean(stats.baseline_nll),
-            seconds,
-            samples_per_second,
+            "{}",
+            epoch_log_line(
+                epoch + 1,
+                args.epoch_count,
+                &args.backend_name,
+                &stats,
+                seconds,
+                samples_per_second,
+            )
         );
     }
     Ok(skipped)
@@ -589,4 +618,47 @@ where
         None => return Err(format!("{flag} requires a value").into()),
     };
     T::from_str(&text).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two progress lines are emitted stderr values, so their wording is
+    /// interface (docs/decisions.md D-008/D-009). These tests assert the
+    /// rendered bytes a consumer sees, not the source text: a re-worded label
+    /// or a changed precision spec fails here. The pipeline itself cannot be
+    /// driven this cheaply because the promotion gate requires 4096 held-out
+    /// transitions per split before training starts.
+    fn accumulated_epoch() -> TrainingEpochAccumulator {
+        TrainingEpochAccumulator {
+            seen_samples: 64,
+            seen_batches: 2,
+            candidate_total: 64.0,
+            candidate_nll: 128.0,
+            candidate_variance: 192.0,
+            candidate_covariance: 256.0,
+            candidate_grounding: 320.0,
+            baseline_total: 384.0,
+            baseline_nll: 448.0,
+        }
+    }
+
+    #[test]
+    fn epoch_progress_line_matches_the_reference_interface() {
+        assert_eq!(
+            epoch_log_line(2, 7, "cuda", &accumulated_epoch(), 1.25, 51.2),
+            "jepa train epoch=2/7 backend=cuda samples=64 batches=2 cnn_total=1.000000 \
+             cnn_nll=2.000000 cnn_var=3.000000 cnn_cov=4.000000 cnn_ground=5.000000 \
+             flat_total=6.000000 flat_nll=7.000000 seconds=1.250 samples_per_second=51.20"
+        );
+    }
+
+    #[test]
+    fn calibration_progress_line_matches_the_reference_interface() {
+        assert_eq!(
+            calibration_log_line(4_096),
+            "jepa calibrate constant_baseline_samples=4096"
+        );
+    }
 }
