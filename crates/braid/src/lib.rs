@@ -20,6 +20,7 @@
 //! #34 records both.
 
 pub mod drift;
+pub mod rules;
 
 use serde::{Deserialize, Serialize};
 use std::error::Error;
