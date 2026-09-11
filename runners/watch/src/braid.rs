@@ -24,9 +24,37 @@ use crate::view::format_clock;
 /// The schema literal the agent's `GET /braid` carries.
 pub const BRAID_STATE_SCHEMA: &str = "qualia.braid-state.v1";
 
-/// The agent's base URL, when `QUALIA_AGENT_URL` names no other one. The agent
-/// serves its web surface on `QUALIA_WEB_PORT`, default 8080.
-pub const DEFAULT_AGENT_URL: &str = "http://127.0.0.1:8080";
+/// The port the agent's web surface binds on loopback when `QUALIA_WEB_PORT`
+/// names no other one.
+pub const DEFAULT_AGENT_PORT: &str = "8080";
+
+/// The agent's base URL: `QUALIA_AGENT_URL` when the operator set one, else
+/// the agent's web surface on loopback, on `QUALIA_WEB_PORT`.
+///
+/// The agent's only listener is `axum_server::bind_rustls` (`runners/agent`),
+/// so the loopback default is `https` — the same convention
+/// `runners/cli::platform::default_agent_url` takes, and the reason
+/// [`build_client`] accepts the agent's self-signed certificate.
+pub fn agent_url() -> String {
+    agent_url_from(
+        std::env::var("QUALIA_AGENT_URL").ok().as_deref(),
+        std::env::var("QUALIA_WEB_PORT").ok().as_deref(),
+    )
+}
+
+/// The URL precedence behind [`agent_url`], kept free of the environment so
+/// the order can be tested directly. `QUALIA_AGENT_URL` wins outright; a blank
+/// or trailing-slashed value falls back to the loopback default.
+pub fn agent_url_from(configured: Option<&str>, port: Option<&str>) -> String {
+    if let Some(url) = configured {
+        let url = url.trim().trim_end_matches('/');
+        if !url.is_empty() {
+            return url.to_string();
+        }
+    }
+    let port = port.map(str::trim).filter(|port| !port.is_empty());
+    format!("https://127.0.0.1:{}", port.unwrap_or(DEFAULT_AGENT_PORT))
+}
 
 /// The establish budget, from the ops dashboard: 700 ms to connect, 1200 ms
 /// for the whole exchange.

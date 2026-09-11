@@ -135,8 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &MissionStatus::Pending,
         BeliefClock::new(&shm).decision_latency_ns(),
     );
-    let agent_url =
-        std::env::var("QUALIA_AGENT_URL").unwrap_or_else(|_| braid::DEFAULT_AGENT_URL.to_string());
+    let agent_url = braid::agent_url();
     let mission = Mission::pending(agent_url.clone());
     let mission_poller = BraidPoller::spawn(agent_url);
     let mut app = App {

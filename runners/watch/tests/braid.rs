@@ -3,11 +3,12 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use qualia_watch::braid::{
-    braid_line, BraidPoller, BraidState, Mission, MissionStatus, BRAID_STATE_SCHEMA,
+    agent_url_from, braid_line, BraidPoller, BraidState, Mission, MissionStatus, BRAID_STATE_SCHEMA,
 };
 
 /// `GET /braid`'s body, as the agent writes it: one mission open.
@@ -32,17 +33,22 @@ fn state(open_missions: u32) -> BraidState {
 }
 
 /// A one-endpoint HTTP server on a loopback port, answering every request with
-/// `body` until the test process ends.
-fn serve(body: &'static str) -> String {
+/// `body` until the test process ends. The request line of each exchange is
+/// reported back, so a test can pin the path the poller dials.
+fn serve(body: &'static str) -> (String, Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
     let url = format!("http://{}", listener.local_addr().expect("local address"));
+    let (lines, requests) = mpsc::channel();
     thread::spawn(move || {
         for _ in 0..SERVE_LIMIT {
             let Ok((mut stream, _)) = listener.accept() else {
                 return;
             };
             let mut request = [0u8; 1024];
-            let _ = stream.read(&mut request);
+            let read = stream.read(&mut request).unwrap_or(0);
+            let request = String::from_utf8_lossy(&request[..read]);
+            let line = request.lines().next().unwrap_or_default().to_string();
+            let _ = lines.send(line);
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
                  Connection: close\r\n\r\n{body}",
@@ -51,7 +57,7 @@ fn serve(body: &'static str) -> String {
             let _ = stream.write_all(response.as_bytes());
         }
     });
-    url
+    (url, requests)
 }
 
 /// Wait for the poller's first answer, within a budget past one request.
@@ -68,9 +74,42 @@ fn take(poller: &BraidPoller) -> MissionStatus {
 
 #[test]
 fn poller_takes_the_agents_view_off_the_wire() {
-    let url = serve(BRAID_JSON);
+    let (url, requests) = serve(BRAID_JSON);
     let poller = BraidPoller::spawn(url);
     assert_eq!(take(&poller), MissionStatus::State(state(1)));
+    // The route the agent serves. The stub answers every path, so only the
+    // request line itself can pin `/braid`.
+    assert_eq!(
+        requests
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the stub saw the poller's request"),
+        "GET /braid HTTP/1.1"
+    );
+}
+
+#[test]
+fn the_default_agent_url_is_the_agents_tls_surface() {
+    // The agent's only listener is rustls (`runners/agent`), so a plaintext
+    // loopback default can never reach `GET /braid`. The URL resolved here is
+    // the one handed to `Mission` and `BraidPoller`.
+    assert_eq!(agent_url_from(None, None), "https://127.0.0.1:8080");
+    assert_eq!(
+        agent_url_from(None, Some("18081")),
+        "https://127.0.0.1:18081"
+    );
+    assert_eq!(agent_url_from(None, Some("  ")), "https://127.0.0.1:8080");
+}
+
+#[test]
+fn a_configured_agent_url_wins_over_the_loopback_default() {
+    assert_eq!(
+        agent_url_from(Some("http://192.0.2.10:9000/"), Some("18081")),
+        "http://192.0.2.10:9000"
+    );
+    assert_eq!(
+        agent_url_from(Some("  "), Some("18081")),
+        "https://127.0.0.1:18081"
+    );
 }
 
 #[test]
