@@ -77,6 +77,57 @@ async fn accepted_mission_opens_the_braid_and_cancel_closes_it() {
     );
 }
 
+/// An accepted mission also names the braid's session: the id the console's
+/// Mission view and the watch Braid line render is the operator's mission id,
+/// not an empty string. A mission the broker refuses binds nothing.
+#[tokio::test]
+async fn accepted_mission_binds_the_braid_session() {
+    let harness = Harness::new();
+    assert_eq!(
+        harness.get("/braid").await.json()["session_id"], "",
+        "a braid that has accepted no mission names no session"
+    );
+
+    // A delivery the broker refuses — here a cancel for a mission that was
+    // never accepted — must not touch the session the front ends read.
+    let refused = harness
+        .post_json(
+            "/mission-control/envelopes",
+            Some(BROKER_TOKEN),
+            envelope("mission-frontier-unknown", "idem-unknown", 1, "cancel"),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert_eq!(harness.get("/braid").await.json()["session_id"], "");
+
+    let accepted = harness
+        .post_json(
+            "/mission-control/envelopes",
+            Some(BROKER_TOKEN),
+            envelope(MISSION, "idem-session", 1, "start"),
+        )
+        .await;
+    assert_eq!(accepted.status, StatusCode::ACCEPTED);
+
+    let braid = harness.get("/braid").await.json();
+    assert_eq!(braid["session_id"], MISSION);
+    assert_eq!(braid["open_missions"], 1);
+
+    // A second mission in the same producer epoch names the session too: the
+    // braid reports the run the broker accepted most recently.
+    let second = harness
+        .post_json(
+            "/mission-control/envelopes",
+            Some(BROKER_TOKEN),
+            envelope("mission-frontier-2", "idem-session-2", 2, "start"),
+        )
+        .await;
+    assert_eq!(second.status, StatusCode::ACCEPTED);
+    let braid = harness.get("/braid").await.json();
+    assert_eq!(braid["session_id"], "mission-frontier-2");
+    assert_eq!(braid["open_missions"], 2);
+}
+
 #[tokio::test]
 async fn replayed_envelope_is_idempotent() {
     let harness = Harness::new();

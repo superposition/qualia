@@ -379,6 +379,12 @@ impl MissionControlRuntime {
         drop(state);
         self.commit(previous)?;
         if opened {
+            // The accepted mission is the run's session: the arena recorder
+            // names its MCAP segment and the session store records it under
+            // this mission id. Binding it is what makes the console's Mission
+            // view and the watch Braid line name the run the operator opened
+            // instead of an empty session.
+            self.braid.bind_session(mission_id.clone());
             self.braid.observe(BraidEvent::MissionOpened {
                 mission_id: mission_id.clone(),
             });
