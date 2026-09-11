@@ -17,7 +17,17 @@ use egui::Ui;
 use qualia_mcap::ChannelInventory;
 use qualia_shm::ShmRegion;
 
-use crate::ConsoleState;
+use crate::{theme, ConsoleState};
+
+/// Column widths of the channel and ledger tables, on the 8 px rhythm and
+/// sized to the panel's default width.
+const COL_TOPIC: f32 = 160.0;
+const COL_MESSAGES: f32 = 80.0;
+const COL_SEQ: f32 = 48.0;
+const COL_LEDGER_LAYER: f32 = 48.0;
+const COL_EVENT: f32 = 120.0;
+const COL_VFE: f32 = 56.0;
+const COL_LEDGER_AGE: f32 = 64.0;
 
 /// A sealed segment as the console shows it.
 #[derive(Debug, Clone, PartialEq)]
@@ -227,46 +237,96 @@ fn inventory_segment(stamp: &FileStamp) -> Result<SegmentReading, String> {
 
 pub fn render(ui: &mut Ui, state: &ConsoleState) {
     let view = &state.evidence;
-    ui.heading("Evidence");
-
-    ui.label(format!("evidence root: {}", view.root));
 
     if let Some(error) = &view.error {
-        ui.colored_label(
-            egui::Color32::from_rgb(224, 160, 138),
-            format!("evidence read error: {error}"),
-        );
+        theme::error_banner(ui, &format!("evidence read error: {error}"));
     }
 
+    theme::field_path(ui, "evidence root", &view.root);
+
+    ui.add_space(theme::GAP_S);
+    theme::hairline(ui);
+    ui.add_space(theme::GAP_S);
+
     if view.segments.is_empty() {
-        ui.label("no sealed segments");
+        theme::state_line(ui, "no sealed segments", theme::TEXT_SECOND);
     } else {
         for segment in &view.segments {
-            ui.label(format!("sealed segment: {}", segment.path));
-            ui.label(format!("segment bytes: {}", segment.byte_length));
-            for channel in &segment.channels {
-                ui.label(format!(
-                    "channel {}: {} messages",
-                    channel.topic, channel.message_count
-                ));
+            theme::field_path(ui, "segment", &segment.path);
+            theme::field(ui, "bytes", &segment.byte_length.to_string(), Some("bytes"));
+            if !segment.channels.is_empty() {
+                theme::header(
+                    ui,
+                    &[("topic", COL_TOPIC, false), ("messages", COL_MESSAGES, true)],
+                );
+                for channel in &segment.channels {
+                    let messages = channel.message_count.to_string();
+                    theme::cells(
+                        ui,
+                        &[
+                            (
+                                channel.topic.as_str(),
+                                COL_TOPIC,
+                                theme::TEXT_SECOND,
+                                false,
+                            ),
+                            (messages.as_str(), COL_MESSAGES, theme::TEXT, true),
+                        ],
+                    );
+                }
             }
         }
     }
 
-    for partial in &view.quarantined {
-        ui.label(format!("quarantined partial: {partial}"));
+    ui.add_space(theme::GAP_S);
+    theme::hairline(ui);
+    ui.add_space(theme::GAP_S);
+
+    if view.quarantined.is_empty() {
+        theme::absent(ui, "no quarantined partials");
+    } else {
+        for partial in &view.quarantined {
+            theme::state_line(
+                ui,
+                &format!("quarantined partial: {partial}"),
+                theme::WARN,
+            );
+        }
     }
 
-    ui.separator();
+    ui.add_space(theme::GAP_S);
+    theme::hairline(ui);
+    ui.add_space(theme::GAP_S);
+
     if view.ledger.is_empty() {
-        ui.label("ledger empty");
+        theme::state_line(ui, "ledger empty", theme::TEXT_SECOND);
     } else {
-        ui.label(format!("ledger entries: {}", view.ledger.len()));
+        theme::field(ui, "entries", &view.ledger.len().to_string(), None);
+        theme::header(
+            ui,
+            &[
+                ("seq", COL_SEQ, true),
+                ("layer", COL_LEDGER_LAYER, true),
+                ("event", COL_EVENT, false),
+                ("vfe", COL_VFE, true),
+                ("age", COL_LEDGER_AGE, true),
+            ],
+        );
         if let Some(newest) = view.ledger.last() {
-            ui.label(format!(
-                "ledger newest: seq {} layer {} {} vfe {:.4}",
-                newest.seq, newest.layer, newest.event, newest.vfe
-            ));
+            let seq = newest.seq.to_string();
+            let layer = newest.layer.to_string();
+            let vfe = format!("{:.4}", newest.vfe);
+            let age = theme::age(state.observed_at_ns, newest.timestamp_ns);
+            theme::cells(
+                ui,
+                &[
+                    (seq.as_str(), COL_SEQ, theme::TEXT, true),
+                    (layer.as_str(), COL_LEDGER_LAYER, theme::TEXT, true),
+                    (newest.event.as_str(), COL_EVENT, theme::TEXT_SECOND, false),
+                    (vfe.as_str(), COL_VFE, theme::TEXT, true),
+                    (age.as_str(), COL_LEDGER_AGE, theme::TEXT, true),
+                ],
+            );
         }
     }
 }

@@ -19,7 +19,8 @@ use crate::Connection;
 /// binary would use.
 pub const FIXTURE_SHM_REGION: &str = "qualia";
 
-/// One coherent poll: everything `render_view` needs except the selected tab.
+/// One coherent poll: everything `render_view` needs except which panels are
+/// open.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sample {
     pub observed_at_ns: u64,

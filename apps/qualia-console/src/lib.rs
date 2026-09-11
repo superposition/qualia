@@ -17,16 +17,20 @@
 //!   `http://127.0.0.1:8080` — source 2's household-subnet default and source
 //!   4's twelve hard-coded hosts are the counter-example;
 //! - no subnet autodiscovery, no TLS-insecure default — source 2;
-//! - the five snapshot states in the crate's `tests/snapshots.rs` are named
-//!   states, four driven by a committed fixture and one by a fresh region —
-//!   source 3;
+//! - the named snapshot states in the crate's `tests/snapshots.rs` are driven
+//!   by a committed fixture, plus one fresh region and the opening arrangement
+//!   — source 3;
 //! - the telemetry runner set is the stack manifest's, not a list beside it —
 //!   source 1's avoid;
 //! - assertions are accessible labels, not pixels alone — source 3;
 //! - `GET /braid` is polled off the UI thread through a command/message channel
 //!   — source 2;
-//! - the status line names the URL and the connection it is showing — sources
-//!   1, 2 and 4;
+//! - every dataset is a floating panel on one page, staggered so the whole
+//!   console is visible at once, with the Mission panel naming the agent,
+//!   session and generation behind every other panel's numbers — sources 1, 2
+//!   and 4;
+//! - presentation lives in [`theme`], one palette, one family and one 8 px
+//!   grid, so the five views cannot drift apart;
 //! - no `unsafe` in the console: the ABI pointer arithmetic stays in
 //!   `qualia-shm` — source 1.
 
@@ -35,6 +39,7 @@ pub mod poller;
 pub mod sample;
 mod shm_sample;
 pub mod stack;
+pub mod theme;
 pub mod views;
 
 pub use client::{agent_url, fixture, BraidSnapshot, BraidState, DriftReport};
@@ -44,7 +49,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use poller::Poller;
 
-/// The five operator screens, in tab order.
+/// The five operator screens, in cascade order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     Mission,
@@ -54,8 +59,8 @@ pub enum View {
     Telemetry,
 }
 
-/// One label table drives both the tab text and the key that selects it
-/// (source 1's lesson: never write the binding twice).
+/// One label table drives the window titles, the `Console` menu's checkboxes
+/// and the cascade order (source 1's lesson: never write the binding twice).
 pub const VIEWS: [View; 5] = [
     View::Mission,
     View::Belief,
@@ -87,23 +92,74 @@ impl Connection {
     pub fn is_live(&self) -> bool {
         matches!(self, Connection::Live)
     }
+}
 
-    fn status(&self) -> String {
-        match self {
-            Connection::Live => "live".to_owned(),
-            Connection::Unreachable { reason } => format!("unreachable: {reason}"),
+/// Which floating panels are showing. Every panel starts open and staggered, so
+/// the console opens on the whole picture; the `Windows` menu re-opens one the
+/// operator closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSet {
+    pub mission: bool,
+    pub belief: bool,
+    pub world: bool,
+    pub evidence: bool,
+    pub telemetry: bool,
+}
+
+impl Default for WindowSet {
+    fn default() -> Self {
+        Self {
+            mission: true,
+            belief: true,
+            world: true,
+            evidence: true,
+            telemetry: true,
         }
     }
 }
 
-/// The whole console state: one sample, plus which tab is showing.
+impl WindowSet {
+    /// Only `view` open, for the per-panel snapshot states.
+    pub fn only(view: View) -> Self {
+        let mut set = Self {
+            mission: false,
+            belief: false,
+            world: false,
+            evidence: false,
+            telemetry: false,
+        };
+        set.set(view, true);
+        set
+    }
+
+    pub fn is_open(self, view: View) -> bool {
+        match view {
+            View::Mission => self.mission,
+            View::Belief => self.belief,
+            View::World => self.world,
+            View::Evidence => self.evidence,
+            View::Telemetry => self.telemetry,
+        }
+    }
+
+    pub fn set(&mut self, view: View, open: bool) {
+        match view {
+            View::Mission => self.mission = open,
+            View::Belief => self.belief = open,
+            View::World => self.world = open,
+            View::Evidence => self.evidence = open,
+            View::Telemetry => self.telemetry = open,
+        }
+    }
+}
+
+/// The whole console state: one sample, plus which panels are showing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConsoleState {
-    pub view: View,
     pub agent_url: String,
     pub observed_at_ns: u64,
-    /// Set by the tab bar's `Refresh` button, drained by the window, which asks
-    /// the poller for a poll now instead of at the next interval.
+    /// Set by the strip, drained by the window, which asks the poller for a
+    /// poll now instead of at the next interval.
     pub refresh_requested: bool,
     pub connection: Connection,
     pub braid: BraidState,
@@ -112,13 +168,13 @@ pub struct ConsoleState {
     pub world: views::world::WorldView,
     pub evidence: views::evidence::EvidenceView,
     pub telemetry: views::telemetry::TelemetryView,
+    pub windows: WindowSet,
 }
 
 impl ConsoleState {
-    /// A whole state from one poll, with the mission tab selected.
+    /// A whole state from one poll, with every panel showing.
     pub fn from_sample(sample: Sample, agent_url: impl Into<String>) -> Self {
         Self {
-            view: View::Mission,
             agent_url: agent_url.into(),
             observed_at_ns: sample.observed_at_ns,
             refresh_requested: false,
@@ -129,10 +185,11 @@ impl ConsoleState {
             world: sample.world,
             evidence: sample.evidence,
             telemetry: sample.telemetry,
+            windows: WindowSet::default(),
         }
     }
 
-    /// Replace everything a poll produces, keeping the selected tab and URL.
+    /// Replace everything a poll produces, keeping the open panels and URL.
     pub fn apply(&mut self, sample: Sample) {
         self.observed_at_ns = sample.observed_at_ns;
         self.connection = sample.connection;
@@ -143,22 +200,6 @@ impl ConsoleState {
         self.evidence = sample.evidence;
         self.telemetry = sample.telemetry;
     }
-
-    /// The chrome line: which agent, whether it answered, and what is showing.
-    pub fn status_line(&self) -> String {
-        format!(
-            "status: {} | {} | session {} | generation {}",
-            self.agent_url,
-            self.connection.status(),
-            self.braid.session_id,
-            self.braid.generation
-        )
-    }
-}
-
-/// Milliseconds between `timestamp_ns` and now, saturating at zero.
-pub fn format_age_ms(observed_at_ns: u64, timestamp_ns: u64) -> u64 {
-    observed_at_ns.saturating_sub(timestamp_ns) / 1_000_000
 }
 
 /// Wall clock in nanoseconds since the Unix epoch.
@@ -169,44 +210,40 @@ pub fn now_ns() -> u64 {
         .unwrap_or(0)
 }
 
-/// Draw the tab bar, the selected view and the status line into `ui`.
+/// Draw the console: the one strip, then the five floating panels.
 ///
 /// This is the whole surface, so the snapshot tests drive the same code the
 /// window does; [`app_ui`] only wraps it in a panel.
 pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
-    ui.horizontal_wrapped(|ui| {
-        for view in VIEWS {
-            if ui
-                .selectable_label(state.view == view, view.label())
-                .clicked()
-            {
-                state.view = view;
-            }
-        }
-        if ui.button("Refresh").clicked() {
-            state.refresh_requested = true;
-        }
-    });
-    ui.separator();
+    theme::apply(ui.ctx());
+    ui.painter().rect_filled(ui.max_rect(), 0.0, theme::BG);
+    theme::menu_strip(ui, state);
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        match state.view {
-            View::Mission => views::mission::render(ui, state),
-            View::Belief => views::belief::render(ui, state),
-            View::World => views::world::render(ui, state),
-            View::Evidence => views::evidence::render(ui, state),
-            View::Telemetry => views::telemetry::render(ui, state),
-        }
+    let mut windows = state.windows;
+    let ctx = ui.ctx().clone();
+    theme::panel(&ctx, View::Mission, &mut windows.mission, |ui| {
+        views::mission::render(ui, state)
     });
-
-    ui.separator();
-    ui.monospace(state.status_line());
+    theme::panel(&ctx, View::Belief, &mut windows.belief, |ui| {
+        views::belief::render(ui, state)
+    });
+    theme::panel(&ctx, View::World, &mut windows.world, |ui| {
+        views::world::render(ui, state)
+    });
+    theme::panel(&ctx, View::Evidence, &mut windows.evidence, |ui| {
+        views::evidence::render(ui, state)
+    });
+    theme::panel(&ctx, View::Telemetry, &mut windows.telemetry, |ui| {
+        views::telemetry::render(ui, state)
+    });
+    state.windows = windows;
 }
 
 /// One frame of the console: panels around [`render_view`].
 pub fn app_ui(ctx: &egui::Context, state: &mut ConsoleState) {
-    egui::CentralPanel::default().show(ctx, |ui| render_view(ui, state));
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(theme::BG))
+        .show(ctx, |ui| render_view(ui, state));
 }
 
 /// The window application: polls, then draws.

@@ -16,7 +16,13 @@ use std::sync::atomic::Ordering;
 use egui::Ui;
 use qualia_shm::ShmRegion;
 
-use crate::{format_age_ms, ConsoleState};
+use crate::{theme, ConsoleState};
+
+/// Column widths of the frame table, on the 8 px rhythm and sized to the
+/// panel's default width.
+const COL_RUNNER: f32 = 200.0;
+const COL_FRAME: f32 = 360.0;
+const COL_AGE: f32 = 72.0;
 
 /// The sensing slots the region's ABI defines, and the runner crate that
 /// publishes each (`runners/*/Cargo.toml`).
@@ -180,45 +186,46 @@ impl TelemetryView {
 
 pub fn render(ui: &mut Ui, state: &ConsoleState) {
     let view = &state.telemetry;
-    ui.heading("Telemetry");
 
     if let Some(error) = &view.error {
-        ui.colored_label(
-            egui::Color32::from_rgb(224, 160, 138),
-            format!("telemetry source error: {error}"),
-        );
+        theme::error_banner(ui, &format!("telemetry source error: {error}"));
     }
 
     if view.is_empty() {
-        ui.label("no telemetry frames");
+        theme::state_line(ui, "no telemetry frames", theme::TEXT_SECOND);
         return;
     }
 
-    egui::Grid::new("telemetry_frames")
-        .num_columns(3)
-        .striped(true)
-        .show(ui, |ui| {
-            ui.label("runner");
-            ui.label("newest frame");
-            ui.label("age");
-            ui.end_row();
+    theme::header(
+        ui,
+        &[
+            ("runner", COL_RUNNER, false),
+            ("newest frame", COL_FRAME, false),
+            ("age", COL_AGE, true),
+        ],
+    );
 
-            for frame in &view.frames {
-                ui.label(frame.runner.as_str());
-                match &frame.detail {
-                    Some(detail) => {
-                        ui.label(detail.as_str());
-                        ui.label(format!(
-                            "{} ms",
-                            format_age_ms(state.observed_at_ns, frame.timestamp_ns)
-                        ));
-                    }
-                    None => {
-                        ui.label("no frame published");
-                        ui.label("—");
-                    }
-                }
-                ui.end_row();
+    for frame in &view.frames {
+        match &frame.detail {
+            Some(detail) => {
+                let age = theme::age(state.observed_at_ns, frame.timestamp_ns);
+                theme::cells(
+                    ui,
+                    &[
+                        (frame.runner.as_str(), COL_RUNNER, theme::TEXT, false),
+                        (detail.as_str(), COL_FRAME, theme::TEXT_SECOND, false),
+                        (age.as_str(), COL_AGE, theme::TEXT, true),
+                    ],
+                );
             }
-        });
+            None => theme::cells(
+                ui,
+                &[
+                    (frame.runner.as_str(), COL_RUNNER, theme::TEXT, false),
+                    ("no frame published", COL_FRAME, theme::MUTED, false),
+                    (theme::DASH, COL_AGE, theme::MUTED, true),
+                ],
+            ),
+        }
+    }
 }

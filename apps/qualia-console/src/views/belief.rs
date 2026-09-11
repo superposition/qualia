@@ -12,7 +12,7 @@ use egui::Ui;
 use qualia_shm::LayerReader;
 use qualia_types::{BeliefSlot, NUM_LAYERS};
 
-use crate::{format_age_ms, ConsoleState};
+use crate::{theme, ConsoleState};
 
 /// A belief layer that has not been republished for this long is stale.
 ///
@@ -20,6 +20,15 @@ use crate::{format_age_ms, ConsoleState};
 /// `QUALIA_BELIEF_PACE_MS * 8` (2 s at the 250 ms default); the console draws
 /// the same line the runner does.
 pub const BELIEF_STALE_NS: u64 = 2_000_000_000;
+
+/// Column widths of the layer table, on the 8 px rhythm and sized to the
+/// panel's default width.
+const COL_LAYER: f32 = 72.0;
+const COL_VFE: f32 = 80.0;
+const COL_RESIDUAL: f32 = 88.0;
+const COL_COMPRESSION: f32 = 96.0;
+const COL_AGE: f32 = 96.0;
+const COL_STATE: f32 = 72.0;
 
 /// One coherent layer reading, copied out of the region so the view is pure.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +71,15 @@ impl BeliefReading {
             "live"
         }
     }
+
+    /// The colour the named state carries: live, degraded, or absent.
+    fn state_color(&self, observed_at_ns: u64) -> egui::Color32 {
+        match self.status(observed_at_ns) {
+            "live" => theme::ACCENT,
+            "stale" => theme::WARN,
+            _ => theme::MUTED,
+        }
+    }
 }
 
 /// Everything the belief panel can say without the region.
@@ -102,63 +120,70 @@ impl BeliefView {
 
 pub fn render(ui: &mut Ui, state: &ConsoleState) {
     let view = &state.belief;
-    ui.heading("Belief layers");
-
-    match &view.region {
-        Some(name) => {
-            ui.label(format!("shm region: {name}"));
-        }
-        None => {
-            ui.label("shm region: unattached");
-        }
-    }
 
     if let Some(error) = &view.error {
-        ui.colored_label(
-            egui::Color32::from_rgb(224, 160, 138),
-            format!("belief source error: {error}"),
-        );
+        theme::error_banner(ui, &format!("belief source error: {error}"));
     }
 
+    theme::field_path(
+        ui,
+        "shm region",
+        view.region.as_deref().unwrap_or(theme::DASH),
+    );
+
     if view.is_empty() {
-        ui.label("no belief slots sampled");
-        ui.separator();
-        ui.label(format!(
-            "expected {NUM_LAYERS} layers from the region named by QUALIA_SHM_NAME"
-        ));
+        theme::state_line(ui, "no belief slots sampled", theme::TEXT_SECOND);
+        theme::absent(
+            ui,
+            &format!("expected {NUM_LAYERS} layers from the region named by QUALIA_SHM_NAME"),
+        );
         return;
     }
 
-    egui::Grid::new("belief_layers")
-        .num_columns(6)
-        .striped(true)
-        .show(ui, |ui| {
-            ui.label("layer");
-            ui.label("vfe");
-            ui.label("residual");
-            ui.label("compression");
-            ui.label("age");
-            ui.label("state");
-            ui.end_row();
+    ui.add_space(theme::GAP_S);
+    theme::header(
+        ui,
+        &[
+            ("layer", COL_LAYER, false),
+            ("vfe", COL_VFE, true),
+            ("residual", COL_RESIDUAL, true),
+            ("compression", COL_COMPRESSION, true),
+            ("age", COL_AGE, true),
+            ("state", COL_STATE, false),
+        ],
+    );
 
-            for reading in &view.readings {
-                ui.label(format!("layer {}", reading.layer));
-                if reading.is_written() {
-                    ui.label(format!("{:.4}", reading.vfe));
-                    ui.label(format!("{:.4}", reading.residual_norm));
-                    ui.label(format!("{}", reading.compression));
-                    ui.label(format!(
-                        "{} ms",
-                        format_age_ms(state.observed_at_ns, reading.timestamp_ns)
-                    ));
-                } else {
-                    ui.label("—");
-                    ui.label("—");
-                    ui.label("—");
-                    ui.label("—");
-                }
-                ui.label(reading.status(state.observed_at_ns));
-                ui.end_row();
-            }
-        });
+    for reading in &view.readings {
+        let layer = format!("layer {}", reading.layer);
+        let state_word = reading.status(state.observed_at_ns).to_owned();
+        let color = reading.state_color(state.observed_at_ns);
+        let (vfe, residual, compression, age) = if reading.is_written() {
+            (
+                format!("{:.4}", reading.vfe),
+                format!("{:.4}", reading.residual_norm),
+                reading.compression.to_string(),
+                theme::age(state.observed_at_ns, reading.timestamp_ns),
+            )
+        } else {
+            (
+                theme::DASH.to_owned(),
+                theme::DASH.to_owned(),
+                theme::DASH.to_owned(),
+                theme::DASH.to_owned(),
+            )
+        };
+        let absent = !reading.is_written();
+        let value_color = if absent { theme::MUTED } else { theme::TEXT };
+        theme::cells(
+            ui,
+            &[
+                (layer.as_str(), COL_LAYER, value_color, false),
+                (vfe.as_str(), COL_VFE, value_color, true),
+                (residual.as_str(), COL_RESIDUAL, value_color, true),
+                (compression.as_str(), COL_COMPRESSION, value_color, true),
+                (age.as_str(), COL_AGE, value_color, true),
+                (state_word.as_str(), COL_STATE, color, false),
+            ],
+        );
+    }
 }

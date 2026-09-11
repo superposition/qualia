@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use egui::Ui;
 use qualia_types::{PersistentMapGrid, VslamFrontendState};
 
-use crate::{format_age_ms, ConsoleState};
+use crate::{theme, ConsoleState};
 
 /// A slot's publish sequence, or `None` before its first publish.
 ///
@@ -115,61 +115,77 @@ impl WorldView {
 
 pub fn render(ui: &mut Ui, state: &ConsoleState) {
     let view = &state.world;
-    ui.heading("World");
 
     if let Some(error) = &view.error {
-        ui.colored_label(
-            egui::Color32::from_rgb(224, 160, 138),
-            format!("world source error: {error}"),
-        );
+        theme::error_banner(ui, &format!("world source error: {error}"));
     }
+
+    theme::field_path(
+        ui,
+        "shm region",
+        view.region.as_deref().unwrap_or(theme::DASH),
+    );
 
     // "No world data" means no source at all. An attached region whose slots
     // are all still unpublished is not empty: it renders the three absent arms
     // below, so the operator reads "no fix" rather than zeroes.
     if view.error.is_some() && view.is_empty() {
-        ui.label("no world data");
+        theme::state_line(ui, "no world data", theme::TEXT_SECOND);
         return;
     }
 
+    ui.add_space(theme::GAP_S);
+    theme::hairline(ui);
+    ui.add_space(theme::GAP_S);
+
     match &view.pose {
         Some(pose) => {
-            ui.label(format!(
-                "pose: x {:.3} m, z {:.3} m, yaw {:.3} rad, confidence {:.2}",
-                pose.x_m, pose.z_m, pose.yaw_rad, pose.confidence
-            ));
-            ui.label(format!(
-                "pose age: {} ms",
-                format_age_ms(state.observed_at_ns, pose.timestamp_ns)
-            ));
+            theme::field(ui, "pose x", &format!("{:.3}", pose.x_m), Some("m"));
+            theme::field(ui, "pose z", &format!("{:.3}", pose.z_m), Some("m"));
+            theme::field(ui, "pose yaw", &format!("{:.3}", pose.yaw_rad), Some("rad"));
+            theme::field(ui, "pose confidence", &format!("{:.2}", pose.confidence), None);
+            theme::field(
+                ui,
+                "pose age",
+                &theme::age(state.observed_at_ns, pose.timestamp_ns),
+                None,
+            );
         }
-        None => {
-            ui.label("pose: no fix");
-        }
+        None => theme::state_line(ui, "pose: no fix", theme::TEXT_SECOND),
     }
+
+    ui.add_space(theme::GAP_S);
+    theme::hairline(ui);
+    ui.add_space(theme::GAP_S);
 
     match &view.map {
         Some(map) => {
-            ui.label(format!(
-                "map: {} x {} cells at {:.3} m/cell",
-                map.width, map.height, map.resolution_m
-            ));
-            ui.label(format!(
-                "map occupancy: {} occupied, {} observed (seq {})",
-                map.occupied_cells, map.observed_cells, map.seq
-            ));
-            ui.label(format!(
-                "map age: {} ms",
-                format_age_ms(state.observed_at_ns, map.last_update_ns)
-            ));
+            theme::field(
+                ui,
+                "map size",
+                &format!("{} x {}", map.width, map.height),
+                Some("cells"),
+            );
+            theme::field(ui, "map resolution", &format!("{:.3}", map.resolution_m), Some("m/cell"));
+            theme::field(ui, "map occupied", &map.occupied_cells.to_string(), None);
+            theme::field(ui, "map observed", &map.observed_cells.to_string(), None);
+            theme::field(ui, "map seq", &map.seq.to_string(), None);
+            theme::field(
+                ui,
+                "map age",
+                &theme::age(state.observed_at_ns, map.last_update_ns),
+                None,
+            );
         }
-        None => {
-            ui.label("map: not published");
-        }
+        None => theme::state_line(ui, "map: not published", theme::TEXT_SECOND),
     }
 
+    ui.add_space(theme::GAP_S);
+    theme::hairline(ui);
+    ui.add_space(theme::GAP_S);
+
     match view.voxel_update_seq {
-        Some(seq) => ui.label(format!("voxels update seq: {seq}")),
-        None => ui.label("voxels: not published"),
-    };
+        Some(seq) => theme::field(ui, "voxels update seq", &seq.to_string(), None),
+        None => theme::state_line(ui, "voxels: not published", theme::TEXT_SECOND),
+    }
 }
