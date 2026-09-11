@@ -107,9 +107,6 @@ const QUESTION_EXCERPT: usize = 50;
 /// Longest excerpt of an answer carried in a thought.
 const ANSWER_EXCERPT: usize = 60;
 
-/// Longest excerpt of a malformed response carried in an error message.
-const ERROR_EXCERPT: usize = 200;
-
 /// The runner's environment-derived settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Config {
@@ -159,21 +156,25 @@ fn number(lookup: &mut impl FnMut(&str) -> Option<String>, key: &str) -> Option<
 /// A JSON-over-HTTP POST, injectable so tests never touch the network.
 trait Transport {
     /// Posts `json` to `url` and returns the response body.
-    fn post_json(&self, url: &str, json: &str) -> Result<String, String>;
+    ///
+    /// `label` names the endpoint, so a failed request reads
+    /// `{label} request failed: …` exactly as the reference runner's
+    /// per-endpoint diagnostics do.
+    fn post_json(&self, label: &str, url: &str, json: &str) -> Result<String, String>;
 }
 
 /// The real transport, backed by `ureq`.
 struct HttpTransport;
 
 impl Transport for HttpTransport {
-    fn post_json(&self, url: &str, json: &str) -> Result<String, String> {
+    fn post_json(&self, label: &str, url: &str, json: &str) -> Result<String, String> {
         let response = ureq::post(url)
             .set("content-type", "application/json")
             .send_string(json)
-            .map_err(|error| format!("request failed: {error}"))?;
+            .map_err(|error| format!("{label} request failed: {error}"))?;
         response
             .into_string()
-            .map_err(|error| format!("response body unreadable: {error}"))
+            .map_err(|error| format!("Response read error: {error}"))
     }
 }
 
@@ -325,11 +326,6 @@ fn strip_fences(text: &str) -> &str {
     trimmed.trim()
 }
 
-/// A short, printable excerpt of a response, for error messages.
-fn error_excerpt(raw: &str) -> String {
-    raw.chars().take(ERROR_EXCERPT).collect()
-}
-
 /// The first `limit` bytes of `text`, never splitting a character.
 fn excerpt(text: &str, limit: usize) -> &str {
     if text.len() <= limit {
@@ -351,20 +347,15 @@ fn call_vision(
     questions: &[PendingQuestion],
 ) -> Result<VisionCall, String> {
     let body = vision_body(image_b64, &vision_prompt(directive, questions));
-    let raw = transport.post_json(&vision_url(api_key), &body)?;
+    let raw = transport.post_json("Gemini vision", &vision_url(api_key), &body)?;
     let envelope: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|error| format!("vision envelope is not JSON: {error}"))?;
+        serde_json::from_str(&raw).map_err(|error| format!("JSON parse error: {error}"))?;
     let text = envelope
         .pointer("/candidates/0/content/parts/0/text")
         .and_then(|value| value.as_str())
-        .ok_or_else(|| {
-            format!(
-                "vision envelope has no text candidate: {}",
-                error_excerpt(&raw)
-            )
-        })?;
+        .ok_or_else(|| format!("No text in Gemini response: {raw}"))?;
     let response: VisionResponse = serde_json::from_str(strip_fences(text))
-        .map_err(|error| format!("vision payload does not match the scene schema: {error}"))?;
+        .map_err(|error| format!("Vision JSON parse error: {error}\nRaw: {text}"))?;
     let usage = ModelUsage {
         input_tokens: envelope
             .pointer("/usageMetadata/promptTokenCount")
@@ -384,24 +375,23 @@ fn call_embedding(
     api_key: &str,
     text: &str,
 ) -> Result<(Vec<f32>, u64), String> {
-    let raw = transport.post_json(&embedding_url(api_key), &embedding_body(text))?;
-    let envelope: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("embedding envelope is not JSON: {error}"))?;
+    let raw = transport.post_json(
+        "Gemini embedding",
+        &embedding_url(api_key),
+        &embedding_body(text),
+    )?;
+    let envelope: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|error| format!("JSON parse error: {error}"))?;
     let values = envelope
         .pointer("/embedding/values")
         .and_then(|value| value.as_array())
-        .ok_or_else(|| {
-            format!(
-                "embedding envelope has no values: {}",
-                error_excerpt(&raw)
-            )
-        })?;
+        .ok_or_else(|| format!("No embedding values in response: {raw}"))?;
     let embedding: Vec<f32> = values
         .iter()
         .filter_map(|value| value.as_f64().map(|number| number as f32))
         .collect();
     if embedding.is_empty() {
-        return Err("embedding envelope carried no numbers".to_string());
+        return Err("Empty embedding returned".to_string());
     }
     let tokens = envelope
         .pointer("/usageMetadata/totalTokenCount")
@@ -476,12 +466,10 @@ fn hash_embedding(world: &mut WorldModel, response: &VisionResponse) {
     for (dim, value) in world.scene_embedding.iter_mut().enumerate() {
         let mut accumulator = 0.0f32;
         for (index, byte) in text.bytes().enumerate() {
-            accumulator +=
-                byte as f32 * ((dim as f32 * 0.37 + index as f32 * 0.11).cos()) * 0.01;
+            accumulator += ((byte as f32) * ((dim * 7 + index * 13) as f32).sin()) * 0.01;
         }
         for object in response.objects.iter().take(MAX_OBJECTS) {
-            accumulator +=
-                object.confidence * ((object.x + dim as f32) * 0.5).sin() * 0.1;
+            accumulator += object.confidence * ((object.x * (dim as f32 + 1.0)).sin() * 0.1);
         }
         *value = accumulator.tanh();
     }
@@ -1188,6 +1176,7 @@ mod tests {
     struct FakeTransport {
         replies: RefCell<VecDeque<Result<String, String>>>,
         requests: RefCell<Vec<(String, String)>>,
+        labels: RefCell<Vec<String>>,
     }
 
     impl FakeTransport {
@@ -1195,16 +1184,23 @@ mod tests {
             Self {
                 replies: RefCell::new(replies.into()),
                 requests: RefCell::new(Vec::new()),
+                labels: RefCell::new(Vec::new()),
             }
         }
 
         fn last_request(&self) -> (String, String) {
             self.requests.borrow().last().cloned().expect("a request")
         }
+
+        /// The endpoint labels `Transport::post_json` was called with.
+        fn labels(&self) -> Vec<String> {
+            self.labels.borrow().clone()
+        }
     }
 
     impl Transport for FakeTransport {
-        fn post_json(&self, url: &str, json: &str) -> Result<String, String> {
+        fn post_json(&self, label: &str, url: &str, json: &str) -> Result<String, String> {
+            self.labels.borrow_mut().push(label.to_string());
             self.requests
                 .borrow_mut()
                 .push((url.to_string(), json.to_string()));
@@ -1349,6 +1345,48 @@ mod tests {
     }
 
     #[test]
+    fn vision_failure_chain_reports_the_reference_diagnostics() {
+        // The transport is labelled, so a real request failure reads
+        // "Gemini vision request failed: …".
+        let transport = FakeTransport::scripted(vec![Ok("<html>502 bad gateway</html>".to_string())]);
+        let error = call_vision(&transport, "k", "a", "d", &[]).expect_err("not JSON");
+        assert!(error.starts_with("JSON parse error: "), "got {error}");
+        assert_eq!(transport.labels(), vec!["Gemini vision".to_string()]);
+
+        // An envelope with no text candidate carries the whole body, not an excerpt.
+        let raw = format!("{{\"candidates\":[],\"padding\":\"{}\"}}", "x".repeat(300));
+        let transport = FakeTransport::scripted(vec![Ok(raw.clone())]);
+        let error = call_vision(&transport, "k", "a", "d", &[]).expect_err("no text");
+        assert_eq!(error, format!("No text in Gemini response: {raw}"));
+
+        // A scene that misses the schema names the parse error and the raw text.
+        let text = "{\"scene\": 5}";
+        let transport = FakeTransport::scripted(vec![Ok(vision_envelope(text))]);
+        let error = call_vision(&transport, "k", "a", "d", &[]).expect_err("bad schema");
+        assert!(error.starts_with("Vision JSON parse error: "), "got {error}");
+        assert!(error.ends_with(&format!("\nRaw: {text}")), "got {error}");
+        assert!(error.contains("line 1"), "got {error}");
+    }
+
+    #[test]
+    fn embedding_failure_chain_reports_the_reference_diagnostics() {
+        let transport = FakeTransport::scripted(vec![Ok("<html>502 bad gateway</html>".to_string())]);
+        let error = call_embedding(&transport, "k", "text").expect_err("not JSON");
+        assert!(error.starts_with("JSON parse error: "), "got {error}");
+        assert_eq!(transport.labels(), vec!["Gemini embedding".to_string()]);
+
+        // A body with no values carries the whole response, not an excerpt.
+        let raw = format!("{{\"embedding\":{{}},\"padding\":\"{}\"}}", "y".repeat(300));
+        let transport = FakeTransport::scripted(vec![Ok(raw.clone())]);
+        let error = call_embedding(&transport, "k", "text").expect_err("no values");
+        assert_eq!(error, format!("No embedding values in response: {raw}"));
+
+        let transport = FakeTransport::scripted(vec![Ok(embedding_values(Vec::new(), 3))]);
+        let error = call_embedding(&transport, "k", "text").expect_err("empty");
+        assert_eq!(error, "Empty embedding returned");
+    }
+
+    #[test]
     fn harvested_questions_are_appended_to_the_prompt() {
         let questions = vec![
             PendingQuestion {
@@ -1477,7 +1515,7 @@ mod tests {
         let shm = test_region("badbody");
         let transport = FakeTransport::scripted(vec![Ok("<html>502 bad gateway</html>".to_string())]);
         let error = run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect_err("must fail");
-        assert!(error.contains("not JSON"), "got {error}");
+        assert!(error.starts_with("JSON parse error: "), "got {error}");
         assert_eq!(shm.world_model().llm_call_count, 0);
     }
 
@@ -1493,10 +1531,32 @@ mod tests {
         let world = shm.world_model();
         assert_eq!(world.gemini_embedding_tokens, 0);
         assert_eq!(world.num_objects, 1);
-        assert!(world
-            .scene_embedding
-            .iter()
-            .any(|value| value.is_finite() && *value != 0.0));
+
+        // The reference's hash fallback, pinned from the published vector.
+        let expected = [
+            (0, 0.9999105f32),
+            (1, 0.9997396),
+            (2, 0.9420576),
+            (3, -0.9467113),
+            (4, -0.9997196),
+            (5, -0.9998782),
+            (6, -0.9932319),
+            (7, 0.5405496),
+            (16, 0.8570958),
+            (24, -0.8847667),
+            (32, -0.9986742),
+            (40, -0.9999191),
+            (48, -0.9998655),
+            (56, -0.9956836),
+            (63, 0.9930739),
+        ];
+        for (dim, want) in expected {
+            assert!(
+                (world.scene_embedding[dim] - want).abs() < 1e-5,
+                "dim {dim}: {} != {want}",
+                world.scene_embedding[dim]
+            );
+        }
 
         // A failed embedding is not reported as a thought, only the vision is.
         let thoughts = thought_texts(&shm);
