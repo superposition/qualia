@@ -1034,25 +1034,25 @@ mod tests {
 
     fn training_report(now: u128) -> TrainingReport {
         let held_out = SplitEvaluation {
-            samples: 4_096,
-            sessions: 4,
-            constant: metrics(3.0, 2.0),
-            flat_mlp: metrics(2.0, 1.5),
-            tiny_cnn: metrics(1.0, 0.8),
+            samples: 5_120,
+            sessions: 6,
+            constant: metrics(2.75, 1.9),
+            flat_mlp: metrics(1.8, 1.4),
+            tiny_cnn: metrics(0.95, 0.7),
             calibration: calibration(),
             occupancy: occupancy(),
         };
         TrainingReport {
             schema_version: TRAINING_REPORT_SCHEMA.to_string(),
             created_at_ms: now,
-            checkpoint_id: "checkpoint-a".to_string(),
-            dataset_digest: "d".repeat(64),
-            backend: "metal".to_string(),
-            seed: 42,
-            epochs: 2,
-            batch_size: 32,
-            cnn_steps: 256,
-            flat_steps: 256,
+            checkpoint_id: "cnn-echo-11".to_string(),
+            dataset_digest: "3c".repeat(32),
+            backend: "cpu".to_string(),
+            seed: 7,
+            epochs: 3,
+            batch_size: 16,
+            cnn_steps: 960,
+            flat_steps: 960,
             skipped_singletons: 0,
             action_support: support(),
             grounding_geometry: geometry(),
@@ -1061,10 +1061,10 @@ mod tests {
             effective_rank: EffectiveRankReport {
                 sample_count: 4_096,
                 dimensions: 256,
-                effective_rank: 80.0,
-                trace: 100.0,
+                effective_rank: 96.5,
+                trace: 128.0,
                 converged: true,
-                sweeps: 12,
+                sweeps: 9,
             },
             llm_priors_ablated: true,
             baseline_gate_passed: true,
@@ -1077,25 +1077,25 @@ mod tests {
         CheckpointManifest {
             schema_version: CHECKPOINT_SCHEMA.to_string(),
             architecture_id: ARCHITECTURE_ID.to_string(),
-            checkpoint_id: "checkpoint-a".to_string(),
-            dataset_digest: "d".repeat(64),
-            training_seed: 42,
-            backend: "metal".to_string(),
+            checkpoint_id: "cnn-echo-11".to_string(),
+            dataset_digest: "3c".repeat(32),
+            training_seed: 7,
+            backend: "cpu".to_string(),
             dtype: "F32".to_string(),
             target_encoder: "ema".to_string(),
-            parameter_count: 10,
-            weights_sha256: "a".repeat(64),
-            training_report_path: "report.json".to_string(),
-            training_report_sha256: "b".repeat(64),
+            parameter_count: 4_096,
+            weights_sha256: "5e".repeat(32),
+            training_report_path: "evidence/training-report.json".to_string(),
+            training_report_sha256: "b7".repeat(32),
             baseline_gate: BaselineGate {
-                dataset_digest: "d".repeat(64),
-                valid_transitions: 50_000,
-                sessions: 12,
-                conditions: 3,
-                environments: 3,
-                constant: metrics(3.0, 2.0),
-                flat_mlp: metrics(2.0, 1.5),
-                tiny_cnn: metrics(1.0, 0.8),
+                dataset_digest: "3c".repeat(32),
+                valid_transitions: 51_200,
+                sessions: 16,
+                conditions: 4,
+                environments: 5,
+                constant: metrics(2.75, 1.9),
+                flat_mlp: metrics(1.8, 1.4),
+                tiny_cnn: metrics(0.95, 0.7),
             },
             action_support: support(),
             grounding_geometry: geometry(),
@@ -1111,22 +1111,22 @@ mod tests {
     ) -> TransitionSample {
         let observed = EventRef {
             topic: "camera".to_string(),
-            entity: "guard".to_string(),
+            entity: "scout-2".to_string(),
             source_sequence: sequence,
-            timestamp_ns: 1_000_000_000 + sequence * 200_000_000,
+            timestamp_ns: 1_700_000_000_000 + sequence * 250_000_000,
         };
         let following = EventRef {
             source_sequence: sequence + 1,
-            timestamp_ns: observed.timestamp_ns + 100_000_000,
+            timestamp_ns: observed.timestamp_ns + 120_000_000,
             ..observed.clone()
         };
         TransitionSample {
             sample_id,
             session_id: session_id.to_string(),
             environment_id: "arena".to_string(),
-            condition: "day".to_string(),
+            condition: "daylight".to_string(),
             split,
-            mcap_sha256: "d".repeat(64),
+            mcap_sha256: "9d".repeat(32),
             observation_camera: observed.clone(),
             observation_lidar: EventRef {
                 topic: "lidar".to_string(),
@@ -1147,26 +1147,26 @@ mod tests {
             },
             action: AppliedActionAggregate {
                 source_sequences: vec![sequence],
-                left: 0.0,
-                right: 0.0,
-                speed_scale: 1.0,
+                left: 0.12,
+                right: -0.08,
+                speed_scale: 0.85,
                 interval_start_ns: observed.timestamp_ns,
-                interval_end_ns: observed.timestamp_ns + 100_000_000,
-                coverage: 1.0,
+                interval_end_ns: observed.timestamp_ns + 120_000_000,
+                coverage: 0.95,
                 safety_flags: 0,
             },
             quality: TransitionQuality {
-                camera_luminance_mean: 0.5,
-                camera_luminance_stddev: 0.1,
-                target_camera_luminance_mean: 0.5,
-                target_camera_luminance_stddev: 0.1,
-                lidar_valid_fraction: 1.0,
-                target_lidar_valid_fraction: 1.0,
-                pose_confidence: 1.0,
-                target_pose_confidence: 1.0,
-                max_sensor_skew_ns: 0,
-                action_coverage: 1.0,
-                calibration_id: "calibration".to_string(),
+                camera_luminance_mean: 0.42,
+                camera_luminance_stddev: 0.08,
+                target_camera_luminance_mean: 0.44,
+                target_camera_luminance_stddev: 0.07,
+                lidar_valid_fraction: 0.985,
+                target_lidar_valid_fraction: 0.99,
+                pose_confidence: 0.97,
+                target_pose_confidence: 0.96,
+                max_sensor_skew_ns: 1_200_000,
+                action_coverage: 0.95,
+                calibration_id: "cal-arena-2026-07".to_string(),
             },
         }
     }
@@ -1200,10 +1200,10 @@ mod tests {
             record: CandidateRecord {
                 checkpoint_id: id.to_string(),
                 checkpoint_dir: dir.display().to_string(),
-                dataset_digest: "d".repeat(64),
+                dataset_digest: "3c".repeat(32),
                 weights_sha256,
-                manifest_sha256: "e".repeat(64),
-                training_report_sha256: "b".repeat(64),
+                manifest_sha256: "5e".repeat(32),
+                training_report_sha256: "b7".repeat(32),
                 backend: "metal".to_string(),
                 status: CANDIDATE_ELIGIBLE.to_string(),
                 report_created_at_ms: now,
@@ -1225,15 +1225,15 @@ mod tests {
     #[test]
     fn dataset_quota_metadata_without_evidence_is_refused() {
         let mut audit = DatasetAudit {
-            valid_transitions: 50_000,
-            sessions: 12,
-            environments: 3,
+            valid_transitions: 60_000,
+            sessions: 14,
+            environments: 2,
             ..DatasetAudit::default()
         };
-        audit.conditions.insert("day".to_string(), 20_000);
+        audit.conditions.insert("day".to_string(), 30_000);
         audit.conditions.insert("dusk".to_string(), 18_000);
         audit.conditions.insert("night".to_string(), 12_000);
-        audit.split_samples.insert(DatasetSplit::Train, 50_000);
+        audit.split_samples.insert(DatasetSplit::Train, 60_000);
         let mut dataset = DatasetManifest {
             schema_version: DATASET_SCHEMA.to_string(),
             digest: String::new(),
@@ -1296,8 +1296,14 @@ mod tests {
         aligned.validation.sessions = 2;
         aligned.test.samples = 1;
         aligned.test.sessions = 1;
-        aligned.cnn_steps = 256;
-        aligned.flat_steps = 256;
+        let train_samples = dataset
+            .samples
+            .iter()
+            .filter(|sample| sample.split == DatasetSplit::Train)
+            .count() as u64;
+        let steps_per_epoch = train_samples / aligned.batch_size as u64;
+        aligned.cnn_steps = steps_per_epoch * aligned.epochs as u64;
+        aligned.flat_steps = aligned.cnn_steps;
         aligned.skipped_singletons = 0;
         aligned.action_support = measured_action_support(&dataset).unwrap();
         aligned.grounding_geometry.resolution_m = dataset.config.grounding_resolution_m;
