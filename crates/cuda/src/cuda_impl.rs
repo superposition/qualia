@@ -123,15 +123,16 @@ const THOUGHT_LEARN: u8 = 3;
 const THOUGHT_RESOLVE: u8 = 4;
 const THOUGHT_ESCALATE: u8 = 5;
 
+/// One line of narration per layer, used when composing thoughts.
 const LAYER_DESCRIPTIONS: [&str; NUM_LAYERS] = [
-    "sensation",
-    "body motion",
-    "local space",
-    "visual form",
-    "short behaviour",
-    "deep behaviour",
-    "semantic context",
-    "sensor input",
+    "raw sensation",
+    "motor patterns",
+    "local structure",
+    "visual patterns",
+    "short-term behavior",
+    "deep patterns",
+    "long-horizon context",
+    "senses",
 ];
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
@@ -1135,7 +1136,7 @@ fn generate_thought(
     if challenged && previous_streak > 20 {
         return Some((
             THOUGHT_SURPRISE,
-            format!("{description} broke a {previous_streak}-cycle streak, VFE={vfe:.4}"),
+            format!("{description} broke {previous_streak}-cycle streak, VFE={vfe:.4}"),
         ));
     }
     if challenged && vfe > params.threshold {
