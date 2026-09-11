@@ -23,17 +23,21 @@ const WAIT: Duration = Duration::from_secs(30);
 /// Poll interval for every wait helper.
 const POLL: Duration = Duration::from_millis(25);
 
-/// Pass-through variables the probe reports and the test exports.
-const PASSTHROUGH_KEYS: [&str; 9] = [
-    "QUALIA_REPLICA_ID",
-    "QUALIA_REPLICA_ROLE",
-    "QUALIA_REPLICA_DISPLAY_NAME",
-    "QUALIA_REPLICA_CAPABILITIES_JSON",
-    "QUALIA_REPLICA_METADATA_JSON",
-    "QUALIA_SYNC_ENDPOINT",
-    "QUALIA_SYNC_PEER_POLL_MS",
-    "QUALIA_SYNC_PEER_PAGE_LIMIT",
-    "QUALIA_SYNC_ACCEPT_INVALID_CERTS",
+/// The replica environment the test exports, in the order the probe reports the
+/// replica keys. The values are deliberately not a stack's defaults, so a key
+/// that was forwarded can be told apart from one that was never set, and the two
+/// payloads keep the object shapes the replica contract describes: capability
+/// flags and free-form string metadata.
+const PASSTHROUGH_ENV: [(&str, &str); 9] = [
+    ("QUALIA_REPLICA_ID", "kestrel-204"),
+    ("QUALIA_REPLICA_ROLE", "operator"),
+    ("QUALIA_REPLICA_DISPLAY_NAME", "Quayside Operator"),
+    ("QUALIA_REPLICA_CAPABILITIES_JSON", r#"{"motion":false,"vision":true,"audio":true}"#),
+    ("QUALIA_REPLICA_METADATA_JSON", r#"{"site":"pier-9","tier":"staging","build":"2211"}"#),
+    ("QUALIA_SYNC_ENDPOINT", "https://sync.kestrel.internal:9443"),
+    ("QUALIA_SYNC_PEER_POLL_MS", "1500"),
+    ("QUALIA_SYNC_PEER_PAGE_LIMIT", "64"),
+    ("QUALIA_SYNC_ACCEPT_INVALID_CERTS", "true"),
 ];
 
 /// The keys the probe dumps, in the order it writes them.
@@ -273,7 +277,10 @@ fn manifest_env_and_passthrough_reach_the_spawned_child() {
         serde_json::json!([{
             "name": runner,
             "stdout": "null",
-            "env_passthrough": PASSTHROUGH_KEYS.to_vec(),
+            "env_passthrough": PASSTHROUGH_ENV
+                .iter()
+                .map(|(key, _)| *key)
+                .collect::<Vec<_>>(),
         }]),
         serde_json::json!({
             "QUALIA_FLY_MODE": "prior",
@@ -281,36 +288,20 @@ fn manifest_env_and_passthrough_reach_the_spawned_child() {
         }),
     );
 
-    let mut init = spawn_init(
-        &manifest,
-        &log_dir,
-        &[
-            // Deliberately conflicting values: the manifest declares the stack's
-            // configuration, so its `env` block wins over the ambient shell.
-            ("QUALIA_FLY_MODE", "off"),
-            ("QUALIA_FLY_PRIOR_PATH", "/nonexistent"),
-            ("QUALIA_REPLICA_ID", "jetson-001"),
-            ("QUALIA_REPLICA_ROLE", "jetson"),
-            ("QUALIA_REPLICA_DISPLAY_NAME", "Jetson Smoke"),
-            (
-                "QUALIA_REPLICA_CAPABILITIES_JSON",
-                r#"{"motion":true,"vision":false}"#,
-            ),
-            (
-                "QUALIA_REPLICA_METADATA_JSON",
-                r#"{"site":"lab-7","tier":"smoke"}"#,
-            ),
-            ("QUALIA_SYNC_ENDPOINT", "https://sync.example.invalid:8443"),
-            ("QUALIA_SYNC_PEER_POLL_MS", "250"),
-            ("QUALIA_SYNC_PEER_PAGE_LIMIT", "17"),
-            ("QUALIA_SYNC_ACCEPT_INVALID_CERTS", "false"),
-        ],
-    );
+    // Deliberately conflicting values: the manifest declares the stack's
+    // configuration, so its `env` block wins over the ambient shell. The replica
+    // keys are the fixture, exported here and expected back unchanged.
+    let mut exported: Vec<(&str, &str)> = vec![
+        ("QUALIA_FLY_MODE", "off"),
+        ("QUALIA_FLY_PRIOR_PATH", "/nonexistent"),
+    ];
+    exported.extend(PASSTHROUGH_ENV);
+    let mut init = spawn_init(&manifest, &log_dir, &exported);
 
     let mut control = wait_for_control(&socket, WAIT);
     let report = wait_for_text(&log_dir.join("probe.tsv"), WAIT);
 
-    let expected: Vec<(String, String)> = vec![
+    let mut expected: Vec<(String, String)> = vec![
         ("QUALIA_FLY_MODE".into(), "prior".into()),
         (
             "QUALIA_FLY_PRIOR_PATH".into(),
@@ -326,28 +317,12 @@ fn manifest_env_and_passthrough_reach_the_spawned_child() {
             log_dir.to_string_lossy().into_owned(),
         ),
         ("RUST_LOG".into(), "info".into()),
-        ("QUALIA_REPLICA_ID".into(), "jetson-001".into()),
-        ("QUALIA_REPLICA_ROLE".into(), "jetson".into()),
-        ("QUALIA_REPLICA_DISPLAY_NAME".into(), "Jetson Smoke".into()),
-        (
-            "QUALIA_REPLICA_CAPABILITIES_JSON".into(),
-            r#"{"motion":true,"vision":false}"#.into(),
-        ),
-        (
-            "QUALIA_REPLICA_METADATA_JSON".into(),
-            r#"{"site":"lab-7","tier":"smoke"}"#.into(),
-        ),
-        (
-            "QUALIA_SYNC_ENDPOINT".into(),
-            "https://sync.example.invalid:8443".into(),
-        ),
-        ("QUALIA_SYNC_PEER_POLL_MS".into(), "250".into()),
-        ("QUALIA_SYNC_PEER_PAGE_LIMIT".into(), "17".into()),
-        (
-            "QUALIA_SYNC_ACCEPT_INVALID_CERTS".into(),
-            "false".into(),
-        ),
     ];
+    expected.extend(
+        PASSTHROUGH_ENV
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string())),
+    );
     for (key, value) in &expected {
         let line = format!("{key}\t{value}");
         assert!(
