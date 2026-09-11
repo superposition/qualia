@@ -26,7 +26,7 @@ async fn main() {
     let config = LidarConfig::from_env();
 
     let shm = match ShmRegion::open(&config.shm_name) {
-        Ok(shm) => shm,
+        Ok(region) => region,
         Err(error) => {
             eprintln!(
                 "qualia-lidar: failed to open shm '{}': {error}",
@@ -49,30 +49,31 @@ async fn main() {
         }
     };
 
-    let started = Instant::now();
+    let boot = Instant::now();
     let mut chunk = [0u8; 4096];
-    let mut stream: VecDeque<u8> = VecDeque::with_capacity(FRAME_SIZE * 4);
+    let mut incoming: VecDeque<u8> = VecDeque::with_capacity(FRAME_SIZE * 4);
     let mut assembler = ScanAssembler::new();
     let mut packet_count = 0u64;
-    let mut published_scans = 0u64;
-    let mut last_publish = Instant::now();
+    let mut rotations = 0u64;
+    let mut last_publication = Instant::now();
     let log_every_scans = config.log_every_scans.max(1);
 
     loop {
         match timeout(READ_TIMEOUT, port.read(&mut chunk)).await {
             Ok(Ok(0)) => {}
             Ok(Ok(read)) => {
-                stream.extend(&chunk[..read]);
-                while let Some(packet) = extract_packet(&mut stream) {
+                incoming.extend(&chunk[..read]);
+                while let Some(packet) = extract_packet(&mut incoming) {
                     packet_count += 1;
                     for point in packet.points {
-                        if let Some(rotation) = assembler.push(point) {
-                            publish_scan(&shm, &rotation);
-                            published_scans = published_scans.wrapping_add(1);
-                            last_publish = Instant::now();
-                            if published_scans == 1 || published_scans % log_every_scans == 0 {
-                                report(&shm, packet_count, &rotation);
-                            }
+                        let Some(rotation) = assembler.push(point) else {
+                            continue;
+                        };
+                        publish_scan(&shm, &rotation);
+                        rotations = rotations.wrapping_add(1);
+                        last_publication = Instant::now();
+                        if rotations == 1 || rotations % log_every_scans == 0 {
+                            report(&shm, packet_count, &rotation);
                         }
                     }
                 }
@@ -84,9 +85,9 @@ async fn main() {
             Err(_) => {
                 let buffered_points = assembler.buffered();
                 match idle_action(
-                    published_scans,
-                    started.elapsed(),
-                    last_publish.elapsed(),
+                    rotations,
+                    boot.elapsed(),
+                    last_publication.elapsed(),
                     config.timeout,
                 ) {
                     IdleAction::Fail => {
@@ -99,7 +100,7 @@ async fn main() {
                         eprintln!(
                             "qualia-lidar: waiting for complete scan packet_count={packet_count} buffered_points={buffered_points}"
                         );
-                        last_publish = Instant::now();
+                        last_publication = Instant::now();
                     }
                     IdleAction::Idle => {}
                 }
@@ -133,7 +134,7 @@ fn report(shm: &ShmRegion, packet_count: u64, rotation: &[DevicePoint]) {
         .map(|point| {
             format!(
                 "{:.1}deg:{}mm@{}",
-                point.angle_deg, point.distance_mm, point.intensity
+                point.bearing_deg, point.range_mm, point.signal
             )
         })
         .collect::<Vec<_>>()

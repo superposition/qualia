@@ -20,11 +20,11 @@ fn region(tag: &str) -> ShmRegion {
     ShmRegion::create(&name).expect("create region")
 }
 
-fn point(angle_deg: f32, distance_mm: u16, intensity: u8) -> DevicePoint {
+fn point(bearing_deg: f32, range_mm: u16, signal: u8) -> DevicePoint {
     DevicePoint {
-        angle_deg,
-        distance_mm,
-        intensity,
+        bearing_deg,
+        range_mm,
+        signal,
     }
 }
 

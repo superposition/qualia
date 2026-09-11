@@ -1,24 +1,28 @@
 //! `qualia-lidar-inspect`: prints the LiDAR frames currently in shared memory.
 //!
-//! Opens the arena named by `QUALIA_SHM_NAME` (default `/qualia_body`), takes
-//! one coherent snapshot of the polar scan and one of the occupancy grid, and
-//! prints both. It is a read-only probe: it never writes the arena.
+//! Opens the arena named by `QUALIA_SHM_NAME` (default
+//! [`DEFAULT_SHM_NAME`](qualia_lidar::DEFAULT_SHM_NAME)), takes one coherent
+//! snapshot of the polar scan and one of the occupancy grid, and prints both.
+//! It is a read-only probe: it never writes the arena.
 
+use qualia_lidar::DEFAULT_SHM_NAME;
 use qualia_shm::ShmRegion;
 
 fn main() {
-    let shm_name = std::env::var("QUALIA_SHM_NAME").unwrap_or_else(|_| "/qualia_body".to_string());
+    let shm_name =
+        std::env::var("QUALIA_SHM_NAME").unwrap_or_else(|_| DEFAULT_SHM_NAME.to_string());
     let shm = ShmRegion::open(&shm_name).unwrap_or_else(|error| {
         panic!("qualia-lidar-inspect: failed to open shm '{shm_name}': {error}");
     });
 
-    let scan = shm.lidar_scan().snapshot(32).expect("coherent LiDAR scan");
-    let grid = shm.lidar_grid().snapshot(32).expect("coherent LiDAR grid");
+    let scan = shm.lidar_scan().snapshot(32).expect("lidar scan snapshot");
+    let grid = shm.lidar_grid().snapshot(32).expect("lidar grid snapshot");
 
+    let shown = (scan.point_count as usize).min(8);
     let sample = scan
         .points
         .iter()
-        .take((scan.point_count as usize).min(8))
+        .take(shown)
         .map(|point| {
             format!(
                 "{:.3}rad:{:.3}m@{}",
