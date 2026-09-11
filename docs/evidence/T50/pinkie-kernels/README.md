@@ -2,11 +2,11 @@
 
 The profiling target for this ticket is the board, not the development host (D-012). This is the first
 board capture in the tree — the only other capture at this head is `docs/evidence/T16/three-kernels/`
-on `main`, and the 4090 baseline is `docs/evidence/baseline-2026-09-11/` in PR #166 — and it is taken
+on `main`, and the 4090 baseline is `docs/evidence/baseline-2026-09-11/` on `main` — and it is taken
 on the Waveshare-carried Jetson Orin NX. One pass of the five device tests in
 `crates/cuda/tests/gpu.rs` at `a28736f` put **13 CUDA launches over 5 kernels** on the Orin's GPU and
 cost **39.18 ms** of kernel time, against **4.78 ms** for the same 13 launches, shapes and launch
-counts on the RTX 4090 (`baseline-2026-09-11/`, which PR #166 carries): **8.19× slower**. Two kernels
+counts on the RTX 4090 (`baseline-2026-09-11/` on `main`): **8.19× slower**. Two kernels
 are 99.6 % of it — `belief_update` 12.976 ms and `cognition_update` 12.991 + 13.046 ms — and both are
 written as one block of 1024 threads where each thread walks a full 1024-wide row of the weight matrix
 in a serial loop. The counters say the problem is not occupancy: the single 1024-thread block is
@@ -18,14 +18,16 @@ the hardware the naive shape actually ships on.
 
 ## Layout
 
-`docs/evidence/README.md` — the layout this directory follows — lands with #166. A capture directory
+`docs/evidence/README.md` — the layout this directory follows — is on `main`. A capture directory
 holds `capture.json`, `kernels.json`, `kernels.csv`, the backend's export and this README; this
-directory holds six files — those five plus the second run's export.
+directory holds eight files — those four, plus one export pair per run: `metrics.csv` with
+`base-capture.ncu-rep`, and `metrics-none.csv` with `none-capture.ncu-rep`.
 
-This capture is **manual**, under #166's `## Manual capture` clause: mage is not available on Pinkie
-— it carries no `nsys`, has no DNS, and has no mage installed today — so the two `ncu` runs were
-driven by hand. `capture.json` therefore keeps mage's manifest field names for the primary (`base`)
-run — `argv` (the profiled argv), `profiler_argv`, `returncode`, `status`, `kernel_count` — with the
+This capture is **manual**, under `docs/evidence/README.md`'s `## Manual capture` clause: mage is not
+available on Pinkie — it carries no `nsys`, has no DNS, and has no mage installed today — so the two
+`ncu` runs were driven by hand. `capture.json` therefore keeps mage's manifest field names for the
+primary (`base`) run — `argv` (the profiled argv), `profiler_argv`, `returncode`, `status`,
+`kernel_count` — with the
 board, build and environment data added alongside, and the `--clock-control none` run under `runs[]`.
 `kernels.json` and `kernels.csv` carry the same rows: **one object per CUDA launch**, 13 for each of
 the two runs, with the launch shape, the launch-statistics section and every counter the board's
@@ -33,9 +35,10 @@ driver returned. They are a **hand-normalised projection of the raw export**, no
 output: the columns are renamed to the names in §"The raw export", the two runs are merged under an
 added `run` column, and numeric formatting is normalised. No value is changed — `dram__bytes.sum` is
 `n/a` in the export itself, not injected — and the projection was checked column-for-column against
-the exports. There is no `capture.ncu-rep`: neither run was passed `--export`, so no report was
-written for them and the board holds none (measured); §"The raw export" carries the exports' sizes
-and hashes. The runs are labelled `base` and `none` in the `run` column.
+the exports. The details-page exports this README's two hand runs wrote are `metrics.csv` and
+`metrics-none.csv`; the two reports for the same configurations are `base-capture.ncu-rep` and
+`none-capture.ncu-rep`, written by the board job's re-run (§"The reports"). §"The raw export" carries
+every export's size and hash. The runs are labelled `base` and `none` in the `run` column.
 
 ## Shape
 
@@ -232,9 +235,10 @@ not exclusively mine: other agents were building and running on it in the same w
 an aarch64 build plus a single four-thread kernel run), which is why the two committed runs are
 reported as agreeing rather than as an undisturbed measurement. Across the session `belief_update`
 was captured five times between 12 976 128 ns and 13 003 168 ns — a 0.21 % spread — so whatever else
-was running moved the second decimal, not the number. No `--export` was passed: with `--csv` alone
-the CSV goes to stdout, so there is no report to re-import, and `--page details` (ncu's `--csv`
-default) is the page these rows came from.
+was running moved the second decimal, not the number. These two commands passed `--csv` without
+`--export`, so ncu wrote the CSV to stdout and no report came from them; `--page details` (ncu's
+`--csv` default) is the page these committed rows came from. The reports for both configurations come
+from the board job's re-run — §"The reports".
 
 Two notes for the next person. `--set basic` reports `nan` for every throughput and occupancy metric,
 and combining `--set basic` with `--metrics` silently leaves every named counter except the duration
@@ -255,17 +259,16 @@ verbatim: one row per metric per launch, from the `--page details` page ncu's `-
 | `metrics.csv` | `~/waveshare-profile/final-base.csv` (base clock) | 122 810 B | `3538a433fe0afa1581b3cde6e38b49edaed6fe8f5c44ac6105025c33ca8a8cf3` |
 | `metrics-none.csv` | `~/waveshare-profile/final-none.csv` (`--clock-control none`) | 122 810 B | `3e95299882ae44e6398c72be7a93f8e99353c2edb79fec62db5e00b0b8814fc1` |
 
-The source log files are 123 352 B and 123 474 B; the difference is the dropped harness lines. There
-is no `capture.ncu-rep` for these runs: neither was passed `--export`, and neither the capturing
-machine nor the board holds a `.ncu-rep` for either committed run (both checked after the session).
-The only report that exists is an exploratory base-clock pass's, `capture-basic.ncu-rep` — 832 246 B,
-SHA-256 `cbb08639fa4ad36f4d19eb44e18d5e3cb89df77a3389421910c69d5808a81c66`, left on the capturing
-machine because it is over the ~196 KB the tree carries — and it is not either committed run's report:
-its `--section` metric set is not this capture's `--metrics` list and it profiled a different
-`belief_update` replay (3 973 027 cycles against the committed 3 973 383). The `--page raw` page the
-convention names is unavailable for the committed runs for the same reason — it is an `ncu --import`
-page and there is nothing to import. Re-run with `--export <dir>/capture` and `--csv --page raw` to
-get a report and a raw page for the committed configuration.
+The source log files are 123 352 B and 123 474 B; the difference is the dropped harness lines.
+
+`metrics.csv` and `metrics-none.csv` are `ncu --csv`'s **details-page** export — the long-form schema
+(`Metric Name`, `Metric Value`, `Metric Unit`, `Kernel Name`) that mage's parser reads (D-017) — and
+`base-capture.ncu-rep` / `none-capture.ncu-rep` are the reports `ncu --export` wrote for the same two
+configurations (§"The reports"). The details export carries `launch__shared_mem_per_block_static` —
+this capture's `--metrics` list names it — with unit `byte/block`: mage's own reader accepts only
+byte/kb/mb/gb for a `_bytes` field, so it rejects that unit, and mage cannot ingest either committed
+CSV as-is (D-017). The `--page raw` output is not that schema: mage's backend asks ncu for the raw
+page while its parser expects the details page, so a raw-page CSV fails to parse (D-017).
 
 `kernels.csv` and `kernels.json` are a renamed projection of the export: each committed column keeps
 the export's `Metric Value` for its identifier, formatted (thousands separators and trailing zeros
@@ -298,6 +301,41 @@ of its own; no value in either column is absent from the export.
 `kernels.csv` equals `kernels.json` row for row — 26 rows, 13 `base` + 13 `none` — and every number
 in this README is recomputed from them.
 
+## The reports
+
+Both configurations were re-run on Pinkie by the board job (`docs/agents.md` §Definition of done),
+with mage's own argv shape plus this capture's `--metrics` list; the board's PR #183 comment quotes
+both commands and their output. Each run was
+
+```bash
+sudo env LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat /usr/local/cuda/bin/ncu \
+  --csv --page raw --print-units base --target-processes all \
+  --export <dir>/capture --log-file <dir>/metrics.csv \
+  --section LaunchStats --section Occupancy \
+  --launch-count 24 --kernel-name "$KERNELS" --metrics "$METRICS" \
+  "$BIN" --test-threads=1 --nocapture
+```
+
+with `<dir>` the run's own scratch directory, the `none` run adding `--clock-control none`, and the
+workload argv unchanged from `capture.json`: `./target/release/deps/gpu-dd04a78e6201dd63
+--test-threads=1 --nocapture`. Each run wrote one report; both are committed here, as D-017 records,
+named by configuration:
+
+| Committed | Configuration | Size | SHA-256 |
+| --- | --- | --- | --- |
+| `base-capture.ncu-rep` | `base` — ncu's default clock control | 594 202 B | `5254ef9609719bda7f0b0e8396365caf349ed20a76089658356abebc78ac658c` |
+| `none-capture.ncu-rep` | `none` — the `--clock-control none` repeat | 594 223 B | `d39ec28a6d519cbc2304b331cb48d08bf6147322b01260b2ee7b1ca15390ce55` |
+
+The re-run reproduced the committed workload — `belief_update` 12 997 632 ns against the committed
+12 976 128 ns, and 39 137 ms of kernel time against 39 182 ms — so the reports belong to these two
+configurations, though they are not the same process's bytes as the committed CSVs, which came from
+the hand runs above. The same runs wrote raw-page CSVs (`base-metrics.csv` 37 054 B,
+`none-metrics.csv` 37 166 B); those are not committed. The exploratory `capture-basic.ncu-rep`
+(832 246 B, SHA-256 `cbb08639fa4ad36f4d19eb44e18d5e3cb89df77a3389421910c69d5808a81c66`) is a
+different pass — its `--section` metric set is not this capture's `--metrics` list and it profiled a
+different `belief_update` replay (3 973 027 cycles against the committed 3 973 383) — and is not
+committed.
+
 ## What this does not establish
 
 - **The JEPA model steps are not measured, and there is no model to measure yet.** At the captured
@@ -313,8 +351,8 @@ in this README is recomputed from them.
 - **No timeline capture.** There is no `nsys` binary on the board and no network to install one, and
   `mage` is not installed there either, so #64's `mage profile-exec --backend nsys` path cannot run on
   Pinkie. This capture is `ncu` only, and kernel-level rather than step-level. That block is
-  target-side and is not a wheel or toolchain limit: per #166's `## Manual capture` clause, the board
-  carries no `nsys`, has no DNS, and has no mage installed today.
+  target-side and is not a wheel or toolchain limit: per `docs/evidence/README.md`'s `## Manual
+  capture` clause, the board carries no `nsys`, has no DNS, and has no mage installed today.
 - **No DRAM verdict.** See the `n/a` above.
 - **Duration is a profiler duration.** Both runs report the duration of an isolated, replayed launch,
   not a throughput measurement of the pipeline. Compare launch count and shape first, then cycles,
