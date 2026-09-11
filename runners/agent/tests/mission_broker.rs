@@ -77,6 +77,52 @@ async fn accepted_mission_opens_the_braid_and_cancel_closes_it() {
     );
 }
 
+/// A journal line written before the coupling dial existed still loads.
+///
+/// The line's digest was taken over a state that carried no `coupling_scale`,
+/// so the field must stay out of the digested form when it holds its default:
+/// otherwise every journal a previous build wrote fails its digest check and
+/// the whole journalled state — the missions, the deliveries, the producer
+/// epoch — is discarded.
+#[tokio::test]
+async fn a_journal_written_before_the_dial_still_loads() {
+    use sha2::{Digest, Sha256};
+
+    // One journalled transition under producer epoch 7, with no missions, no
+    // deliveries and no dial, in the canonical form the digest covers.
+    let state = serde_json::json!({
+        "schema_version": "qualia.mission-control-state.v1",
+        "producer_epoch": 7,
+        "next_event_sequence": 0,
+        "broker_producer_epoch": null,
+        "broker_sequence": 0,
+        "deliveries": {},
+        "missions": {},
+        "events": [],
+    });
+    let canonical = serde_json::to_value(&state).expect("the state is JSON");
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&canonical).expect("canonical bytes"))
+    );
+    let record = serde_json::json!({
+        "schema_version": "qualia.mission-control-journal.v1",
+        "state_sha256": digest,
+        "state": canonical,
+    });
+
+    let harness = Harness::with(|config| {
+        std::fs::write(&config.mission_journal, format!("{record}\n"))
+            .expect("write the pre-dial journal");
+    });
+
+    let missions = harness.get("/mission-control/missions").await.json();
+    assert_eq!(
+        missions["producer_epoch"], 7,
+        "the journalled state is resumed, not discarded: {missions}"
+    );
+}
+
 /// A closed mission steps the dial, and the step is what the supervisor's next
 /// start of a belief layer reads.
 #[tokio::test]

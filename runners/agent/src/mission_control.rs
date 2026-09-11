@@ -147,9 +147,13 @@ struct MissionControlStateV1 {
     broker_producer_epoch: Option<u64>,
     broker_sequence: u64,
     /// The agent's dial on the prior's coupling (T30, #46), as it was last
-    /// stepped. `serde`-defaulted so a journal written before the dial existed
-    /// still loads.
-    #[serde(default = "coupling_scale_default")]
+    /// stepped. `serde`-defaulted and skipped at its default so a journal a
+    /// build before the dial wrote still reproduces its own digest: the
+    /// journal's `state_sha256` covers this state's serialized form, and a
+    /// field that appears in it only when the agent has stepped the dial keeps
+    /// every earlier line verifiable. Dropping old journals instead would throw
+    /// away the missions and the producer epoch with them.
+    #[serde(default = "coupling_scale_default", skip_serializing_if = "is_coupling_scale_default")]
     coupling_scale: f32,
     deliveries: BTreeMap<String, MissionEnvelopeV1>,
     missions: BTreeMap<String, MissionRecordV1>,
@@ -865,6 +869,12 @@ impl MissionControlRuntime {
 /// The dial's default, for a journal written before the dial existed.
 fn coupling_scale_default() -> f32 {
     COUPLING_SCALE_DEFAULT
+}
+
+/// Whether a dial reading is the default, and so stays out of the journal's
+/// digested state.
+fn is_coupling_scale_default(scale: &f32) -> bool {
+    *scale == COUPLING_SCALE_DEFAULT
 }
 
 /// The bounded dial reading the environment names, or `None` when it names
