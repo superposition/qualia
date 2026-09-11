@@ -80,7 +80,8 @@ fn a_stream_that_stops_mid_frame_ends_with_an_error() {
     assert!(reader.next_frame().is_err());
 
     let mut reader = MjpegFrameReader::new(Cursor::new(Vec::new()));
-    assert!(reader.next_frame().is_err());
+    let error = reader.next_frame().expect_err("an empty stream has no frame");
+    assert_eq!(error, "MJPEG stream closed before the next complete frame");
 }
 
 #[test]
@@ -89,5 +90,11 @@ fn a_frame_beyond_the_snapshot_cap_is_an_error() {
     body.resize(MAX_SNAPSHOT_BYTES as usize + 2, 0x00);
     let mut reader = MjpegFrameReader::new(Cursor::new(body));
 
-    assert!(reader.next_frame().is_err(), "the frame never ends");
+    let error = reader
+        .next_frame()
+        .expect_err("the frame never ends");
+    assert_eq!(
+        error,
+        format!("MJPEG frame exceeds {MAX_SNAPSHOT_BYTES} byte limit")
+    );
 }

@@ -11,8 +11,8 @@ use std::time::Duration;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageBuffer, ImageFormat, Luma};
 use qualia_camera::{
-    capture_once, ingest_snapshot_bytes, CaptureOutcome, SnapshotSource, MAX_SNAPSHOT_BYTES,
-    PREVIEW_FORMAT_NONE,
+    capture_once, ingest_snapshot_bytes, CaptureOutcome, IngestError, SnapshotSource,
+    MAX_SNAPSHOT_BYTES, PREVIEW_FORMAT_NONE,
 };
 use qualia_shm::ShmRegion;
 use qualia_types::{CameraFrameSnapshot, CAMERA_PREVIEW_MAX_BYTES};
@@ -83,9 +83,12 @@ fn a_missing_snapshot_file_captures_nothing() {
     let source = SnapshotSource::file(missing.to_string_lossy());
 
     let outcome = capture_once(&shm, &source, 0);
+    let CaptureOutcome::Unavailable(reason) = outcome else {
+        panic!("a missing file must be unavailable: {outcome:?}");
+    };
     assert!(
-        matches!(outcome, CaptureOutcome::Unavailable(_)),
-        "{outcome:?}"
+        reason.starts_with("stat snapshot: "),
+        "the operator line carries the reference payload: {reason}"
     );
     assert_eq!(read_frame(&shm).seq, 0, "nothing was published");
 }
@@ -128,7 +131,13 @@ fn a_corrupt_snapshot_leaves_the_last_good_frame_readable() {
     // watermark is deliberately ignored so the read is not skipped.
     std::fs::write(&path, b"\x89PNG\r\n\x1a\nthis is not a picture").expect("rewrite snapshot");
     let outcome = capture_once(&shm, &source, 0);
-    assert!(matches!(outcome, CaptureOutcome::Corrupt(_)), "{outcome:?}");
+    let CaptureOutcome::Corrupt(reason) = outcome else {
+        panic!("undecodable bytes must be corrupt: {outcome:?}");
+    };
+    assert!(
+        reason.starts_with("decode snapshot: "),
+        "the operator line carries the reference payload: {reason}"
+    );
 
     let frame = read_frame(&shm);
     assert_eq!(frame.seq, good.seq, "the last good frame is untouched");
@@ -184,12 +193,15 @@ fn an_http_snapshot_publishes_the_body() {
 fn an_http_error_page_is_unavailable() {
     let shm = region("http-error");
     let url = serve(vec![(503, "text/plain", b"camera warming up".to_vec())]);
-    let source = SnapshotSource::http(url, TIMEOUT);
+    let source = SnapshotSource::http(url.clone(), TIMEOUT);
 
     let outcome = capture_once(&shm, &source, 0);
+    let CaptureOutcome::Unavailable(reason) = outcome else {
+        panic!("an HTTP error page must be unavailable: {outcome:?}");
+    };
     assert!(
-        matches!(outcome, CaptureOutcome::Unavailable(_)),
-        "{outcome:?}"
+        reason.starts_with(&format!("GET {url}: ")),
+        "the operator line carries the reference payload: {reason}"
     );
     assert_eq!(read_frame(&shm).seq, 0);
 }
@@ -201,10 +213,10 @@ fn an_empty_http_snapshot_is_unavailable() {
     let source = SnapshotSource::http(url, TIMEOUT);
 
     let outcome = capture_once(&shm, &source, 0);
-    assert!(
-        matches!(outcome, CaptureOutcome::Unavailable(_)),
-        "{outcome:?}"
-    );
+    let CaptureOutcome::Unavailable(reason) = outcome else {
+        panic!("an empty body must be unavailable: {outcome:?}");
+    };
+    assert_eq!(reason, "snapshot response was empty");
 }
 
 #[test]
@@ -218,9 +230,23 @@ fn an_http_snapshot_over_the_size_cap_is_unavailable() {
     let source = SnapshotSource::http(url, TIMEOUT);
 
     let outcome = capture_once(&shm, &source, 0);
-    assert!(
-        matches!(outcome, CaptureOutcome::Unavailable(_)),
-        "{outcome:?}"
+    let CaptureOutcome::Unavailable(reason) = outcome else {
+        panic!("an oversized body must be unavailable: {outcome:?}");
+    };
+    assert_eq!(reason, format!("snapshot exceeds {MAX_SNAPSHOT_BYTES} byte limit"));
+}
+
+/// The MJPEG loop prints `IngestError`'s `Display` straight into the operator
+/// log, so both prefixes there are the reference's operator wording.
+#[test]
+fn ingest_error_display_carries_the_reference_prefixes() {
+    assert_eq!(
+        IngestError::Decode("not an image".to_string()).to_string(),
+        "decode snapshot: not an image"
+    );
+    assert_eq!(
+        IngestError::Publish("arena busy".to_string()).to_string(),
+        "publish camera snapshot: arena busy"
     );
 }
 

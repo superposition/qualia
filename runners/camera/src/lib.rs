@@ -224,10 +224,10 @@ pub fn load_snapshot(
     match source {
         SnapshotSource::File(path) => {
             let metadata = std::fs::metadata(path).map_err(|error| {
-                SnapshotError::Unavailable(format!("stat snapshot file {path}: {error}"))
+                SnapshotError::Unavailable(format!("stat snapshot: {error}"))
             })?;
             let modified = metadata.modified().map_err(|error| {
-                SnapshotError::Unavailable(format!("modification time of {path}: {error}"))
+                SnapshotError::Unavailable(format!("snapshot modified time: {error}"))
             })?;
             let mtime_ns = modified
                 .duration_since(UNIX_EPOCH)
@@ -243,7 +243,7 @@ pub fn load_snapshot(
                 )));
             }
             let bytes = std::fs::read(path).map_err(|error| {
-                SnapshotError::Unavailable(format!("read snapshot file {path}: {error}"))
+                SnapshotError::Unavailable(format!("read snapshot: {error}"))
             })?;
             Ok(LoadedSnapshot { bytes, mtime_ns })
         }
@@ -257,17 +257,17 @@ pub fn load_snapshot(
             let mut reader = response.into_reader().take(MAX_SNAPSHOT_BYTES + 1);
             let mut bytes = Vec::new();
             reader.read_to_end(&mut bytes).map_err(|error| {
-                SnapshotError::Unavailable(format!("read snapshot from {url}: {error}"))
+                SnapshotError::Unavailable(format!("read {url}: {error}"))
             })?;
             if bytes.len() as u64 > MAX_SNAPSHOT_BYTES {
                 return Err(SnapshotError::Unavailable(format!(
-                    "snapshot from {url} is over the {MAX_SNAPSHOT_BYTES} byte cap"
+                    "snapshot exceeds {MAX_SNAPSHOT_BYTES} byte limit"
                 )));
             }
             if bytes.is_empty() {
-                return Err(SnapshotError::Unavailable(format!(
-                    "{url} answered with an empty snapshot"
-                )));
+                return Err(SnapshotError::Unavailable(
+                    "snapshot response was empty".to_string(),
+                ));
             }
             Ok(LoadedSnapshot {
                 bytes,
@@ -294,7 +294,7 @@ impl std::fmt::Display for IngestError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Decode(reason) => write!(formatter, "decode snapshot: {reason}"),
-            Self::Publish(reason) => write!(formatter, "publish snapshot: {reason}"),
+            Self::Publish(reason) => write!(formatter, "publish camera snapshot: {reason}"),
         }
     }
 }
@@ -511,8 +511,8 @@ pub fn capture_once(
             seq,
             mtime_ns: snapshot.mtime_ns,
         },
-        Err(IngestError::Decode(reason)) => CaptureOutcome::Corrupt(reason),
-        Err(IngestError::Publish(reason)) => CaptureOutcome::Unavailable(reason),
+        Err(error @ IngestError::Decode(_)) => CaptureOutcome::Corrupt(error.to_string()),
+        Err(error @ IngestError::Publish(_)) => CaptureOutcome::Unavailable(error.to_string()),
     }
 }
 
@@ -568,7 +568,7 @@ impl<R: Read> MjpegFrameReader<R> {
                 }
                 if self.buffer.len() > MAX_SNAPSHOT_BYTES as usize {
                     return Err(format!(
-                        "frame exceeds the {MAX_SNAPSHOT_BYTES} byte snapshot cap"
+                        "MJPEG frame exceeds {MAX_SNAPSHOT_BYTES} byte limit"
                     ));
                 }
             } else if self.buffer.len() > MJPEG_BUFFER_LIMIT {
@@ -587,7 +587,7 @@ impl<R: Read> MjpegFrameReader<R> {
                 .read(&mut chunk)
                 .map_err(|error| format!("read MJPEG stream: {error}"))?;
             if read == 0 {
-                return Err("MJPEG stream ended before the next frame was complete".to_string());
+                return Err("MJPEG stream closed before the next complete frame".to_string());
             }
             self.buffer.extend_from_slice(&chunk[..read]);
         }
