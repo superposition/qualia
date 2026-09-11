@@ -120,9 +120,33 @@ Consequences for every agent:
 - A read-only WSL mount is recovered with `wsl.exe --terminate <distro>` (journal replay); do not fsck
   a mounted root and do not rebuild the distro while it boots.
 
+## D-012 — The 06:10 crash was a script disabling the display adapter; the profiling target is Pinkie
+
+`C:/tmp/nvprof-fix.ps1`, run at 06:10:41 by the T50 profiling work in an attempt to make
+`RmProfilingAdminOnly` take effect, ran `Get-PnpDevice -Class Display | Disable-PnpDevice`, slept four
+seconds and re-enabled. Its log stops at `display-disabled`; two seconds later the harness's stdout
+broke (`EPIPE`, 06:10:43), every agent session was disposed, and both adapters (`NVIDIA GeForce RTX
+4090`, `Meta Virtual Monitor`) sat at `CM_PROB_DISABLED` (Code 22) — CUDA and `nvidia-smi` with them —
+until an elevated `Enable-PnpDevice` at 06:16. This is a separate event from the `nvlddmkm` Id 153 TDR
+D-011 records at 05:53; both are display events, and neither was concurrent GPU work.
+
+Consequences:
+
+- No script, agent or test disables, enables or restarts a display adapter, or reinstalls its driver.
+  A device toggle is a host outage, not a step. A tool that says it needs one is a stop-and-ask.
+- `ERR_NVGPUCTRPERM` on the dev host is not a project requirement. The profiling target is Pinkie —
+  the Waveshare-carried Jetson Orin NX at `jetson@192.168.55.1` (L4T R36.4.7, sm_87, 6 cores,
+  3.6 GiB RAM, 161 GiB free, account password `jetson`, `ncu` at `/usr/local/cuda/bin/ncu`, no
+  `nsys`, no `nvcc`). Profiling evidence is captured there and ships with the ticket. The host's
+  `RmProfilingAdminOnly=0` was set by the same attempt; it is left as-is, is not required by anything,
+  and must never be forced to take effect by a device restart.
+- D-011's serial-GPU rule stands (one GPU job at a time, bounded runs). Its attribution is amended:
+  the session it followed was killed by the scripted device disable above, not by GPU work.
+
 ## D-003 — Repository
 
 
 Public repository is `superposition/qualia`. The former private repository is
 `superposition/qualia-private` (archived). The plan's `specdog/qualia` owner is **not** used:
-`specdog` is a third party.
+`specdog` is a third-party account even though the operator has access to it. Leash
+(`specdog/leash`), the MIT project cited in `NOTICE`, is the operator's own project.
