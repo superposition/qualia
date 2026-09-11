@@ -6,6 +6,11 @@
 //! occupancy logit map, plus the immutable artifacts the evidence gates read
 //! back (`weights.safetensors` beside a `manifest.json` whose SHA-256 covers
 //! the weights). It never writes a plan or a motor command.
+//!
+//! Both published artifacts — the checkpoint manifest and the training report —
+//! reject any non-finite floating-point metric through `ensure_finite_fields`,
+//! which refuses by checkpoint and field name rather than let `serde_json`
+//! write a `null` the readers reject.
 
 use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use candle_nn::{
@@ -987,6 +992,10 @@ fn valid_checkpoint_id_byte(byte: u8) -> bool {
 /// The online model and the EMA encoder are stored in a single safetensors
 /// file under `target_encoder.` names, so a reader that verifies the digest has
 /// verified the exact bytes the runtime will load.
+///
+/// A manifest carrying a non-finite floating-point metric is refused before
+/// anything is staged: JSON cannot represent it, and the published manifest
+/// would be unreadable.
 pub fn write_candidate_checkpoint(
     root: impl AsRef<Path>,
     checkpoint_id: &str,
@@ -1032,12 +1041,295 @@ pub fn write_candidate_checkpoint(
     ))
 }
 
+/// Refuse to serialize an artifact carrying a non-finite floating-point metric.
+///
+/// JSON has no NaN or infinity literal, so `serde_json` writes `null` where a
+/// non-finite `f64`/`f32` stood; the artifact then fails its own reader with
+/// `invalid type: null, expected f64`. A non-finite held-out metric is a real
+/// outcome of a diverged run rather than a formatting accident, so the
+/// publication boundary refuses it by name and publishes nothing.
+fn ensure_finite_fields(
+    checkpoint_id: &str,
+    artifact: &str,
+    fields: &[(&str, f64)],
+) -> ModelResult<()> {
+    for (field, value) in fields {
+        if !value.is_finite() {
+            return Err(format!(
+                "refusing to publish checkpoint {checkpoint_id}: non-finite {artifact} metric \
+                 {field} = {value}; a non-finite metric means the evaluation diverged, and JSON \
+                 writes it as null, which the reader rejects"
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// Every floating-point field of a checkpoint manifest, by JSON path.
+fn manifest_float_fields(manifest: &CheckpointManifest) -> [(&'static str, f64); 19] {
+    let gate = &manifest.baseline_gate;
+    let support = &manifest.action_support;
+    [
+        (
+            "baseline_gate.constant.transition_nll",
+            gate.constant.transition_nll,
+        ),
+        (
+            "baseline_gate.constant.rollout_error",
+            gate.constant.rollout_error,
+        ),
+        (
+            "baseline_gate.flat_mlp.transition_nll",
+            gate.flat_mlp.transition_nll,
+        ),
+        (
+            "baseline_gate.flat_mlp.rollout_error",
+            gate.flat_mlp.rollout_error,
+        ),
+        (
+            "baseline_gate.tiny_cnn.transition_nll",
+            gate.tiny_cnn.transition_nll,
+        ),
+        (
+            "baseline_gate.tiny_cnn.rollout_error",
+            gate.tiny_cnn.rollout_error,
+        ),
+        ("action_support.min_left", f64::from(support.min_left)),
+        ("action_support.max_left", f64::from(support.max_left)),
+        ("action_support.min_right", f64::from(support.min_right)),
+        ("action_support.max_right", f64::from(support.max_right)),
+        (
+            "action_support.min_effective_forward",
+            f64::from(support.min_effective_forward),
+        ),
+        (
+            "action_support.max_effective_forward",
+            f64::from(support.max_effective_forward),
+        ),
+        (
+            "action_support.min_effective_turn",
+            f64::from(support.min_effective_turn),
+        ),
+        (
+            "action_support.max_effective_turn",
+            f64::from(support.max_effective_turn),
+        ),
+        (
+            "action_support.min_speed_scale",
+            f64::from(support.min_speed_scale),
+        ),
+        (
+            "action_support.max_speed_scale",
+            f64::from(support.max_speed_scale),
+        ),
+        (
+            "action_support.min_delta_seconds",
+            f64::from(support.min_delta_seconds),
+        ),
+        (
+            "action_support.max_delta_seconds",
+            f64::from(support.max_delta_seconds),
+        ),
+        (
+            "grounding_geometry.resolution_m",
+            f64::from(manifest.grounding_geometry.resolution_m),
+        ),
+    ]
+}
+
+/// Refuse to serialize a manifest carrying a non-finite metric.
+fn ensure_manifest_metrics_finite(manifest: &CheckpointManifest) -> ModelResult<()> {
+    ensure_finite_fields(
+        &manifest.checkpoint_id,
+        "manifest",
+        &manifest_float_fields(manifest),
+    )
+}
+
+/// One held-out split's floating-point fields, namespaced by `prefix`.
+macro_rules! split_float_fields {
+    ($prefix:literal, $split:expr) => {
+        [
+            (
+                concat!($prefix, ".constant.transition_nll"),
+                $split.constant.transition_nll,
+            ),
+            (
+                concat!($prefix, ".constant.rollout_error"),
+                $split.constant.rollout_error,
+            ),
+            (
+                concat!($prefix, ".flat_mlp.transition_nll"),
+                $split.flat_mlp.transition_nll,
+            ),
+            (
+                concat!($prefix, ".flat_mlp.rollout_error"),
+                $split.flat_mlp.rollout_error,
+            ),
+            (
+                concat!($prefix, ".tiny_cnn.transition_nll"),
+                $split.tiny_cnn.transition_nll,
+            ),
+            (
+                concat!($prefix, ".tiny_cnn.rollout_error"),
+                $split.tiny_cnn.rollout_error,
+            ),
+            (
+                concat!($prefix, ".calibration.transition_nll"),
+                $split.calibration.transition_nll,
+            ),
+            (
+                concat!($prefix, ".calibration.mean_standardized_squared_residual"),
+                $split.calibration.mean_standardized_squared_residual,
+            ),
+            (
+                concat!($prefix, ".calibration.coverage_50"),
+                $split.calibration.coverage_50,
+            ),
+            (
+                concat!($prefix, ".calibration.coverage_90"),
+                $split.calibration.coverage_90,
+            ),
+            (
+                concat!($prefix, ".calibration.coverage_95"),
+                $split.calibration.coverage_95,
+            ),
+            (
+                concat!($prefix, ".calibration.calibration_slope"),
+                $split.calibration.calibration_slope,
+            ),
+            (
+                concat!($prefix, ".calibration.clamp_fraction"),
+                $split.calibration.clamp_fraction,
+            ),
+            (
+                concat!($prefix, ".occupancy.occupied_prevalence"),
+                $split.occupancy.occupied_prevalence,
+            ),
+            (
+                concat!($prefix, ".occupancy.intersection_over_union"),
+                $split.occupancy.intersection_over_union,
+            ),
+            (concat!($prefix, ".occupancy.pr_auc"), $split.occupancy.pr_auc),
+            (
+                concat!($prefix, ".occupancy.trivial_iou"),
+                $split.occupancy.trivial_iou,
+            ),
+            (
+                concat!($prefix, ".occupancy.trivial_pr_auc"),
+                $split.occupancy.trivial_pr_auc,
+            ),
+        ]
+    };
+}
+
+/// Every floating-point field of a training report, by JSON path.
+fn training_report_float_fields(report: &TrainingReport) -> Vec<(&'static str, f64)> {
+    let support = &report.action_support;
+    let mut fields: Vec<(&'static str, f64)> = vec![
+        ("action_support.min_left", f64::from(support.min_left)),
+        ("action_support.max_left", f64::from(support.max_left)),
+        ("action_support.min_right", f64::from(support.min_right)),
+        ("action_support.max_right", f64::from(support.max_right)),
+        (
+            "action_support.min_effective_forward",
+            f64::from(support.min_effective_forward),
+        ),
+        (
+            "action_support.max_effective_forward",
+            f64::from(support.max_effective_forward),
+        ),
+        (
+            "action_support.min_effective_turn",
+            f64::from(support.min_effective_turn),
+        ),
+        (
+            "action_support.max_effective_turn",
+            f64::from(support.max_effective_turn),
+        ),
+        (
+            "action_support.min_speed_scale",
+            f64::from(support.min_speed_scale),
+        ),
+        (
+            "action_support.max_speed_scale",
+            f64::from(support.max_speed_scale),
+        ),
+        (
+            "action_support.min_delta_seconds",
+            f64::from(support.min_delta_seconds),
+        ),
+        (
+            "action_support.max_delta_seconds",
+            f64::from(support.max_delta_seconds),
+        ),
+        (
+            "grounding_geometry.resolution_m",
+            f64::from(report.grounding_geometry.resolution_m),
+        ),
+    ];
+    fields.extend(split_float_fields!("validation", &report.validation));
+    fields.extend(split_float_fields!("test", &report.test));
+    fields.push((
+        "effective_rank.effective_rank",
+        report.effective_rank.effective_rank,
+    ));
+    fields.push(("effective_rank.trace", report.effective_rank.trace));
+    fields
+}
+
+/// Refuse to serialize a training report carrying a non-finite metric.
+///
+/// `qualia-jepa-train` publishes the report before the checkpoint, so the
+/// report needs the same guard the manifest writer has: its readers
+/// (`qualia-jepa-plan-eval` and the registry) reject a `null` metric with the
+/// same `invalid type: null, expected f64` error. A non-finite report metric is
+/// a diverged-run outcome and is not publishable.
+fn ensure_training_report_metrics_finite(report: &TrainingReport) -> ModelResult<()> {
+    ensure_finite_fields(
+        &report.checkpoint_id,
+        "training-report",
+        &training_report_float_fields(report),
+    )
+}
+
+/// Write a training report under its own digest, never overwriting a previous one.
+///
+/// The report is refused before anything touches the output directory when a
+/// metric is not finite, and it is staged and renamed into place otherwise, so
+/// a reader never observes a partial report.
+pub fn write_immutable_training_report(
+    output: &Path,
+    report: &TrainingReport,
+) -> ModelResult<(PathBuf, String)> {
+    ensure_training_report_metrics_finite(report)?;
+    fs::create_dir_all(output)?;
+    let payload = serde_json::to_vec_pretty(report)?;
+    let digest = format!("{:x}", Sha256::digest(&payload));
+    let target = output.join(format!("jepa-training-report-{digest}.json"));
+    if target.exists() {
+        if fs::read(&target)? == payload {
+            return Ok((target, digest));
+        }
+        return Err("immutable training report collision".into());
+    }
+    let staged = target.with_extension("json.partial");
+    fs::write(&staged, &payload)?;
+    OpenOptions::new().write(true).open(&staged)?.sync_all()?;
+    fs::rename(&staged, &target)?;
+    #[cfg(unix)]
+    OpenOptions::new().read(true).open(output)?.sync_all()?;
+    Ok((target, digest))
+}
+
 /// Serialize one checkpoint's weights and manifest into a staging directory.
 fn publish_checkpoint(
     staging: &Path,
     checkpoint_vars: &VarMap,
     manifest: &mut CheckpointManifest,
 ) -> ModelResult<()> {
+    ensure_manifest_metrics_finite(manifest)?;
     let weights_partial = staging.join("weights.safetensors");
     checkpoint_vars.save(&weights_partial)?;
     sync_file(&weights_partial)?;
@@ -1243,6 +1535,7 @@ fn within(low: f32, high: f32, value: f32) -> bool {
 mod tests {
     use super::*;
     use qualia_jepa::{CAMERA_HEIGHT, CAMERA_WIDTH, LIDAR_BINS};
+    use std::collections::BTreeMap;
 
     fn prefixed(var_map: &VarMap, prefix: &str) -> Vec<(String, Vec<f32>)> {
         let variables = var_map.data().lock().unwrap();
@@ -1369,5 +1662,217 @@ mod tests {
         gate.valid_transitions = 50_000;
         gate.environments = 2;
         assert!(!gate.passes());
+    }
+
+    fn finite_point(nll: f64, rollout: f64) -> HeldOutMetrics {
+        HeldOutMetrics {
+            transition_nll: nll,
+            rollout_error: rollout,
+        }
+    }
+
+    fn finite_support() -> ActionSupport {
+        ActionSupport {
+            sample_count: 50_000,
+            min_left: -1.0,
+            max_left: 1.0,
+            min_right: -1.0,
+            max_right: 1.0,
+            min_effective_forward: -1.0,
+            max_effective_forward: 1.0,
+            min_effective_turn: -1.0,
+            max_effective_turn: 1.0,
+            min_speed_scale: 0.0,
+            max_speed_scale: 1.0,
+            min_delta_seconds: 0.05,
+            max_delta_seconds: 0.5,
+        }
+    }
+
+    fn finite_geometry() -> GroundingGeometry {
+        GroundingGeometry {
+            width: qualia_jepa::GROUNDING_WIDTH,
+            height: qualia_jepa::GROUNDING_HEIGHT,
+            resolution_m: 0.05,
+        }
+    }
+
+    fn finite_manifest() -> CheckpointManifest {
+        empty_candidate_manifest(
+            "census-candidate",
+            &"d".repeat(64),
+            1,
+            "cpu",
+            BaselineGate {
+                dataset_digest: "d".repeat(64),
+                valid_transitions: 50_000,
+                sessions: 12,
+                conditions: 3,
+                environments: 3,
+                constant: finite_point(3.0, 3.0),
+                flat_mlp: finite_point(2.0, 2.0),
+                tiny_cnn: finite_point(1.0, 1.0),
+            },
+            finite_support(),
+            finite_geometry(),
+        )
+    }
+
+    fn finite_split() -> SplitEvaluation {
+        SplitEvaluation {
+            samples: 4_096,
+            sessions: 12,
+            constant: finite_point(3.0, 3.0),
+            flat_mlp: finite_point(2.0, 2.0),
+            tiny_cnn: finite_point(1.0, 1.0),
+            calibration: evaluation::CalibrationReport {
+                dimensions: CORE_DIM as u64,
+                transition_nll: 1.0,
+                mean_standardized_squared_residual: 1.0,
+                coverage_50: 0.5,
+                coverage_90: 0.9,
+                coverage_95: 0.95,
+                calibration_slope: 1.0,
+                clamp_fraction: 0.0,
+                nonfinite_values: 0,
+                passes: true,
+            },
+            occupancy: evaluation::OccupancyReport {
+                observed_cells: 1_024,
+                occupied_cells: 256,
+                occupied_prevalence: 0.25,
+                intersection_over_union: 0.5,
+                pr_auc: 0.6,
+                trivial_iou: 0.25,
+                trivial_pr_auc: 0.25,
+                passes: true,
+            },
+        }
+    }
+
+    fn finite_report() -> TrainingReport {
+        TrainingReport {
+            schema_version: TRAINING_REPORT_SCHEMA.to_string(),
+            created_at_ms: 1_000,
+            checkpoint_id: "census-candidate".to_string(),
+            dataset_digest: "d".repeat(64),
+            backend: "cpu".to_string(),
+            seed: 1,
+            epochs: 1,
+            batch_size: 2,
+            cnn_steps: 1,
+            flat_steps: 1,
+            skipped_singletons: 0,
+            action_support: finite_support(),
+            grounding_geometry: finite_geometry(),
+            validation: finite_split(),
+            test: finite_split(),
+            effective_rank: evaluation::EffectiveRankReport {
+                sample_count: 4_096,
+                dimensions: CORE_DIM,
+                effective_rank: 128.0,
+                trace: 1_024.0,
+                converged: true,
+                sweeps: 3,
+            },
+            llm_priors_ablated: true,
+            baseline_gate_passed: true,
+            grounding_calibration_gate_passed: true,
+            all_gates_passed: true,
+        }
+    }
+
+    /// Collect every JSON path whose leaf is a floating-point number.
+    fn float_leaves(value: &serde_json::Value, prefix: &str, out: &mut BTreeMap<String, f64>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    let path = if prefix.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{prefix}.{key}")
+                    };
+                    float_leaves(child, &path, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    float_leaves(child, &format!("{prefix}[{index}]"), out);
+                }
+            }
+            serde_json::Value::Number(number) if number.is_f64() => {
+                out.insert(prefix.to_string(), number.as_f64().unwrap());
+            }
+            _ => {}
+        }
+    }
+
+    /// A guarded artifact's serialized float leaves must be exactly its guard's
+    /// field list, so a float field added later without a guard entry fails
+    /// here rather than silently serializing as `null`.
+    fn assert_float_census<T: serde::Serialize>(value: &T, guard: &[(&'static str, f64)]) {
+        let mut leaves = BTreeMap::new();
+        float_leaves(&serde_json::to_value(value).unwrap(), "", &mut leaves);
+        let guarded: BTreeMap<String, f64> = guard
+            .iter()
+            .map(|(name, value)| ((*name).to_string(), *value))
+            .collect();
+        assert_eq!(
+            leaves, guarded,
+            "serialized float leaves must match the finiteness guard"
+        );
+    }
+
+    #[test]
+    fn manifest_finiteness_guard_covers_every_float_field() {
+        let manifest = finite_manifest();
+        assert_float_census(&manifest, &manifest_float_fields(&manifest));
+    }
+
+    #[test]
+    fn training_report_finiteness_guard_covers_every_float_field() {
+        let report = finite_report();
+        assert_float_census(&report, &training_report_float_fields(&report));
+    }
+
+    #[test]
+    fn training_report_writer_refuses_a_non_finite_metric() {
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("out");
+        let mut report = finite_report();
+        report.validation.flat_mlp.rollout_error = f64::NAN;
+
+        let error = match write_immutable_training_report(&output, &report) {
+            Ok(_) => panic!("a report with a non-finite metric must not be published"),
+            Err(error) => error,
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains(
+                "non-finite training-report metric validation.flat_mlp.rollout_error"
+            ),
+            "refusal must name the offending metric: {message}"
+        );
+        assert!(
+            message.contains("census-candidate"),
+            "refusal must name the candidate: {message}"
+        );
+        assert!(
+            !output.exists(),
+            "a refused report must not create its output directory"
+        );
+
+        // The same writer still publishes a finite report and round-trips it.
+        let report = finite_report();
+        let (path, digest) = write_immutable_training_report(&output, &report).unwrap();
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            format!("jepa-training-report-{digest}.json")
+        );
+        let parsed: TrainingReport = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(parsed, report);
+        // Rewriting the identical report is idempotent, not a collision.
+        let (again, again_digest) = write_immutable_training_report(&output, &report).unwrap();
+        assert_eq!((again, again_digest), (path, digest));
     }
 }
