@@ -134,7 +134,7 @@ fn report(shm: &ShmRegion, packet_count: u64, rotation: &[DevicePoint]) {
         .map(|point| {
             format!(
                 "{:.1}deg:{}mm@{}",
-                point.angle_deg, point.distance_mm, point.intensity
+                point.bearing_deg, point.range_mm, point.signal
             )
         })
         .collect::<Vec<_>>()

@@ -11,20 +11,20 @@ use qualia_lidar::{
 };
 
 /// Assembles a device frame the way the hardware does: header, speed, start
-/// angle, twelve `(distance_mm, intensity)` returns, end angle, timestamp, CRC
+/// angle, twelve `(range_mm, signal)` returns, end angle, timestamp, CRC
 /// over everything but the trailing byte.
-fn frame(start_cdeg: u16, end_cdeg: u16, timestamp_ms: u16, readings: &[(u16, u8)]) -> [u8; FRAME_SIZE] {
+fn frame(start_cdeg: u16, end_cdeg: u16, device_time_ms: u16, readings: &[(u16, u8)]) -> [u8; FRAME_SIZE] {
     let mut raw = [0u8; FRAME_SIZE];
     raw[0] = FRAME_HEADER;
     raw[1] = FRAME_VER_LEN;
     raw[2..4].copy_from_slice(&600u16.to_le_bytes());
     raw[4..6].copy_from_slice(&start_cdeg.to_le_bytes());
     raw[42..44].copy_from_slice(&end_cdeg.to_le_bytes());
-    raw[44..46].copy_from_slice(&timestamp_ms.to_le_bytes());
-    for (index, (distance, intensity)) in readings.iter().enumerate() {
+    raw[44..46].copy_from_slice(&device_time_ms.to_le_bytes());
+    for (index, (distance, signal)) in readings.iter().enumerate() {
         let base = 6 + index * 3;
         raw[base..base + 2].copy_from_slice(&distance.to_le_bytes());
-        raw[base + 2] = *intensity;
+        raw[base + 2] = *signal;
     }
     let last = FRAME_SIZE - 1;
     raw[last] = crc8(&raw[..last]);
@@ -37,11 +37,11 @@ fn reading() -> Vec<(u16, u8)> {
         .collect()
 }
 
-fn point(angle_deg: f32) -> DevicePoint {
+fn point(bearing_deg: f32) -> DevicePoint {
     DevicePoint {
-        angle_deg,
-        distance_mm: 1000,
-        intensity: 5,
+        bearing_deg,
+        range_mm: 1000,
+        signal: 5,
     }
 }
 
@@ -58,19 +58,19 @@ fn one_packet_becomes_twelve_interpolated_points() {
     let raw = frame(0, 1100, 4242, &reading());
     let packet = parse_packet(&raw);
 
-    assert_eq!(packet.speed_deg_per_sec, 600);
-    assert_eq!(packet.start_angle_cdeg, 0);
-    assert_eq!(packet.end_angle_cdeg, 1100);
-    assert_eq!(packet.timestamp_ms, 4242);
+    assert_eq!(packet.spin_rate_dps, 600);
+    assert_eq!(packet.sweep_start_cdeg, 0);
+    assert_eq!(packet.sweep_end_cdeg, 1100);
+    assert_eq!(packet.device_time_ms, 4242);
 
     for (index, point) in packet.points.iter().enumerate() {
         assert!(
-            (point.angle_deg - index as f32).abs() < 1e-5,
+            (point.bearing_deg - index as f32).abs() < 1e-5,
             "point {index} angle {}",
-            point.angle_deg
+            point.bearing_deg
         );
-        assert_eq!(point.distance_mm, 1000 + index as u16);
-        assert_eq!(point.intensity, 10 + index as u8);
+        assert_eq!(point.range_mm, 1000 + index as u16);
+        assert_eq!(point.signal, 10 + index as u8);
     }
 }
 
@@ -81,10 +81,10 @@ fn angles_sweep_through_the_wrap_point() {
     let raw = frame(35_900, 1_000, 0, &[(500, 4); POINTS_PER_PACKET]);
     let packet = parse_packet(&raw);
 
-    assert!((packet.points[0].angle_deg - 359.0).abs() < 1e-3);
-    assert!(packet.points[1].angle_deg.abs() < 1e-3);
-    assert!((packet.points[2].angle_deg - 1.0).abs() < 1e-3);
-    assert!((packet.points[11].angle_deg - 10.0).abs() < 1e-3);
+    assert!((packet.points[0].bearing_deg - 359.0).abs() < 1e-3);
+    assert!(packet.points[1].bearing_deg.abs() < 1e-3);
+    assert!((packet.points[2].bearing_deg - 1.0).abs() < 1e-3);
+    assert!((packet.points[11].bearing_deg - 10.0).abs() < 1e-3);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn extraction_waits_for_a_whole_frame_before_consuming() {
 
     stream.push_back(raw[FRAME_SIZE - 1]);
     let packet = extract_packet(&mut stream).expect("the frame is now complete");
-    assert_eq!(packet.timestamp_ms, 9);
+    assert_eq!(packet.device_time_ms, 9);
     assert!(stream.is_empty());
 }
 
@@ -108,7 +108,7 @@ fn extraction_resynchronises_past_leading_garbage() {
     stream.extend(raw);
 
     let packet = extract_packet(&mut stream).expect("the frame after the garbage");
-    assert_eq!(packet.timestamp_ms, 7);
+    assert_eq!(packet.device_time_ms, 7);
     assert!(stream.is_empty());
 }
 
@@ -123,7 +123,7 @@ fn a_frame_with_a_bad_crc_is_dropped_and_the_next_one_is_found() {
     stream.extend(good);
 
     let packet = extract_packet(&mut stream).expect("the intact frame behind the corrupt one");
-    assert_eq!(packet.timestamp_ms, 222);
+    assert_eq!(packet.device_time_ms, 222);
 }
 
 #[test]
@@ -149,8 +149,8 @@ fn assembly_drops_the_first_rotation_and_yields_the_next_whole_one() {
     // The wrap into rotation three completes and hands back rotation two.
     let completed = assembler.push(point(0.0)).expect("rotation two completes");
     assert_eq!(completed.len(), 13);
-    assert_eq!(completed[0].angle_deg, 0.0);
-    assert_eq!(completed[12].angle_deg, 359.0);
+    assert_eq!(completed[0].bearing_deg, 0.0);
+    assert_eq!(completed[12].bearing_deg, 359.0);
     assert_eq!(assembler.buffered(), 1, "the boundary point opens rotation three");
 }
 

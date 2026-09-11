@@ -113,18 +113,18 @@ const FULL_TURN_CDEG: i64 = 36_000;
 /// One polar return as the device reports it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DevicePoint {
-    pub angle_deg: f32,
-    pub distance_mm: u16,
-    pub intensity: u8,
+    pub bearing_deg: f32,
+    pub range_mm: u16,
+    pub signal: u8,
 }
 
 /// One decoded device packet.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Packet {
-    pub speed_deg_per_sec: u16,
-    pub start_angle_cdeg: u16,
-    pub end_angle_cdeg: u16,
-    pub timestamp_ms: u16,
+    pub spin_rate_dps: u16,
+    pub sweep_start_cdeg: u16,
+    pub sweep_end_cdeg: u16,
+    pub device_time_ms: u16,
     pub points: [DevicePoint; POINTS_PER_PACKET],
 }
 
@@ -145,45 +145,45 @@ pub fn crc8(data: &[u8]) -> u8 {
 
 /// Decodes one checksum-verified packet.
 pub fn parse_packet(raw: &[u8; FRAME_SIZE]) -> Packet {
-    let speed_deg_per_sec = read_u16(raw, 2);
-    let start_angle_cdeg = read_u16(raw, 4);
-    let end_angle_cdeg = read_u16(raw, 42);
-    let timestamp_ms = read_u16(raw, 44);
+    let spin_rate_dps = read_u16(raw, 2);
+    let sweep_start_cdeg = read_u16(raw, 4);
+    let sweep_end_cdeg = read_u16(raw, 42);
+    let device_time_ms = read_u16(raw, 44);
 
     // The sweep runs forward from the start angle to the end angle, wrapping
     // through zero; centidegrees make the span exact before it becomes f32.
-    let span_cdeg = (end_angle_cdeg as i64 - start_angle_cdeg as i64).rem_euclid(FULL_TURN_CDEG);
+    let span_cdeg = (sweep_end_cdeg as i64 - sweep_start_cdeg as i64).rem_euclid(FULL_TURN_CDEG);
     let per_point_deg = span_cdeg as f32 / (POINTS_PER_PACKET as f32 - 1.0) / 100.0;
-    let origin_deg = start_angle_cdeg as f32 / 100.0;
+    let origin_deg = sweep_start_cdeg as f32 / 100.0;
 
     let mut points = [DevicePoint {
-        angle_deg: 0.0,
-        distance_mm: 0,
-        intensity: 0,
+        bearing_deg: 0.0,
+        range_mm: 0,
+        signal: 0,
     }; POINTS_PER_PACKET];
 
     for (index, point) in points.iter_mut().enumerate() {
         let base = 6 + index * 3;
-        let distance_mm = read_u16(raw, base);
-        let intensity = raw[base + 2];
-        let angle_deg = origin_deg + index as f32 * per_point_deg;
-        let angle_deg = if angle_deg >= 360.0 {
-            angle_deg - 360.0
+        let range_mm = read_u16(raw, base);
+        let signal = raw[base + 2];
+        let bearing_deg = origin_deg + index as f32 * per_point_deg;
+        let bearing_deg = if bearing_deg >= 360.0 {
+            bearing_deg - 360.0
         } else {
-            angle_deg
+            bearing_deg
         };
         *point = DevicePoint {
-            angle_deg,
-            distance_mm,
-            intensity,
+            bearing_deg,
+            range_mm,
+            signal,
         };
     }
 
     Packet {
-        speed_deg_per_sec,
-        start_angle_cdeg,
-        end_angle_cdeg,
-        timestamp_ms,
+        spin_rate_dps,
+        sweep_start_cdeg,
+        sweep_end_cdeg,
+        device_time_ms,
         points,
     }
 }
@@ -251,7 +251,7 @@ impl ScanAssembler {
     pub fn push(&mut self, point: DevicePoint) -> Option<Vec<DevicePoint>> {
         let mut completed = None;
         if let Some(previous) = self.last_angle_deg {
-            if point.angle_deg < SCAN_WRAP_MAX_DEG && previous > SCAN_WRAP_MIN_DEG {
+            if point.bearing_deg < SCAN_WRAP_MAX_DEG && previous > SCAN_WRAP_MIN_DEG {
                 if self.seam_seen && !self.points.is_empty() {
                     completed = Some(std::mem::take(&mut self.points));
                 }
@@ -259,7 +259,7 @@ impl ScanAssembler {
                 self.points.clear();
             }
         }
-        self.last_angle_deg = Some(point.angle_deg);
+        self.last_angle_deg = Some(point.bearing_deg);
         self.points.push(point);
         completed
     }
@@ -291,14 +291,14 @@ pub enum IdleAction {
 /// since startup. A stream that did produce one only warns when it stalls, so
 /// a device that goes quiet cannot kill a runner that is already reporting.
 pub fn idle_action(
-    published_scans: u64,
+    rotations_published: u64,
     since_start: Duration,
-    since_last_publish: Duration,
+    since_last_rotation: Duration,
     timeout: Duration,
 ) -> IdleAction {
-    if published_scans == 0 && since_start >= timeout {
+    if rotations_published == 0 && since_start >= timeout {
         IdleAction::Fail
-    } else if since_last_publish >= timeout {
+    } else if since_last_rotation >= timeout {
         IdleAction::Warn
     } else {
         IdleAction::Idle
@@ -314,20 +314,18 @@ pub fn idle_action(
 pub fn publish_scan(shm: &ShmRegion, points: &[DevicePoint]) {
     let now_ns = unix_time_ns();
 
-    let mut scan = LidarScanSnapshot {
-        scan_start_ns: now_ns,
-        scan_end_ns: now_ns,
-        point_count: points.len().min(LIDAR_MAX_POINTS) as u32,
-        ..LidarScanSnapshot::default()
-    };
+    let mut scan = LidarScanSnapshot::default();
+    scan.scan_start_ns = now_ns;
+    scan.scan_end_ns = now_ns;
+    scan.point_count = points.len().min(LIDAR_MAX_POINTS) as u32;
     for (slot, point) in scan
         .points
         .iter_mut()
         .zip(points.iter().take(LIDAR_MAX_POINTS))
     {
-        slot.angle_rad = point.angle_deg.to_radians();
-        slot.distance_m = point.distance_mm as f32 / 1000.0;
-        slot.intensity = point.intensity;
+        slot.angle_rad = point.bearing_deg.to_radians();
+        slot.distance_m = point.range_mm as f32 / 1000.0;
+        slot.intensity = point.signal;
     }
     shm.lidar_scan_mut()
         .publish(&scan)
@@ -343,12 +341,12 @@ pub fn publish_scan(shm: &ShmRegion, points: &[DevicePoint]) {
     grid.origin_y_m = -(LIDAR_GRID_H as f32 * GRID_RESOLUTION_M * 0.5);
 
     for point in points {
-        let carries_return = point.distance_mm > 0 && point.intensity > 0;
+        let carries_return = point.range_mm > 0 && point.signal > 0;
         if !carries_return {
             continue;
         }
-        let range_m = f32::from(point.distance_mm) / 1000.0;
-        let angle_rad = point.angle_deg.to_radians();
+        let range_m = f32::from(point.range_mm) / 1000.0;
+        let angle_rad = point.bearing_deg.to_radians();
         let x_m = angle_rad.cos() * range_m;
         let y_m = angle_rad.sin() * range_m;
         let column = ((x_m - grid.origin_x_m) / grid.resolution_m).floor() as i32;
@@ -383,22 +381,22 @@ pub struct ScanSummary {
     pub max_mm: u16,
 }
 
-/// Summarises a rotation: how many returns carry both range and intensity, and
+/// Summarises a rotation: how many returns carry both range and signal, and
 /// the range extremes.
 pub fn summarize(points: &[DevicePoint]) -> ScanSummary {
     ScanSummary {
         total: points.len(),
         valid: points
             .iter()
-            .filter(|point| point.distance_mm > 0 && point.intensity > 0)
+            .filter(|point| point.range_mm > 0 && point.signal > 0)
             .count(),
         min_mm: points
             .iter()
-            .filter(|point| point.distance_mm > 0)
-            .map(|point| point.distance_mm)
+            .filter(|point| point.range_mm > 0)
+            .map(|point| point.range_mm)
             .min()
             .unwrap_or(0),
-        max_mm: points.iter().map(|point| point.distance_mm).max().unwrap_or(0),
+        max_mm: points.iter().map(|point| point.range_mm).max().unwrap_or(0),
     }
 }
 
