@@ -99,15 +99,18 @@ Every one of these is measured, not assumed (D-010, D-016, D-018; the T29 smoke 
 - **Clock.** The board's clock runs ~10 days behind the host, which is why nothing here depends on
   TLS to a remote peer or on wall-clock agreement.
 - **The manifest must name `qualia-agent`.** The preflight hard-fails unless `--manifest` lists a
-  runner called `qualia-agent` (the `/braid` surface) — the standing T28 (#44) precondition, not this
-  run's; until that manifest lands, `--check` exits 2.
+  runner called `qualia-agent` (the `/braid` surface) — the standing T28 (#44) precondition, which
+  the ticket's zero-motion manifest now satisfies.
 - **The manifest's `env` block wins over the shell.** `run-mission.sh` exports the keys the manifest
   lists in a runner's `env_passthrough` (the supervisor applies those after the stack env) —
   `QUALIA_CUDA_SM` for the compute service, the fly mode and prior path for the belief and explore
-  paths, and the agent's port, token, journal, store, TLS directory, MCAP root, arena session and
-  compute socket — plus two inputs `qualia-init` reads directly: `QUALIA_STACK_MANIFEST` (which
-  manifest to run) and `QUALIA_LOG_DIR` (the run's log directory). If the manifest's runner set or
-  passthrough lists change, those exports are what must move with them.
+  paths, and the agent's port, token, journal, store, TLS directory, MCAP root, arena session,
+  compute socket and Leash URL — plus two inputs `qualia-init` reads directly:
+  `QUALIA_STACK_MANIFEST` (which manifest to run) and `QUALIA_LOG_DIR` (the run's log directory).
+  `QUALIA_LEASH_BASE_URL` is inert on this stack: the zero-motion manifest does not list it in
+  `qualia-agent`'s `env_passthrough` (the default manifest does), so the exported value never reaches
+  the agent, which reads the key directly. If the manifest's runner set or passthrough lists change,
+  those exports are what must move with them.
 - **The prior** ships inside the archive at `assets/brain/prior` (`graph.bin`, `manifest.json`,
   `attribution.json`). A deployment-scale prior built off the Male CNS dataset is external and is
   shipped alongside with `ship-mission.sh --prior DIR`, which names it in the printed invocation.
@@ -118,7 +121,7 @@ Every one of these is measured, not assumed (D-010, D-016, D-018; the T29 smoke 
 | --- | --- |
 | 0 | Both assertions hold (`mission: PASS`). |
 | 1 | An assertion failed, or the mission could not be driven at all. |
-| 2 | Preflight refused, `--check` was asked for, an option or argument was rejected, or the checker could not judge a leg (it exits 2 and the run passes that code through: `mission: CANNOT-ASSERT`). |
+| 2 | Preflight refused, `--check` was asked for, an unknown option was rejected, or the checker could not judge a leg (it exits 2 and the run passes that code through: `mission: CANNOT-ASSERT`). A missing option value is different: it exits 1, `set -u` aborting on the unbound `$2`. |
 | 3 | The build failed. |
 | 4 | The stack did not start or did not stop. |
 

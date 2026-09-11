@@ -24,7 +24,7 @@
 #
 # Usage:
 #   bash deploy/pinkie/run-mission.sh --plan    # print the exact commands, run nothing
-#   bash deploy/pinkie/run-mission.sh --check   # preflight only
+#   bash deploy/pinkie/run-mission.sh --check   # preflight and plan, exit 2 if it refuses
 #   bash deploy/pinkie/run-mission.sh           # build, run, assert, stop
 #
 # Options:
