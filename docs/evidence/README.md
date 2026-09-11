@@ -108,14 +108,14 @@ the target and capture range. Reports: …`, and a kernel-less `ncu` run prints 
 
 ## Manual capture
 
-Capture by hand when the target's own driver, not this repository, makes mage unavailable: Pinkie
-carries no `nsys` and no mage (`triton>=3.0` publishes no aarch64 wheel), so the board's captures are
-produced manually. State that reason and the exact command used in the directory README, and keep the
-manifest's field names — `argv`, `returncode`, `status`, `error`. Commit the raw backend export
-(`capture.ncu-rep` and `metrics.csv` for `ncu`) when it fits the size the tree carries; when it cannot
-be committed, the directory README says `kernels.json` and `kernels.csv` were hand-normalised from
-that export and records the export's hash and size. The kernel-less rule and the `nsys` SQLite rule
-above are unchanged.
+Capture by hand when mage is not available on the target, for a reason that lives with the target
+rather than with this repository. Pinkie is that case: it carries no `nsys`, has no DNS, and has no
+mage installed today, so its captures are produced manually. State that reason and the exact command
+used in the directory README, and keep the manifest's field names — `argv`, `returncode`, `status`,
+`error`. Commit the raw backend export (`capture.ncu-rep` and `metrics.csv` for `ncu`) when it fits
+the size the tree carries; when it cannot be committed, the directory README says `kernels.json` and
+`kernels.csv` were hand-normalised from that export and records the export's hash and size. The
+kernel-less rule and the `nsys` SQLite rule above are unchanged.
 
 ## Host
 
