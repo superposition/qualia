@@ -1,0 +1,24 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "./target/debug/deps/gpu-ababab3f01c5ede7",
+    "--test-threads=1"
+  ],
+  "profiler_argv": [
+    "/usr/local/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=/home/superposition/mage-capture-scratch/mage-nsys-9xuisdkb/capture",
+    "./target/debug/deps/gpu-ababab3f01c5ede7",
+    "--test-threads=1"
+  ],
+  "command": "./target/debug/deps/gpu-ababab3f01c5ede7 --test-threads=1",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 13
+}
