@@ -12,7 +12,7 @@
     "--cpuctxsw=none",
     "--stats=false",
     "--export=sqlite",
-    "--output=/home/superposition/mage-capture-scratch/mage-nsys-9xuisdkb/capture",
+    "--output=<output-dir>/mage-nsys-<run>/capture",
     "./target/debug/deps/gpu-ababab3f01c5ede7",
     "--test-threads=1"
   ],

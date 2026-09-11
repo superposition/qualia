@@ -26,13 +26,17 @@ A capture directory holds:
 
 The directory README names each kernel, the shape it ran with (grid, block, shared memory) and how
 many launches the run produced, so a later ticket can be compared against it without opening the
-SQLite.
+SQLite. It also states what changed against the previous capture — a number, not a narrative. A
+ticket is not `status:done` until its capture is committed here, and the capture is linked from the
+ticket's own comment, so the comment stream says which directory holds the evidence.
 
 Commit `capture.json`, `kernels.json`, `kernels.csv` and the README always. Commit `capture.sqlite`
 while it fits the size the tree already carries: the largest committed file is `Cargo.lock` at about
 196 KiB. When the full export is larger, keep only the two tables mage's nsys backend reads
-(`StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL`), `VACUUM` the result, and say in the directory README
-that the committed file is a trimmed export and how to regenerate the full one.
+(`StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL`), drop the `StringIds` rows the kernel table does not
+reference — the raw export carries the capturing host's `PATH`, `HOME` and distribution name — and
+`VACUUM` the result. Say in the directory README that the committed file is a trimmed export, and
+elide any absolute path the profiler argv embeds, so the committed evidence names no machine.
 
 ## Running a capture
 

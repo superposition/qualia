@@ -59,12 +59,24 @@ is why the belief and cognition kernels take a 1 × 1024 block with 8 KiB of sta
 4090 is shared with other work on this workstation, so treat the durations as one contended sample
 and the launch count and shapes as the stable part.
 
+## What changed against the previous capture
+
+None — this is the first capture, so it is the previous capture every later one is measured against.
+The numbers to beat: 13 CUDA launches over 5 kernels and 4784.753 µs of kernel time, split 3225.519 µs
+`cognition_update`, 1547.834 µs `belief_update`, 8.598 µs `add_one`, 1.417 µs `costmap_stats`,
+1.385 µs `cognition_patch`; mean 368.058 µs, min 1.008 µs, max 1612.822 µs.
+
 ## Files
 
-`capture.json` and `kernels.json` are verbatim from the run. `kernels.csv` is mage's CSV rendering of
-the same rows. `capture.sqlite` is the nsys export trimmed to the two tables mage's nsys backend
-reads — `StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL` — and `VACUUM`ed, which takes it from 344064 to
-57344 bytes, under `Cargo.lock`'s size. It still parses through `mage.profiler.backends.nsys` and
-yields the 13 launches above. The untrimmed export, the `capture.nsys-rep` and the run's
-`process.log` were left on the capturing machine; regenerate them by rerunning the commands above
-with a writable `--output-dir`.
+`kernels.json` is mage's own summary of the run, and `kernels.csv` is its CSV rendering of the same 13
+rows. `capture.json` is mage's manifest with the profiler's `--output` path elided to
+`<output-dir>/mage-nsys-<run>/capture`, so the committed evidence names no machine; the unedited
+manifest is reproducible from the commands above. `capture.sqlite` is the nsys export reduced to the
+two tables mage's nsys backend reads — `StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL` — with the 128
+`StringIds` rows the kernel table does not reference removed. Those rows are nsys internals and the
+run's captured environment (`PATH`, `HOME`, the WSL distribution name, unrelated tool config), which
+is why they are dropped rather than committed; the five that remain are the five kernel names. The
+file goes 344064 → 57344 → 12288 bytes, under `Cargo.lock`'s size, has `pragma integrity_check` `ok`,
+and still parses through `mage.profiler.backends.nsys` into the same 13 metrics and 4784.753 µs. The
+untrimmed export, the `capture.nsys-rep` and the run's `process.log` were left on the capturing
+machine; regenerate them by rerunning the commands above with a writable `--output-dir`.
