@@ -99,3 +99,15 @@ Recovery reads GitHub, never a dead session's memory.
 If a worktree file is unreadable or filled with NUL bytes, the machine died mid-write: restore it with
 `git checkout -- <path>` — the content was either committed or lost with the step in flight — and say
 so in the block.
+
+## Definition of done
+
+A ticket is done when its package builds and its tests pass on the dev host, its artifact is built for
+the robot's architecture and exercised on **Pinkie** — the Waveshare-carried Jetson Orin NX at
+`jetson@192.168.55.1` (see [`decisions.md`](decisions.md) D-010) — by the ticket's own smoke path, and
+the handoff comment quotes that build/deploy command and the output observed on the board. A host-only
+package that cannot run there (the macOS `metal` backend) records the aarch64 build as its board
+evidence and states why execution on the board is impossible.
+
+The board is a deployment target, not a build farm: build here, copy the artifact there, run it there,
+quote what it printed.
