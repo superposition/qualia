@@ -42,7 +42,7 @@ const LAYER_NAMES: [&str; NUM_LAYERS] = [
     "belief_local",
     "belief_visual",
     "behavior_short",
-    "behavior.deep",
+    "behavior_deep",
     "semantic",
     "senses",
 ];
