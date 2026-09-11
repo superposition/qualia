@@ -15,6 +15,7 @@ qualia-mcap = { workspace = true }
 # deferred: the library lands with C10 (#76) and the routing with T22 (#37).
 # See the module docs in src/lib.rs and the resolution comment on issue #34.
 qualia-jepa-registry = { workspace = true }
+qualia-shm = { workspace = true }
 qualia-types = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
