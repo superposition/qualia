@@ -1,0 +1,36 @@
+{
+  "schema_version": "qualia.stack.v1",
+  "stack_name": "qualia-default",
+  "shared_memory": {
+    "name": "/qualia_body"
+  },
+  "control": {
+    "socket": "/tmp/qualia_body.sock"
+  },
+  "runners": [
+    { "name": "qualia-l0-superposition" },
+    { "name": "qualia-l1-belief" },
+    { "name": "qualia-l2-belief" },
+    { "name": "qualia-l3-belief" },
+    { "name": "qualia-l4-behavior" },
+    { "name": "qualia-l5-behavior" },
+    { "name": "qualia-l6-semantic" },
+    { "name": "qualia-health", "stdout": "null" },
+    { "name": "qualia-vision", "stdout": "null" },
+    {
+      "name": "qualia-agent",
+      "stdout": "null",
+      "env_passthrough": [
+        "QUALIA_REPLICA_ID",
+        "QUALIA_REPLICA_ROLE",
+        "QUALIA_REPLICA_DISPLAY_NAME",
+        "QUALIA_REPLICA_CAPABILITIES_JSON",
+        "QUALIA_REPLICA_METADATA_JSON",
+        "QUALIA_SYNC_ENDPOINT",
+        "QUALIA_SYNC_PEER_POLL_MS",
+        "QUALIA_SYNC_PEER_PAGE_LIMIT",
+        "QUALIA_SYNC_ACCEPT_INVALID_CERTS"
+      ]
+    }
+  ]
+}

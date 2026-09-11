@@ -1,0 +1,8 @@
+# Cross-compilation image: host -> aarch64-unknown-linux-gnu (Jetson Orin Nano).
+#
+# cudarc uses fallback-dynamic-loading: libcuda.so and libnvrtc.so are
+# dlopen()'d at runtime on the Jetson, so the build host needs no CUDA packages
+# of its own, only the standard aarch64 C/C++ toolchain.
+#
+#   docker build -t qualia-cross-aarch64:latest -f docker/Dockerfile.cross-aarch64 .
+FROM ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main

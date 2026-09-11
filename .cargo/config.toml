@@ -1,0 +1,2 @@
+[alias]
+verify-sync = "run -p qualia-cli -- verify-sync"
