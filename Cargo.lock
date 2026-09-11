@@ -4581,6 +4581,8 @@ dependencies = [
 name = "qualia-explore"
 version = "0.1.0"
 dependencies = [
+ "qualia-braid",
+ "qualia-jepa",
  "qualia-shm",
  "qualia-types",
  "serde",

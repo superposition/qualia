@@ -123,14 +123,25 @@ struct FlyPrior {
 
 impl FlyPrior {
     fn from_env() -> Option<Self> {
-        let mode = std::env::var("QUALIA_FLY_MODE").unwrap_or_else(|_| "off".to_string());
+        Self::from_settings(
+            std::env::var("QUALIA_FLY_MODE").ok(),
+            std::env::var("QUALIA_FLY_PRIOR_PATH").ok(),
+        )
+    }
+
+    /// The prior the two settings select; `None` disables it.
+    ///
+    /// Split from the environment so every disabled path is a pure function of
+    /// its inputs and can be tested without touching the process environment.
+    fn from_settings(mode: Option<String>, path: Option<String>) -> Option<Self> {
+        let mode = mode.unwrap_or_else(|| "off".to_string());
         if mode != "prior" {
             if mode != "off" {
                 println!("fly prior: disabled (mode {mode})");
             }
             return None;
         }
-        let path = std::env::var("QUALIA_FLY_PRIOR_PATH").unwrap_or_default();
+        let path = path.unwrap_or_default();
         if path.is_empty() {
             println!("fly prior: disabled (QUALIA_FLY_PRIOR_PATH is unset)");
             return None;
@@ -182,10 +193,10 @@ async fn main() {
 
     // The strand's view of the braid, opened with the runner's own mission.
     let mut braid = BraidState::default();
-    if let Err(error) = open_default_mission(&mut braid) {
-        eprintln!("qualia-explore: braid mission open failed: {error}");
+    match open_default_mission(&mut braid) {
+        Ok(()) => println!("qualia-explore: mission opened id={DEFAULT_MISSION_ID}"),
+        Err(error) => eprintln!("qualia-explore: braid mission open failed: {error}"),
     }
-    println!("qualia-explore: mission opened id={DEFAULT_MISSION_ID}");
 
     let prior = FlyPrior::from_env();
     let belief_risk = PlannerBeliefRiskContext::from_prior(prior.as_ref().map(|fly| &fly.prior));
@@ -687,21 +698,29 @@ struct PlannerBeliefRiskContext {
 impl PlannerBeliefRiskContext {
     /// The risk the loaded prior covers, or `None` when it is off.
     ///
-    /// `uncertainty_weight` is the prior's total applied weight: the summed
-    /// peak-normalised in-strength [`CouplingPrior::couple`] reports over the
-    /// types the graph couples, clamped to the unit range the planner contract
-    /// fixes. `semantic_novelty` is `0.0` because no runtime artifact carries
-    /// per-type `dimorphism`; the dated resolution on issue #38 records that
-    /// gap. With the prior off — or coupling nothing — the whole context is
-    /// absent, so the request leaves `belief_risk` unset exactly as an
-    /// ungoverned runner does.
+    /// `uncertainty_weight` is the mean weight the prior applies per coupled
+    /// type: [`CouplingPrior::couple`] returns the summed peak-normalised
+    /// in-strength over the slots it is handed, and dividing that total by the
+    /// type count keeps the value inside the unit range the planner contract
+    /// fixes instead of saturating at the strongest type's unit weight — a
+    /// uniformly innervated graph reads `1.0`, one whose in-strength is
+    /// concentrated in a few types reads lower. `semantic_novelty` is `0.0`
+    /// because no runtime artifact carries per-type `dimorphism`; the dated
+    /// resolution on issue #38 records that gap. With the prior off — or
+    /// coupling nothing — the whole context is absent, so the request leaves
+    /// `belief_risk` unset exactly as an ungoverned runner does.
     fn from_prior(prior: Option<&CouplingPrior>) -> Option<Self> {
         let prior = prior?;
-        let mut belief = vec![1.0f32; prior.type_count as usize];
+        let type_count = prior.type_count as usize;
+        if type_count == 0 {
+            return None;
+        }
+        let mut belief = vec![1.0f32; type_count];
         let slots: Vec<(u32, usize)> = (0..prior.type_count)
             .map(|index| (index, index as usize))
             .collect();
-        let uncertainty_weight = prior.couple(&mut belief, &slots).clamp(0.0, 1.0);
+        let total_applied = prior.couple(&mut belief, &slots);
+        let uncertainty_weight = (total_applied / type_count as f32).clamp(0.0, 1.0);
         if uncertainty_weight <= 0.0 {
             return None;
         }
@@ -1081,20 +1100,65 @@ mod tests {
     }
 
     #[test]
-    fn prior_coupling_is_clamped_into_the_risk_context() {
+    fn prior_coupling_sets_a_mean_applied_weight_inside_the_unit_range() {
         // Two types coupled both ways with unequal weights: the peak type
-        // couples at unit weight, so the summed applied weight is 8/7 and the
-        // context has to clamp it to the range the planner contract fixes.
-        let prior = CouplingPrior {
+        // couples at unit weight and the other at 1/7, so the mean applied
+        // weight per type is (1 + 1/7) / 2 — inside the range, not the
+        // saturated 1.0 a raw total would give.
+        let skewed = CouplingPrior {
             type_count: 2,
             rowptr: vec![0, 1, 2],
             cols: vec![1, 0],
             weights: vec![1, 7],
         };
-        let risk = PlannerBeliefRiskContext::from_prior(Some(&prior))
+        let risk = PlannerBeliefRiskContext::from_prior(Some(&skewed))
             .expect("a loaded prior reports risk");
-        assert_eq!(risk.uncertainty_weight, 1.0, "the total is clamped to unit weight");
+        assert!(
+            risk.uncertainty_weight > 0.0 && risk.uncertainty_weight < 1.0,
+            "a skewed prior reads strictly inside the unit range: {}",
+            risk.uncertainty_weight
+        );
         assert_eq!(risk.semantic_novelty, 0.0);
+
+        // A uniformly innervated graph is the ceiling: every type couples at
+        // unit weight, so the mean is 1.0 and the contract's clamp holds it.
+        let uniform = CouplingPrior {
+            type_count: 2,
+            rowptr: vec![0, 2, 4],
+            cols: vec![1, 0, 0, 1],
+            weights: vec![5, 5, 5, 5],
+        };
+        let risk = PlannerBeliefRiskContext::from_prior(Some(&uniform))
+            .expect("a loaded prior reports risk");
+        assert!(
+            (risk.uncertainty_weight - 1.0).abs() < 1e-6,
+            "a uniform prior reads the unit ceiling: {}",
+            risk.uncertainty_weight
+        );
+    }
+
+    #[test]
+    fn a_disabled_prior_never_stops_the_runner() {
+        // Off by default, and every path that cannot load an artifact answers
+        // `None` rather than failing: another mode, a missing path, a path
+        // whose artifact does not exist.
+        assert!(FlyPrior::from_settings(None, None).is_none(), "off by default");
+        assert!(
+            FlyPrior::from_settings(Some("sim".to_string()), Some("C:/tmp".to_string())).is_none(),
+            "an unknown mode does not load a prior"
+        );
+        assert!(
+            FlyPrior::from_settings(Some("prior".to_string()), None).is_none(),
+            "prior mode without a path stays off"
+        );
+        assert!(
+            FlyPrior::from_settings(
+                Some("prior".to_string()),
+                Some("C:/tmp/qualia-explore-no-such-prior".to_string())
+            )
+            .is_none(),
+            "a rejected artifact stays off"
+        );
     }
 
     #[test]
