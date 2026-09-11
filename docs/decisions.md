@@ -190,6 +190,23 @@ Consequences, in force until the operator clears the fault:
   i9-14900KF and select the Intel-default (not unlimited) power profile; if events persist, the CPU
   needs an RMA. Software throttling reduces but does not remove the corruption.
 
+## D-015 — The 07:01 local crash, the five-agent cap, and the restarted guard
+
+The host went down without a clean shutdown at ~07:01 local (11:01Z) on 2026-09-11 while the swarm ran
+about 21 agent sessions; the `Kernel-Power` Id 41/6008 pair is the third such pair that day (boots at
+01:53, 05:23 and 07:05 local), and the last WHEA Id 19 before it is 06:27:43 local. The swarm's GitHub
+writes stop at 11:01:31Z, so the crash — not an agent bug — is what killed the 10:11 session;
+`docs/agents.md` §Recovery applies (read GitHub, never a dead session's memory).
+
+Operator rule on restart (12:05 local): **at most five agent jobs run at once.** The 10:18 batch ran 21
+(`C:/Users/ericm/.omp/agent/sessions/-qualia/2026-09-11T10-11-06-266Z_01a08ff3-0f9a-735c-8182-5768b6afb43a.jsonl`);
+the cap is the operator's condition for restarting the tickets, not a memory measurement (D-013's
+numbers stand).
+
+The guard's supervised name is `resmon5` from this restart: the `resmon4` record in the supervisor was
+left completed-but-unstartable after the crash. Same script (`C:/tmp/resmon4.py`), same log
+(`C:/tmp/resmon.log`), `persist: true`; read `hub ps` / `hub logs` under the new name.
+
 ## D-003 — Repository
 
 

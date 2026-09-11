@@ -128,7 +128,8 @@ The dev host is shared by every agent and cannot be rebooted cheaply. Four rules
   obtained while a WHEA event landed within ±2 minutes is provisional — re-run it, or show two agreeing
   runs spanning an event. Static work (git, Python, the gate, diff reads) is unaffected. See
   [`decisions.md`](decisions.md) D-014.
-- **Watch the guard.** `C:/tmp/resmon4.py` runs persistently (`hub ps`, name `resmon4`) and logs to
+- **Watch the guard.** `C:/tmp/resmon4.py` runs persistently (`hub ps`, name `resmon5` since the
+  2026-09-11 07:01 crash; see [`decisions.md`](decisions.md) D-015) and logs to
   `C:/tmp/resmon.log`: RAM/VRAM/build count every 10 s, new WHEA events as `WHEA …`, and the last fault
   stamped at `C:/tmp/host_fault_window.txt`. Under memory pressure it kills the largest build processes
   rather than let the box OOM. If you see `WARN[HIGH]`/`WARN[CRITICAL]`, reduce your footprint and say so
