@@ -9,6 +9,9 @@ description = "One state machine every strand reports through: evidence seals, m
 tempfile = "3"
 [dependencies]
 qualia-mcap = { workspace = true }
+# The promotion strand's durable side: the braid dispatches a rollback to the
+# registry. The registry has no library target yet, so cargo currently ignores
+# this dependency with a warning; C10 (#76) adds the target the call needs.
 qualia-jepa-registry = { workspace = true }
 qualia-types = { workspace = true }
 serde = { version = "1", features = ["derive"] }
