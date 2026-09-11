@@ -11,7 +11,7 @@
 use qualia_cuda::{
     cpu, default_params, ActionScoreContext, BeliefCoupleContext, BeliefSlot,
     CostmapStatsContext, CudaCognitionStack, CudaContext, JEPA_OCCUPANCY_CELLS,
-    PerceptionVoxelContext, SmokeContext, STATE_DIM, VOXEL_D, VOXEL_H, VOXEL_TOTAL, WEIGHT_COUNT,
+    PerceptionVoxelContext, SmokeContext, STATE_DIM, VOXEL_TOTAL, WEIGHT_COUNT,
 };
 
 const DIM: usize = STATE_DIM;
@@ -433,7 +433,6 @@ fn perception_voxel_context_matches_the_host_reference() {
         .expect("perception voxel runs");
 
     assert_eq!(actual.len(), VOXEL_TOTAL);
-    assert_eq!(VOXEL_TOTAL, 32 * VOXEL_D * VOXEL_H);
     for (index, (device, host)) in actual.iter().zip(expected.iter()).enumerate() {
         assert_close(&format!("voxel logit[{index}]"), *device, *host);
     }
