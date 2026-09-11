@@ -20,6 +20,12 @@
 //! or a runtime that started before this wiring — does not break the reader: its
 //! event decodes to `BraidEvent::Unknown`, the fold leaves the state alone, and
 //! `GET /braid` keeps answering with the state the agent does know.
+//!
+//! The crate's vocabulary carries one more variant than a strand reports:
+//! `BraidEvent::Quarantined`, whose fold renames `*.partial` files under the
+//! path the caller names. That dispatch is recovery's, over a local root, so
+//! this edge refuses the variant before the fold runs; a refusal moves no state
+//! and touches no file.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -128,9 +134,11 @@ pub async fn view_get(State(state): State<AppState>) -> Json<BraidView> {
 /// The body is the `BraidEvent` JSON the braid crate fixes, e.g.
 /// `{"event":"evidence_sealed","sha256":…}`; the reply is the view the report
 /// folded into, so the strand reads back exactly what a later reader will see.
-/// An `event` tag this build does not know is accepted like any other — the fold
-/// leaves the state it holds — because a strand must never have to know the
-/// braid's revision to speak.
+/// The edge accepts the five events a strand reports and answers the crate's
+/// recovery-only `Quarantined` with `400` before the fold — nothing moved, no
+/// file touched. An `event` tag this build does not know is accepted like any
+/// other — the fold leaves the state it holds — because a strand must never
+/// have to know the braid's revision to speak.
 pub async fn event_post(
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
@@ -140,6 +148,13 @@ pub async fn event_post(
     if let Err(response) = state.auth.authorize(AuthScope::Peer, &headers, remote.ip()) {
         return response;
     }
+    if !is_strand_report(&event) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": UNSUPPORTED_EVENT })),
+        )
+            .into_response();
+    }
     match state.braid.report(event) {
         Ok(view) => (StatusCode::OK, Json(view)).into_response(),
         Err(error) => (
@@ -147,5 +162,34 @@ pub async fn event_post(
             Json(serde_json::json!({ "error": error.to_string() })),
         )
             .into_response(),
+    }
+}
+
+/// The refusal `POST /braid` answers with when the body names an event no
+/// strand reports.
+const UNSUPPORTED_EVENT: &str = concat!(
+    "the braid edge accepts mission_opened, mission_closed, evidence_sealed, ",
+    "promotion_accepted and promotion_rolled_back; quarantined is not a strand report",
+);
+
+/// Whether the strand edge accepts one event.
+///
+/// The ticket fixes five reports and no others. The match is exhaustive with no
+/// wildcard on purpose: a variant the braid crate adds later stops this edge
+/// compiling until it decides whether that variant is a strand report. An
+/// unrecognised `event` tag is the one exception that stays open — it decodes to
+/// [`BraidEvent::Unknown`], carries no fold, and must keep working so a strand
+/// that ships ahead of the braid can still speak.
+fn is_strand_report(event: &BraidEvent) -> bool {
+    match event {
+        BraidEvent::MissionOpened { .. }
+        | BraidEvent::MissionClosed { .. }
+        | BraidEvent::EvidenceSealed { .. }
+        | BraidEvent::PromotionAccepted { .. }
+        | BraidEvent::PromotionRolledBack { .. } => true,
+        BraidEvent::Unknown => true,
+        // Recovery's dispatch: it renames `*.partial` under a caller-named
+        // path, so it is not a report a strand may send to this edge.
+        BraidEvent::Quarantined { .. } => false,
     }
 }

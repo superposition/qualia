@@ -123,3 +123,77 @@ async fn braid_endpoint_reports_state() {
     assert_eq!(unknown, before, "an unknown event leaves the known state alone");
     assert_eq!(harness.get("/braid").await.status, StatusCode::OK);
 }
+
+/// The five events are the edge's whole vocabulary. The braid crate's
+/// `Quarantined` fold renames `*.partial` files under the path the caller
+/// names, and that dispatch is recovery's, so the edge refuses the variant
+/// before the fold: no state moves and no file is touched.
+#[tokio::test]
+async fn braid_edge_refuses_the_quarantine_variant() {
+    let harness = Harness::new();
+    let root = tempfile::tempdir().expect("scratch dir");
+    let partial = root.path().join("segment.partial");
+    std::fs::write(&partial, b"half a segment").expect("plant a partial");
+    let before = harness.get("/braid").await.json();
+
+    let refused = harness
+        .post_json(
+            "/braid",
+            None,
+            json!({
+                "event": "quarantined",
+                "path": root.path().to_string_lossy(),
+                "reason": "not a strand report",
+            }),
+        )
+        .await;
+    assert_eq!(
+        refused.status,
+        StatusCode::BAD_REQUEST,
+        "the quarantine fold is refused at the strand edge: {}",
+        refused.text()
+    );
+    assert!(
+        refused.json()["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("quarantined")),
+        "the refusal names the variant it would not run: {}",
+        refused.text()
+    );
+
+    // No filesystem effect: the partial is where it was, under the name it had,
+    // and nothing was moved aside under the caller's path.
+    assert_eq!(
+        std::fs::read(&partial).expect("the planted partial is still there"),
+        b"half a segment"
+    );
+    let names: Vec<_> = std::fs::read_dir(root.path())
+        .expect("read the scratch root")
+        .map(|entry| entry.expect("dir entry").file_name())
+        .collect();
+    assert_eq!(names.len(), 1, "a refusal renames nothing: {names:?}");
+
+    // No state change: the view the readers poll is the one from before.
+    let after = harness.get("/braid").await.json();
+    assert_eq!(after, before, "a refused report moves no braid state");
+    assert!(after["last_quarantine_ns"].is_null());
+}
+
+/// A body with no `event` tag never reaches the fold, exactly as before the
+/// edge learned to refuse a variant.
+#[tokio::test]
+async fn braid_edge_rejects_a_tagless_body() {
+    let harness = Harness::new();
+    let before = harness.get("/braid").await.json();
+
+    let reply = harness
+        .post_json("/braid", None, json!({ "sha256": "0".repeat(64) }))
+        .await;
+    assert!(
+        reply.status.is_client_error(),
+        "a body with no event tag is a client error: {} {}",
+        reply.status,
+        reply.text()
+    );
+    assert_eq!(harness.get("/braid").await.json(), before);
+}
