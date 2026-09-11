@@ -227,7 +227,7 @@ fn run() -> CliResult<()> {
     let skipped_singletons =
         train_epochs(&mut candidate, &mut baseline, &mut training_examples, &args)?;
     eprintln!(
-        "jepa calibration constant_baseline_samples={}",
+        "jepa calibrate constant_baseline_samples={}",
         training_examples.len()
     );
     candidate.calibrate_constant_baseline(&training_examples)?;
@@ -452,7 +452,7 @@ fn train_epochs(
             0.0
         };
         eprintln!(
-            "jepa epoch={}/{} backend={} samples={} batches={} cnn_total={:.6} cnn_nll={:.6} cnn_var={:.6} cnn_cov={:.6} cnn_ground={:.6} flat_total={:.6} flat_nll={:.6} seconds={:.3} samples_per_second={:.2}",
+            "jepa train epoch={}/{} backend={} samples={} batches={} cnn_total={:.6} cnn_nll={:.6} cnn_var={:.6} cnn_cov={:.6} cnn_ground={:.6} flat_total={:.6} flat_nll={:.6} seconds={:.3} samples_per_second={:.2}",
             epoch + 1,
             args.epoch_count,
             args.backend_name,
