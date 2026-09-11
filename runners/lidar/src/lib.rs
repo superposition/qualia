@@ -130,18 +130,17 @@ pub struct Packet {
 
 /// CRC-8 over `data` with the device's polynomial (`0x4D`, MSB first).
 pub fn crc8(data: &[u8]) -> u8 {
-    let mut crc = 0u8;
+    let mut remainder = 0u8;
     for byte in data {
-        crc ^= *byte;
+        remainder ^= byte;
         for _ in 0..8 {
-            crc = if crc & 0x80 != 0 {
-                crc.wrapping_shl(1) ^ 0x4D
-            } else {
-                crc.wrapping_shl(1)
+            remainder = match remainder & 0x80 {
+                0 => remainder.wrapping_shl(1),
+                _ => remainder.wrapping_shl(1) ^ 0x4D,
             };
         }
     }
-    crc
+    remainder
 }
 
 /// Decodes one checksum-verified packet.
@@ -154,8 +153,8 @@ pub fn parse_packet(raw: &[u8; FRAME_SIZE]) -> Packet {
     // The sweep runs forward from the start angle to the end angle, wrapping
     // through zero; centidegrees make the span exact before it becomes f32.
     let span_cdeg = (end_angle_cdeg as i64 - start_angle_cdeg as i64).rem_euclid(FULL_TURN_CDEG);
-    let step_deg = span_cdeg as f32 / (POINTS_PER_PACKET as f32 - 1.0) / 100.0;
-    let start_deg = start_angle_cdeg as f32 / 100.0;
+    let per_point_deg = span_cdeg as f32 / (POINTS_PER_PACKET as f32 - 1.0) / 100.0;
+    let origin_deg = start_angle_cdeg as f32 / 100.0;
 
     let mut points = [DevicePoint {
         angle_deg: 0.0,
@@ -167,10 +166,12 @@ pub fn parse_packet(raw: &[u8; FRAME_SIZE]) -> Packet {
         let base = 6 + index * 3;
         let distance_mm = read_u16(raw, base);
         let intensity = raw[base + 2];
-        let mut angle_deg = start_deg + index as f32 * step_deg;
-        if angle_deg >= 360.0 {
-            angle_deg -= 360.0;
-        }
+        let angle_deg = origin_deg + index as f32 * per_point_deg;
+        let angle_deg = if angle_deg >= 360.0 {
+            angle_deg - 360.0
+        } else {
+            angle_deg
+        };
         *point = DevicePoint {
             angle_deg,
             distance_mm,
@@ -214,12 +215,13 @@ pub fn extract_packet(stream: &mut VecDeque<u8>) -> Option<Packet> {
         for _ in 0..FRAME_SIZE {
             stream.pop_front();
         }
-        return Some(parse_packet(&raw));
+        let packet = parse_packet(&raw);
+        return Some(packet);
     }
 }
 
 fn read_u16(raw: &[u8], offset: usize) -> u16 {
-    u16::from_le_bytes([raw[offset], raw[offset + 1]])
+    u16::from(raw[offset]) | (u16::from(raw[offset + 1]) << 8)
 }
 
 // ---------------------------------------------------------------------------
@@ -341,13 +343,14 @@ pub fn publish_scan(shm: &ShmRegion, points: &[DevicePoint]) {
     grid.origin_y_m = -(LIDAR_GRID_H as f32 * GRID_RESOLUTION_M * 0.5);
 
     for point in points {
-        if point.distance_mm == 0 || point.intensity == 0 {
+        let carries_return = point.distance_mm > 0 && point.intensity > 0;
+        if !carries_return {
             continue;
         }
-        let distance_m = point.distance_mm as f32 / 1000.0;
+        let range_m = f32::from(point.distance_mm) / 1000.0;
         let angle_rad = point.angle_deg.to_radians();
-        let x_m = angle_rad.cos() * distance_m;
-        let y_m = angle_rad.sin() * distance_m;
+        let x_m = angle_rad.cos() * range_m;
+        let y_m = angle_rad.sin() * range_m;
         let column = ((x_m - grid.origin_x_m) / grid.resolution_m).floor() as i32;
         let row = ((y_m - grid.origin_y_m) / grid.resolution_m).floor() as i32;
         if column < 0
