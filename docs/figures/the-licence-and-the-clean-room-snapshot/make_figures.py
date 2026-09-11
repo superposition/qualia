@@ -188,9 +188,9 @@ def licence_flow() -> None:
         0.20,
         0.22,
         0.28,
-        "runs on every pull request\nand every push to main:\nNOTICE and LICENSE\nnon-empty, and both\nattribution strings\npresent",
+        "run before a release:\nNOTICE and LICENSE\nnon-empty, and both\nattribution strings\npresent",
         LAVENDER,
-        title="notice-check.yml",
+        title="notice-check.sh",
     )
 
     for y in (0.5225, 0.3525, 0.1825):
@@ -200,7 +200,7 @@ def licence_flow() -> None:
     fig.text(
         0.012,
         0.015,
-        "Sources: LICENSE, NOTICE, .github/workflows/notice-check.yml, Cargo.toml.",
+        "Sources: LICENSE, NOTICE, .github/scripts/notice-check.sh, Cargo.toml.",
         fontsize=9,
         color=MUTED,
     )

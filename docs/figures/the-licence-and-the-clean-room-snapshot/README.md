@@ -6,7 +6,7 @@ Two figures for the journal entry
 | File | Kind | What it encodes |
 | --- | --- | --- |
 | `provenance-check.svg` (+ `.png`) | chart | For each commit, three bars: files tracked in this repository, files whose relative path also exists in the private reference checkout, and files that are byte-identical to it. The third bar is zero at both commits. |
-| `licence-flow.svg` (+ `.png`) | diagram | The clean-room boundary (dashed, labelled), and below it the three attribution sources — the relicensed workspace root, Leash (MIT), the Male CNS dataset (CC-BY 4.0) — fanning into `NOTICE`, which `.github/workflows/notice-check.yml` then guards on every pull request and every push to `main`. |
+| `licence-flow.svg` (+ `.png`) | diagram | The clean-room boundary (dashed, labelled), and below it the three attribution sources — the relicensed workspace root, Leash (MIT), the Male CNS dataset (CC-BY 4.0) — fanning into `NOTICE`, which `.github/scripts/notice-check.sh` guards. |
 
 ## Data
 
@@ -24,7 +24,7 @@ over 170 tracked files. Both runs exited `0`. The reference checkout's path is
 deliberately not recorded here.
 
 The diagram's facts are the three committed files themselves (`LICENSE`,
-`NOTICE`, `.github/workflows/notice-check.yml`) plus the workspace `license`
+`NOTICE`, `.github/scripts/notice-check.sh`) plus the workspace `license`
 field in `Cargo.toml`.
 
 ## Regenerating
