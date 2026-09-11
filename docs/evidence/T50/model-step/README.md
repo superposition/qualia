@@ -26,17 +26,16 @@ steps**), so the two rows are comparable.
 | step p50, plain run, median of 7 | **1.107** | **0.982** | `probe-repeat.csv` |
 | step p95, plain run, median of 7 | **2.022** | **1.468** | `probe-repeat.csv` |
 | step max, plain run, median of 7 | **2.172** | **1.594** | `probe-repeat.csv` |
-| step p50, under `nsys` (this capture) | 2.307 | 2.138 | `after-capture.json`, `before-capture.json` |
+| step p50, under `nsys` (this capture) | 2.307 | 2.138 | `before-capture.sqlite` `StringIds` 120, `after-capture.sqlite` `StringIds` 139 |
 | step p95, under `nsys` | 4.060 | 2.734 | same |
 | whole call, 1200-iteration delta | **1.238** | **1.199** | `step-cost.txt` |
 | launches per step | 68.3 | 73.3 | `*-capture.sqlite` |
 | kernel time per step (µs) | 136.6 | 141.8 | `*-capture.sqlite` |
 
-The p50 median falls 11 %, the p95 27 % and the max 27 %; the plain run's own spread collapses
-(p50 range 0.934–2.061 ms before, 0.918–1.024 ms after). The whole-call delta, which is the one
-estimator here that cancels process start-up, moves −39 µs (−3.2 %). The profiled pair moves less
-in one direction than the plain pair, because `nsys` charges waiting time to whichever call is in
-flight — read the plain row, not the profiled one, for the step's cost.
+The p50 median falls 11 %, the p95 27 % and the max 27 %, but the p50 median over-reads the
+refactor's size, for the reason §The shape gives: the plain pair's medians are dragged apart by the
+before build's tail. The whole-call delta, which cancels process start-up, moves −39 µs (−3.2 %), and
+that is the estimator to quote.
 
 ## The shape
 
@@ -59,6 +58,17 @@ flight — read the plain row, not the profiled one, for the step's cost.
 `device-copies.csv` and `api-calls.csv` carry these per-call counts and medians for both runs; both
 are derived from the `nsys` export, whose `CUPTI_ACTIVITY_KIND_MEMCPY` table the committed
 `*-capture.sqlite` carries.
+
+**The capture exercises `infer` only.** `qualia-jepa-runtime-probe.rs:106` (the warm-up loop) and
+`:109` (the measured loop) are the probe's only two calls into the runtime, so `observe_transition`'s
+batched readback and the two synchronizes `predict_latent_step` lost are in the diff but covered by
+**no timing here** — their evidence is the bit-identical value dump, not a capture. Within `infer`,
+the whole-call delta (1.238 → 1.199 ms) is therefore the unbiased estimator: it cancels process
+start-up and averages over 1200 iterations, where the plain p50 delta (−125 µs, medians of seven
+runs) over-attributes the change by more than three times, because the before build's seven runs
+spread 0.934–2.061 ms against the after build's 0.918–1.024 ms. Their min-of-seven comparison is
+0.934 → 0.918 ms (−16 µs). The profiled pair (2.307 → 2.138 ms) moves least of all, because `nsys`
+charges waiting time to whichever call is in flight; do not read it as the step's cost.
 
 ## What changed
 
@@ -180,23 +190,36 @@ This directory carries two runs, so the files `docs/evidence/README.md` names ar
 `before-` and `after-` — `before-capture.json` and so on — rather than one bare `capture.json`, the
 way `T50/pinkie-kernels/` spells its two runs `base-` and `none-`.
 
-Two trims, both stated rather than silent. `kernels.json` keeps mage's field names and values but
-drops the fields that are `null` in every row of the run — `nsys` reports no `ncu` counter, so 28
-fields reduce to 9 and one launch is one line (before: 2,168,236 B whole; after: 2,314,723 B whole).
-`capture.sqlite` keeps `StringIds`, `CUPTI_ACTIVITY_KIND_KERNEL` and `CUPTI_ACTIVITY_KIND_MEMCPY`;
-`CUPTI_ACTIVITY_KIND_RUNTIME` is 31,565 rows and is committed as the `api-calls.csv` projection
-instead. `*-capture.json` is mage's manifest with the absolute `--output=` directory elided, and the
-`argv` paths are the worktree-relative binaries that ran.
+Three files here are projections rather than a backend's own output, and each says how to rebuild it.
+`kernels.json` keeps mage's field names and values but drops the fields that are `null` in every row
+of the run — `nsys` reports no `ncu` counter, so 28 fields reduce to 9 and one launch is one line
+(before: 2,168,236 B whole; after: 2,314,723 B whole). `capture.sqlite` keeps `StringIds`,
+`CUPTI_ACTIVITY_KIND_KERNEL` and `CUPTI_ACTIVITY_KIND_MEMCPY`; `CUPTI_ACTIVITY_KIND_RUNTIME` is
+31,565 rows and does not fit what this tree carries, so it is **not** committed and `api-calls.csv`
+is its projection: rows are `SELECT nameId, end - start FROM CUPTI_ACTIVITY_KIND_RUNTIME`, grouped
+by `nameId` with the name resolved through `StringIds`, and the columns are the call count,
+count ÷ 33, the median of the per-call durations, and Σ(`end - start`) ÷ 33. `api-calls.csv` is
+therefore re-derivable from the **untrimmed** export — whose size and sha256 §Stays on the capturing
+machine records — and not from the committed SQLite, which is why that row is there. `device-copies.csv`
+is the same projection over `CUPTI_ACTIVITY_KIND_MEMCPY`, which the committed SQLite does carry, so
+it is re-derivable from what is committed. `*-capture.json` is mage's manifest with the absolute
+`--output=` directory elided, and the `argv` paths are the worktree-relative binaries that ran.
+
+The probe's own JSON report is the source of the p50/p95/max row, and it is committed verbatim: mage
+captured the target's stdout into the export, so `before-capture.sqlite`'s `StringIds` id 120 and
+`after-capture.sqlite`'s id 139 each hold the whole report, `"synchronized_latency_p50_us"` included.
+`process.log` carries the same text plus mage's own transcript.
 
 ### Stays on the capturing machine
 
-| artifact | bytes | why it is not committed |
-| --- | --- | --- |
-| `capture.nsys-rep` (before) | 875,117 | `nsys`'s report; the committed SQLite is its export |
-| `capture.nsys-rep` (after) | 900,654 | same |
-| `capture.sqlite` (before, untrimmed) | 2,088,960 | carries the 31,565-row runtime table projected into `api-calls.csv` |
-| `capture.sqlite` (after, untrimmed) | 2,142,208 | same |
-| `process.log` (both) | — | mage's process log; carries the probe's own JSON report (the p50/p95/max rows above) and embeds the scratch directory |
+| artifact | bytes | sha256 | why it is not committed |
+| --- | --- | --- | --- |
+| `capture.nsys-rep` (before) | 875,117 | `20fed9dec4ca10e342fa96ea849537e1f227d290e5244695f83974dc83a85202` | `nsys`'s report; the committed SQLite is its export |
+| `capture.nsys-rep` (after) | 900,654 | `4f79e833c5d17f6ab615d46844f80a9b0b0ca544f4e1c5965d929aaffc0f3cf0` | same |
+| `capture.sqlite` (before, untrimmed) | 2,088,960 | `ccc102cd30d193a79db617dd9b7f0266db6993b05f48c5eb9afa1d3911dea7a7` | carries the 31,565-row runtime table projected into `api-calls.csv` |
+| `capture.sqlite` (after, untrimmed) | 2,142,208 | `76599fe3f9bd3407e5012d8ba08677d834ccd4f4a5c0b32758da8bc3928d2a6f` | same |
+| `process.log` (before) | 6,348 | `53f581814d32c17a0e6cd55ad205e752c9e69c61a283e2977aa787c434683c78` | mage's process log: the probe's JSON report and mage's transcript; embeds the scratch directory, and the report is committed in `StringIds` above |
+| `process.log` (after) | 6,346 | `63af06b0238b445fadf2a22d78f0e053a48cd92abe23050192f84f25a06f969b` | same |
 
 ## How it was taken
 
