@@ -6,3 +6,9 @@ license.workspace = true
 description = "CPU reference contracts and mathematics for Qualia's learned belief manifold"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
