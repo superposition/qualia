@@ -14,7 +14,7 @@ Two files run it, and a third is the ticket's own smoke path:
 | --- | --- | --- |
 | `ship-mission.sh` | dev host | Stages the head as a `git archive` and scp's it to the board. |
 | `run-mission.sh` | board | Preflight, rebuild, run the zero-motion stack, drive the mission, assert, stop. |
-| `scripts/mission_check.py` | both | Step 29's two assertions; `--self-test` runs its fixtures on the host. |
+| `scripts/mission_check.py` | both | Step 29's two assertions; `--self-test` runs its fixtures on the host, `--memory-source` pins the memory sampler. |
 
 ## Running it
 
@@ -44,7 +44,8 @@ bash deploy/pinkie/run-mission.sh
 ```
 
 `run-mission.sh --plan` prints the build, run, assert and stop commands without executing any of
-them; `--check` runs the preflight only. A pass ends with `mission: PASS` and exits 0.
+them; `--check` runs the preflight and prints that plan, then exits 2 if the preflight refuses. A pass
+ends with `mission: PASS` and exits 0.
 
 ## The two assertions
 
@@ -97,11 +98,19 @@ Every one of these is measured, not assumed (D-010, D-016, D-018; the T29 smoke 
   number the sampler records is the evidence, and the run failing to complete is the real failure.
 - **Clock.** The board's clock runs ~10 days behind the host, which is why nothing here depends on
   TLS to a remote peer or on wall-clock agreement.
-- **The manifest's `env` block wins over the shell.** `run-mission.sh` therefore exports only keys
-  the manifest lists in a runner's `env_passthrough` (the supervisor applies those after the stack
-  env): `QUALIA_CUDA_SM` for the compute service, the fly mode and prior path for the belief and
-  explore paths, and the agent's port, token, journal, store, TLS directory, MCAP root and arena
-  session. If the manifest's runner set or passthrough lists change, those exports are what must move
+- **The manifest must name `qualia-agent`.** The preflight hard-fails unless `--manifest` lists a
+  runner called `qualia-agent` (the `/braid` surface) — the standing T28 (#44) precondition, which
+  the ticket's zero-motion manifest now satisfies.
+- **The manifest's `env` block wins over the shell.** `run-mission.sh` exports the keys the manifest
+  lists in a runner's `env_passthrough` (the supervisor applies those after the stack env) —
+  `QUALIA_CUDA_SM` for the compute service, the fly mode and prior path for the belief and explore
+  paths, and the agent's port, token, journal, store, TLS directory, MCAP root, arena session and
+  compute socket — plus two inputs `qualia-init` reads directly: `QUALIA_STACK_MANIFEST` (which
+  manifest to run) and `QUALIA_LOG_DIR` (the run's log directory). `--leash-url` sets
+  `QUALIA_LEASH_BASE_URL`, which the agent reads directly: `qualia run` and `qualia-init` spawn their
+  children with the supervisor's environment inherited, and the zero-motion manifest neither lists the
+  key in `qualia-agent`'s `env_passthrough` nor overrides it, so the exported value is what the agent
+  loads. If the manifest's runner set or passthrough lists change, those exports are what must move
   with them.
 - **The prior** ships inside the archive at `assets/brain/prior` (`graph.bin`, `manifest.json`,
   `attribution.json`). A deployment-scale prior built off the Male CNS dataset is external and is
@@ -113,7 +122,7 @@ Every one of these is measured, not assumed (D-010, D-016, D-018; the T29 smoke 
 | --- | --- |
 | 0 | Both assertions hold (`mission: PASS`). |
 | 1 | An assertion failed, or the mission could not be driven at all. |
-| 2 | Preflight refused, `--check` was asked for, or the checker could not judge a leg (it exits 2 and the run passes that code through: `mission: CANNOT-ASSERT`). |
+| 2 | Preflight refused, `--check` was asked for, an unknown option was rejected, or the checker could not judge a leg (it exits 2 and the run passes that code through: `mission: CANNOT-ASSERT`). A missing option value is different: it exits 1, `set -u` aborting on the unbound `$2`. |
 | 3 | The build failed. |
 | 4 | The stack did not start or did not stop. |
 

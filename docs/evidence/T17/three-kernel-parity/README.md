@@ -115,7 +115,7 @@ The ticket's own command (the `--metrics` list above, `--csv`) wrote `kernels-ba
 is a second pass of the same configuration (`--export capture`, then
 `ncu --import capture.ncu-rep --page details --csv`). The inventory is launch-for-launch identical — ten
 IDs, the same kernel, block, grid, register count and shared-memory shape in both — and
-`sm__cycles_elapsed.avg` agrees within 7 % throughout, but `gpu__time_duration.sum` is a wall clock the
+`sm__cycles_elapsed.avg` agrees within 8 % throughout, but `gpu__time_duration.sum` is a wall clock the
 replay's clock state moves: eight launches agree within 5 %, while the two `belief_couple` launches
 differ (ID 1 `902.528` µs vs `449.09` µs, ID 2 `57.152` µs vs `108` µs) at `276,128`/`280,502` and
 `35,646`/`33,005` cycles. The launch table above quotes the pass the ticket's own command produced, which

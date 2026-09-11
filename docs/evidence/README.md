@@ -121,7 +121,8 @@ the target and capture range. Reports: …`, and a kernel-less `ncu` run prints 
 
 ## Manual capture
 
-Capture by hand when mage is not available on the target, for a reason that lives with the target
+Capture by hand when mage is not available on the target, or when mage cannot express the capture
+the ticket needs (its backend argv is fixed), for a reason that lives with the target or with mage
 rather than with this repository. Pinkie is that case: it carries no `nsys`, has no DNS, and has no
 mage installed today, so its captures are produced manually. State that reason and the exact command
 used in the directory README, and keep the manifest's field names — `argv`, `returncode`, `status`,

@@ -24,7 +24,7 @@
 #
 # Usage:
 #   bash deploy/pinkie/run-mission.sh --plan    # print the exact commands, run nothing
-#   bash deploy/pinkie/run-mission.sh --check   # preflight only
+#   bash deploy/pinkie/run-mission.sh --check   # preflight and plan, exit 2 if it refuses
 #   bash deploy/pinkie/run-mission.sh           # build, run, assert, stop
 #
 # Options:
@@ -356,7 +356,9 @@ start_stack() {
   # runner lists in `env_passthrough` — and init applies those after the stack
   # env. These are passthrough keys, so the board's values win: SM 87 rather
   # than the host run's 89, an absolute prior path, and this run's own ports,
-  # compute socket, journal, store and certificate.
+  # compute socket, journal, store and certificate. QUALIA_LEASH_BASE_URL is
+  # exported alongside them but is not a passthrough key: children inherit the
+  # supervisor's environment, and the manifest does not override it.
   export QUALIA_CUDA_SM="$SM"
   export QUALIA_FLY_MODE=prior
   export QUALIA_FLY_PRIOR_PATH="$PRIOR"
