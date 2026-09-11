@@ -212,7 +212,7 @@ impl CandidateRegistry {
         }
         let location = path
             .to_str()
-            .ok_or_else(|| anyhow!("registry path is not valid UTF-8"))?;
+            .ok_or_else(|| anyhow!("registry path is not UTF-8"))?;
         let database = Builder::new_local(location).build().await?;
         let connection = database.connect()?;
         connection.execute_batch(SCHEMA_SQL).await?;
@@ -226,8 +226,8 @@ impl CandidateRegistry {
         };
         match distance {
             Some(distance) if distance.is_finite() && distance.abs() <= 1e-5 => {}
-            Some(distance) => bail!("Turso vector32 probe returned an unusable distance {distance}"),
-            None => bail!("Turso vector32 probe returned no row"),
+            Some(distance) => bail!("Turso vector32 probe returned an invalid result: {distance}"),
+            None => bail!("Turso vector probe returned no row"),
         }
         Ok(Self {
             connection,
@@ -651,19 +651,19 @@ fn verify_candidate(
         || !manifest.action_support.passes()
         || !manifest.grounding_geometry.passes()
     {
-        bail!("checkpoint manifest does not pass the immutable candidate gates");
+        bail!("checkpoint manifest does not pass immutable candidate gates");
     }
     let weights = fs::read(checkpoint_dir.join("weights.safetensors"))?;
     let weights_sha256 = sha256_hex(&weights);
     if weights_sha256 != manifest.weights_sha256 {
-        bail!("checkpoint weights digest does not match its manifest");
+        bail!("checkpoint weights digest mismatch");
     }
     validate_checkpoint_weights(&weights, manifest.parameter_count)
         .map_err(|error| anyhow!(error.to_string()))?;
     let report_bytes = fs::read(&manifest.training_report_path)
         .with_context(|| format!("read training report {}", manifest.training_report_path))?;
     if sha256_hex(&report_bytes) != manifest.training_report_sha256 {
-        bail!("training report digest does not match its manifest");
+        bail!("training report digest mismatch");
     }
     let report: TrainingReport = serde_json::from_slice(&report_bytes)?;
     report
@@ -679,7 +679,7 @@ fn verify_candidate(
         || manifest.baseline_gate.conditions != dataset.audit.conditions.len() as u64
         || manifest.baseline_gate.environments != dataset.audit.environments
     {
-        bail!("checkpoint quotas disagree with the immutable dataset audit");
+        bail!("checkpoint dataset counts do not match the immutable evidence manifest");
     }
 
     let record = CandidateRecord {
@@ -712,6 +712,7 @@ fn verify_candidate(
 /// Re-derive a dataset manifest and re-run its promotion quotas.
 fn verify_dataset(manifest: &DatasetManifest, expected_digest: &str) -> Result<()> {
     let recomputed = manifest_digest(manifest).map_err(|error| anyhow!(error.to_string()))?;
+    validate_dataset_promotion_gate(manifest).map_err(|error| anyhow!(error.to_string()))?;
     let condition_total: u64 = manifest.audit.conditions.values().copied().sum();
     let split_total: u64 = manifest.audit.split_samples.values().copied().sum();
     if manifest.schema_version != DATASET_SCHEMA
@@ -722,13 +723,12 @@ fn verify_dataset(manifest: &DatasetManifest, expected_digest: &str) -> Result<(
         || condition_total != manifest.audit.valid_transitions
         || split_total != manifest.audit.valid_transitions
     {
-        bail!("dataset evidence counts do not close over its immutable manifest");
+        bail!("dataset is synthetic, incomplete, or below the real-evidence quota");
     }
-    validate_dataset_promotion_gate(manifest).map_err(|error| anyhow!(error.to_string()))?;
     let rebuilt = build_manifest(manifest.sources.clone(), manifest.config)
         .map_err(|error| anyhow!(error.to_string()))?;
     if &rebuilt != manifest {
-        bail!("dataset manifest does not reproduce from its immutable MCAP sources");
+        bail!("dataset manifest does not exactly reproduce from immutable MCAP evidence");
     }
     Ok(())
 }
@@ -1247,7 +1247,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("close over"),
+            error.contains("valid-transition count does not match samples"),
             "unexpected rejection reason: {error}"
         );
     }
@@ -1347,7 +1347,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("weights digest"),
+            error.contains("checkpoint weights digest mismatch"),
             "unexpected rejection reason: {error}"
         );
     }
