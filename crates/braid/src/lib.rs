@@ -4,8 +4,20 @@
 //! view: [`observe`] is the sole mutator of [`BraidState`], so the state is the
 //! fold of the event stream and can always be rebuilt by replaying it. The braid
 //! owns no storage. A strand that has a durable record to make asks for it
-//! through the event, and the crate that owns that record — MCAP for partial
-//! evidence, the generation registry for a rollback — is the one that writes it.
+//! through the event, and the crate that owns that record writes it: MCAP for
+//! partial evidence, the generation registry for a rollback.
+//!
+//! The MCAP edge is live; the registry edge is not yet wired. This workspace's
+//! `crates/jepa-registry` ships no library target, so cargo ignores the
+//! dependency this crate declares on it and no registry symbol is callable — and
+//! the registry's rollback wants a registry handle, the path of the generation
+//! pointer and an async context, none of which the signatures fixed here carry.
+//! So a [`BraidEvent::PromotionRolledBack`] only moves the pointer: the view
+//! takes the event's generation, `last_promotion_ns` stays where the last
+//! acceptance put it, and the `reason` is left on the wire for the strand that
+//! owns the registry to dispatch with. The call lands with the registry library
+//! in C10 (#76) and the routing with T22 (#37); the dated resolution on issue
+//! #34 records both.
 
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -102,13 +114,27 @@ impl Error for BraidError {
 /// storage here:
 ///
 /// - [`BraidEvent::Quarantined`] moves the partials under `path` aside through
-///   [`qualia_mcap::quarantine_partials`], then stamps `last_quarantine_ns`.
+///   [`qualia_mcap::quarantine_partials`], then stamps `last_quarantine_ns`. The
+///   dispatch runs first, so a recovery whose dispatch fails returns an error
+///   with the view untouched. A root with no partials — including one that does
+///   not exist — is an empty recovery, not a failure: nothing moved, and the
+///   stamp is still taken, because a stack that never logged has nothing to
+///   recover.
 /// - [`BraidEvent::PromotionAccepted`] and [`BraidEvent::PromotionRolledBack`]
 ///   move the generation pointer. A rollback is not a promotion, so it leaves
-///   `last_promotion_ns` where the last acceptance put it.
+///   `last_promotion_ns` where the last acceptance put it. The rollback's
+///   durable record, which is what carries its `reason`, is the generation
+///   registry's; the call is deferred, so the pointer moves and the reason stays
+///   on the wire (see the module docs).
 /// - [`BraidEvent::EvidenceSealed`] carries the digest of a sealed segment; the
 ///   sealed segment is the record, so the braid keeps only the knowledge that it
 ///   happened (nothing here changes).
+///
+/// Delivery is not deduplicated. `open_missions` counts the mission events
+/// folded, and the wire carries no set of open missions to check a re-delivery
+/// against, so a strand that publishes the same [`BraidEvent::MissionOpened`]
+/// twice is counted twice; reconciling that is the re-delivering strand's job,
+/// not a guess for the braid to make.
 pub fn observe(state: &mut BraidState, event: &BraidEvent) -> Result<(), BraidError> {
     match event {
         BraidEvent::MissionOpened { .. } => {
@@ -122,6 +148,11 @@ pub fn observe(state: &mut BraidState, event: &BraidEvent) -> Result<(), BraidEr
             state.generation = *generation;
             state.last_promotion_ns = now_ns();
         }
+        // The pointer moves with the event. `last_promotion_ns` is deliberately
+        // not touched, and the rollback's `reason` is deliberately not stored:
+        // its durable record belongs to the generation registry, whose dispatch
+        // is deferred (see the dated resolution on issue #34). The dropped field
+        // is the resolution, not an oversight.
         BraidEvent::PromotionRolledBack { generation, .. } => {
             state.generation = *generation;
         }

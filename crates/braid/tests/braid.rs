@@ -5,7 +5,7 @@
 //! came out. These tests therefore assert on state a consumer can see and on the
 //! one dispatch a `BraidEvent` can trigger, never on how `observe` is written.
 
-use qualia_braid::{observe, BraidEvent, BraidState};
+use qualia_braid::{observe, BraidError, BraidEvent, BraidState};
 use std::fs;
 
 #[test]
@@ -74,19 +74,39 @@ fn rollback_event_is_recorded_and_state_survives() {
     assert_eq!(state.generation, 7);
     assert!(promoted_at > 0, "an acceptance is stamped with a time");
 
-    observe(
-        &mut state,
-        &BraidEvent::PromotionRolledBack {
-            generation: 6,
-            reason: "health gate failed".to_string(),
-        },
+    // A strand publishes the rollback as an envelope, so the reason has to
+    // survive the decode: that value is what the registry dispatch records.
+    let rollback: BraidEvent = serde_json::from_str(
+        r#"{"event":"promotion_rolled_back","generation":6,"reason":"health gate failed"}"#,
     )
     .unwrap();
+    match &rollback {
+        BraidEvent::PromotionRolledBack { generation, reason } => {
+            assert_eq!(*generation, 6, "the envelope carries the generation");
+            assert_eq!(
+                reason, "health gate failed",
+                "the reason stays on the wire for the registry dispatch"
+            );
+        }
+        other => panic!("the envelope decodes to the rollback variant, not {other:?}"),
+    }
+
+    observe(&mut state, &rollback).unwrap();
 
     assert_eq!(state.generation, 6, "the pointer follows the rollback");
     assert_eq!(
         state.last_promotion_ns, promoted_at,
         "a rollback must not look like a promotion"
+    );
+
+    // The reason is deliberately not stored here. Its durable record is the
+    // generation registry's, whose rollback call this revision cannot make (see
+    // the dated resolution on issue #34: the call lands with C10 #76, the
+    // routing with T22 #37), so no part of the braid's own view carries it.
+    let view = serde_json::to_string(&state).unwrap();
+    assert!(
+        !view.contains("health gate failed"),
+        "the braid keeps no reason of its own: {view}"
     );
 }
 
@@ -140,4 +160,71 @@ fn quarantined_event_dispatches_to_mcap() {
         state.last_quarantine_ns.is_some(),
         "the braid stamps the quarantine it dispatched"
     );
+}
+
+#[test]
+fn failed_quarantine_dispatch_leaves_state_untouched() {
+    // Pointing the dispatch at something that is not a directory makes
+    // `quarantine_partials` fail, so nothing was moved aside. The view must not
+    // move either: a reader that saw the stamp would believe partials were
+    // quarantined when they are exactly where the strand left them.
+    let temp = tempfile::tempdir().unwrap();
+    let not_a_directory = temp.path().join("arena-1.mcap.partial");
+    fs::write(&not_a_directory, b"a segment that was never sealed").unwrap();
+
+    let mut state = BraidState::default();
+    observe(
+        &mut state,
+        &BraidEvent::MissionOpened {
+            mission_id: "mission-1".to_string(),
+        },
+    )
+    .unwrap();
+    let before = state.clone();
+
+    let result = observe(
+        &mut state,
+        &BraidEvent::Quarantined {
+            path: not_a_directory.to_string_lossy().into_owned(),
+            reason: "writer stopped early".to_string(),
+        },
+    );
+
+    assert!(
+        matches!(result, Err(BraidError::Quarantine(_))),
+        "a dispatch that could not run is reported to the caller: {result:?}"
+    );
+    assert_eq!(
+        state, before,
+        "no part of the view moves when the dispatch fails"
+    );
+    assert!(
+        not_a_directory.is_file(),
+        "the bytes are where the strand left them, for the caller to retry"
+    );
+}
+
+#[test]
+fn quarantined_event_with_nothing_to_move_still_stamps() {
+    // A stack that never logged has no partials. `quarantine_partials` reports
+    // an empty recovery for a root that is not there, and the braid still
+    // records that the recovery ran; it creates nothing on the way.
+    let temp = tempfile::tempdir().unwrap();
+    let never_logged = temp.path().join("never-logged");
+
+    let mut state = BraidState::default();
+    observe(
+        &mut state,
+        &BraidEvent::Quarantined {
+            path: never_logged.to_string_lossy().into_owned(),
+            reason: "no partials reached the disk".to_string(),
+        },
+    )
+    .unwrap();
+
+    assert!(
+        state.last_quarantine_ns.is_some(),
+        "an empty recovery is still a recovery the braid was told about"
+    );
+    assert!(!never_logged.exists(), "an empty recovery touches nothing");
 }
