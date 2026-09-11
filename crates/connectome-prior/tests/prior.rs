@@ -9,16 +9,21 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
 use qualia_connectome_prior::{
-    build_type_graph, build_type_graph_from_rows, BodyAnnotation, PriorError, PriorSource,
-    SegmentEdge,
+    build_type_graph, build_type_graph_from_rows, write_prior, Attribution, BodyAnnotation,
+    PriorError, PriorSource, SegmentEdge, PRIOR_SCHEMA,
 };
+use sha2::{Digest, Sha256};
 
+const MANIFEST_FILE: &str = "manifest.json";
+const GRAPH_FILE: &str = "graph.bin";
+const ATTRIBUTION_FILE: &str = "attribution.json";
 
 /// One row of the hand-authored annotation fixture.
 struct Annotation(i64, String, String, String, String);
@@ -218,6 +223,34 @@ fn oracle(edges: &[(String, String, u64)]) -> (Vec<String>, Vec<u64>, Vec<u32>, 
     (types, rowptr, cols, weights)
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut out = String::new();
+    for byte in Sha256::digest(bytes) {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// Name, mtime, length and bytes of each artifact file, so a rewrite is visible
+/// even when the clock is too coarse to move the mtime.
+fn file_state(dir: &Path) -> Vec<(String, Option<SystemTime>, u64, Vec<u8>)> {
+    let mut state: Vec<_> = [MANIFEST_FILE, GRAPH_FILE, ATTRIBUTION_FILE]
+        .iter()
+        .map(|name| {
+            let path = dir.join(name);
+            let metadata = fs::metadata(&path).expect("artifact file exists");
+            (
+                (*name).to_string(),
+                metadata.modified().ok(),
+                metadata.len(),
+                fs::read(&path).expect("artifact file reads"),
+            )
+        })
+        .collect();
+    state.sort();
+    state
+}
+
 #[test]
 fn builds_csr_from_fixture() {
     let fixture = fixture();
@@ -269,6 +302,97 @@ fn builds_csr_from_fixture() {
     assert_eq!(skipped, 0);
     assert_eq!(total, 12);
     assert_eq!(row_graph, graph);
+}
+
+#[test]
+fn emits_attribution_and_manifest() {
+    let fixture = fixture();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let source = synth_inputs(temp.path(), &fixture, &[]);
+    let graph = build_type_graph(&source).expect("fixture builds");
+    let out = temp.path().join("prior");
+
+    let manifest = write_prior(&out, &graph, &Attribution::male_cns()).expect("prior written");
+
+    let manifest_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join(MANIFEST_FILE)).expect("manifest reads"))
+            .expect("manifest is JSON");
+    assert_eq!(manifest_json["schema"], PRIOR_SCHEMA);
+    assert_eq!(manifest_json["type_count"], 5);
+    assert_eq!(manifest_json["edge_count"], 9);
+    assert_eq!(manifest.schema, PRIOR_SCHEMA);
+    assert_eq!(manifest.type_count, 5);
+    assert_eq!(manifest.edge_count, 9);
+    assert!(manifest.created_at_ms > 0);
+
+    let attribution_text =
+        fs::read_to_string(out.join(ATTRIBUTION_FILE)).expect("attribution reads");
+    let attribution_json: serde_json::Value =
+        serde_json::from_str(&attribution_text).expect("attribution is JSON");
+    assert_eq!(attribution_json["dataset"], "male-cns:v1.0");
+    assert_eq!(attribution_json["licence"], "CC-BY-4.0");
+    assert_eq!(attribution_json["url"], "https://male-cns.janelia.org");
+    assert_eq!(attribution_json["citation"], "Berg et al. 2026, Cell");
+    assert_eq!(manifest_json["attribution"], attribution_json);
+    let decoded: Attribution =
+        serde_json::from_str(&attribution_text).expect("attribution decodes");
+    assert_eq!(decoded, Attribution::male_cns());
+    assert_eq!(manifest.attribution, Attribution::male_cns());
+
+    // graph.bin is rowptr then cols then weights, little-endian, in that order.
+    let graph_bin = fs::read(out.join(GRAPH_FILE)).expect("graph reads");
+    let rowptr_len = graph.rowptr.len() * 8;
+    let cols_len = graph.cols.len() * 4;
+    assert_eq!(graph_bin.len(), rowptr_len + cols_len + graph.weights.len() * 4);
+    assert_eq!(
+        &graph_bin[..rowptr_len],
+        graph
+            .rowptr
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>()
+            .as_slice()
+    );
+    assert_eq!(
+        &graph_bin[rowptr_len..rowptr_len + cols_len],
+        graph
+            .cols
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>()
+            .as_slice()
+    );
+
+    // Every digest is over the bytes it names.
+    assert_eq!(manifest_json["source_sha256"], sha256_hex(&graph_bin));
+    assert_eq!(
+        manifest_json["rowptr_sha256"],
+        sha256_hex(&graph_bin[..rowptr_len])
+    );
+    assert_eq!(
+        manifest_json["cols_sha256"],
+        sha256_hex(&graph_bin[rowptr_len..rowptr_len + cols_len])
+    );
+    assert_eq!(
+        manifest_json["weights_sha256"],
+        sha256_hex(&graph_bin[rowptr_len + cols_len..])
+    );
+}
+
+#[test]
+fn rerun_is_idempotent() {
+    let fixture = fixture();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let source = synth_inputs(temp.path(), &fixture, &[]);
+    let graph = build_type_graph(&source).expect("fixture builds");
+    let out = temp.path().join("prior");
+
+    write_prior(&out, &graph, &Attribution::male_cns()).expect("first write succeeds");
+    let before = file_state(&out);
+
+    let error = write_prior(&out, &graph, &Attribution::male_cns()).expect_err("second write refused");
+    assert!(matches!(error, PriorError::AlreadyBuilt));
+    assert_eq!(file_state(&out), before);
 }
 
 #[test]

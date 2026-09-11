@@ -19,9 +19,10 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write as _};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow::array::{
     Array, Float32Array, Float64Array, Int32Array, Int64Array, UInt32Array, UInt64Array,
@@ -29,10 +30,18 @@ use arrow::array::{
 use arrow::datatypes::SchemaRef;
 use arrow::ipc::reader::{FileReader, StreamReader};
 use arrow::record_batch::RecordBatch;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Schema literal carried by every emitted `manifest.json`.
 pub const PRIOR_SCHEMA: &str = "qualia.connectome-prior.v1";
 
+/// Manifest file name inside the prior directory.
+pub const MANIFEST_FILE: &str = "manifest.json";
+/// Binary graph file name inside the prior directory.
+pub const GRAPH_FILE: &str = "graph.bin";
+/// Attribution file name inside the prior directory.
+pub const ATTRIBUTION_FILE: &str = "attribution.json";
 
 /// A failed prior build.
 ///
@@ -66,6 +75,34 @@ impl Display for PriorError {
 }
 
 impl Error for PriorError {}
+
+/// The dataset attribution the artifact must carry.
+///
+/// The fields are fixed by the dataset's licence: the Male CNS dataset is
+/// CC-BY 4.0, so the licence, the URL and the citation travel with the graph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attribution {
+    /// Dataset identifier.
+    pub dataset: String,
+    /// SPDX licence identifier.
+    pub licence: String,
+    /// Canonical dataset URL.
+    pub url: String,
+    /// Citation to reproduce.
+    pub citation: String,
+}
+
+impl Attribution {
+    /// The Male CNS v1.0 attribution, exactly as `NOTICE` states it.
+    pub fn male_cns() -> Self {
+        Self {
+            dataset: "male-cns:v1.0".to_string(),
+            licence: "CC-BY-4.0".to_string(),
+            url: "https://male-cns.janelia.org".to_string(),
+            citation: "Berg et al. 2026, Cell".to_string(),
+        }
+    }
+}
 
 /// Where a prior build reads its inputs from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +175,29 @@ pub struct BodyAnnotation {
     pub side: String,
     /// `male-specific`, `unisex`, or the dataset's other labels.
     pub dimorphism: String,
+}
+
+/// The emitted manifest, as written to `manifest.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PriorManifest {
+    /// Schema literal; always [`PRIOR_SCHEMA`].
+    pub schema: String,
+    /// Number of type-level nodes.
+    pub type_count: u32,
+    /// Number of type-level edges (CSR nonzeros).
+    pub edge_count: u64,
+    /// SHA-256 of the whole `graph.bin` byte stream.
+    pub source_sha256: String,
+    /// SHA-256 of the `rowptr` section.
+    pub rowptr_sha256: String,
+    /// SHA-256 of the `cols` section.
+    pub cols_sha256: String,
+    /// SHA-256 of the `weights` section.
+    pub weights_sha256: String,
+    /// Build time, milliseconds since the Unix epoch.
+    pub created_at_ms: u128,
+    /// The dataset attribution.
+    pub attribution: Attribution,
 }
 
 /// Build the type-level graph from the Arrow IPC inputs.
@@ -234,12 +294,100 @@ pub fn build_type_graph_from_rows(
     )
 }
 
+/// Write the artifact: `graph.bin`, `manifest.json` and `attribution.json`.
+///
+/// A rerun against a directory whose existing manifest carries the same
+/// `source_sha256` returns [`PriorError::AlreadyBuilt`] and touches nothing.
+pub fn write_prior(
+    dir: &Path,
+    graph: &TypeGraph,
+    attribution: &Attribution,
+) -> Result<PriorManifest, PriorError> {
+    let rowptr_bytes = section_u64(&graph.rowptr);
+    let cols_bytes = section_u32(&graph.cols);
+    let weights_bytes = section_u32(&graph.weights);
+
+    let mut graph_bin =
+        Vec::with_capacity(rowptr_bytes.len() + cols_bytes.len() + weights_bytes.len());
+    graph_bin.extend_from_slice(&rowptr_bytes);
+    graph_bin.extend_from_slice(&cols_bytes);
+    graph_bin.extend_from_slice(&weights_bytes);
+
+    let source_sha256 = hex_digest(&graph_bin);
+    let manifest_path = dir.join(MANIFEST_FILE);
+    if let Ok(existing) = fs::read(&manifest_path) {
+        if let Ok(existing) = serde_json::from_slice::<PriorManifest>(&existing) {
+            if existing.source_sha256 == source_sha256 {
+                return Err(PriorError::AlreadyBuilt);
+            }
+        }
+    }
+
+    fs::create_dir_all(dir).map_err(|error| read_error(dir, error))?;
+
+    let manifest = PriorManifest {
+        schema: PRIOR_SCHEMA.to_string(),
+        type_count: graph.types.len() as u32,
+        edge_count: graph.edge_count(),
+        source_sha256,
+        rowptr_sha256: hex_digest(&rowptr_bytes),
+        cols_sha256: hex_digest(&cols_bytes),
+        weights_sha256: hex_digest(&weights_bytes),
+        created_at_ms: now_ms(),
+        attribution: attribution.clone(),
+    };
+
+    fs::write(dir.join(GRAPH_FILE), &graph_bin).map_err(|error| read_error(dir, error))?;
+    write_json(dir.join(ATTRIBUTION_FILE), attribution)?;
+    write_json(dir.join(MANIFEST_FILE), &manifest)?;
+
+    Ok(manifest)
+}
+
+fn write_json<T: Serialize>(path: PathBuf, value: &T) -> Result<(), PriorError> {
+    let text = serde_json::to_string_pretty(value)
+        .map_err(|error| PriorError::Read(format!("{}: {error}", path.display())))?;
+    fs::write(&path, format!("{text}\n")).map_err(|error| read_error(&path, error))
+}
+
 fn read_error(path: &Path, error: std::io::Error) -> PriorError {
     PriorError::Read(format!("{}: {error}", path.display()))
 }
 
 fn decode_error(path: &Path, error: arrow::error::ArrowError) -> PriorError {
     PriorError::Read(format!("{}: {error}", path.display()))
+}
+
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or(0)
+}
+
+fn section_u64(values: &[u64]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
+}
+
+fn section_u32(values: &[u32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 4);
+    for value in values {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 /// Read the weights file into segment edges, requiring all three columns.
