@@ -225,6 +225,27 @@ issues #75/#76/#108/#38/#102); every future board build inherits these:
 - **A board run is one job at a time.** Board legs are serialized through one agent; the queue is
   Main's, not a free-for-all.
 
+## D-017 — What an `ncu` capture's `metrics.csv` actually is, and mage's parser
+
+Measured on 2026-09-11 by the board's T50 leg (its comment on PR #183; artifacts `C:/tmp/T50raw/`),
+live on Pinkie with ncu 2025.3.1:
+
+- `ncu --csv --page raw` writes a 291-column wide table (metric identifiers as headers, one row per
+  launch; a units row under the header). mage's `NcuBackend._parse_csv_output` rejects it:
+  `Unsupported Nsight Compute CSV schema`. mage's parser requires the long form (`Metric Name`,
+  `Metric Value`, `Metric Unit`, `Kernel Name`) — i.e. `--csv`'s default **details** page, which is
+  what the committed T50 exports are.
+- mage's backend asks ncu for `--page raw` while its parser expects details: that is a mage defect,
+  outside this repository (recorded here so no ticket tries to satisfy both readings at once).
+- A details export that names `launch__shared_mem_per_block_static` carries unit `byte/block`, which
+  mage's `_parse_value` rejects (its byte scale accepts only byte/kb/mb/gb). A capture whose
+  `--metrics` includes that counter will not parse in mage; the directory README must say so.
+- The same two runs write `capture.ncu-rep` reports of ~594 KB each — commit them when the tree's
+  size budget allows, and name them in the README when not (the T50 reports are committed).
+
+`docs/evidence/README.md` now names the details page as `metrics.csv`; the T50 capture stands with
+its `.ncu-rep` reports attached.
+
 ## D-003 — Repository
 
 

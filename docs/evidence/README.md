@@ -34,7 +34,7 @@ plus the export of the backend that ran — never a `capture.sqlite` from a targ
 | `kernels.json` | One object per CUDA launch, as mage read it out of the run's export. |
 | `kernels.csv` | The same rows as CSV. |
 | `capture.sqlite` | An `nsys` capture's SQLite export. |
-| `capture.ncu-rep` + `metrics.csv` | An `ncu` capture's report and its raw CSV. |
+| `capture.ncu-rep` + `metrics.csv` | An `ncu` capture's report and its `--csv` export (the details schema mage's parser reads — see D-017). |
 | `README.md` | The host the capture ran on, the shape, the iteration count and the numbers observed. |
 
 A run that launches no CUDA kernel produces no `kernels.json` and no `kernels.csv`. mage raises
@@ -56,8 +56,11 @@ committed file is `Cargo.lock` at about 196 KB (191 KiB). When a full export is 
 what mage reads and say in the directory README that it is a trimmed export. For `nsys` that is the
 `StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL` tables with the `StringIds` rows the kernel table does
 not reference dropped — the raw export carries the capturing host's `PATH`, `HOME` and distribution
-name — `VACUUM`ed. For `ncu`, `metrics.csv` is the raw CSV mage parses and `capture.ncu-rep` is the
-report; a report too large to commit is left on the capturing machine and named in the README. Elide
+name — `VACUUM`ed. For `ncu`, `metrics.csv` is the `--csv` details-page export — the schema mage's
+parser reads (D-017) — and `capture.ncu-rep` is the report; a report too large to commit is left on
+the capturing machine and named in the README. A details export that names a `byte/block` counter
+(`launch__shared_mem_per_block_static`) will not parse in mage's own reader: say so in the directory
+README. Elide
 every absolute path `capture.json` embeds — the output path in `profiler_argv` and the report
 directory in `error` — so the committed evidence names no machine.
 
@@ -155,8 +158,11 @@ sqlite3 docs/evidence/baseline-2026-09-11/capture.sqlite \
     ORDER BY k.start;"
 ```
 
-For an `ncu` capture, `metrics.csv` is the raw `--csv --page raw` output mage parses, and
-`capture.ncu-rep` is the report `ncu --export` wrote.
+For an `ncu` capture, `metrics.csv` is `ncu --csv`'s details-page export — the long-form schema
+(`Metric Name`, `Metric Value`, `Metric Unit`, `Kernel Name`) that mage's parser actually reads —
+and `capture.ncu-rep` is the report `ncu --export` wrote. The `--page raw` table is not that schema:
+mage's backend asks ncu for it while mage's parser expects the details page, so a raw-page CSV fails
+to parse (D-017).
 
 Unless a capture passes `--no-persist`, mage also appends the same run to its own history database,
 `~/.mage/profiles.db`, as a session plus one `metrics` row per launch:
