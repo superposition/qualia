@@ -25,7 +25,7 @@ use qualia_jepa_model::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -47,16 +47,80 @@ const OBSERVE_ONLY_MODE: &str = "observe-only";
 
 const CANDIDATE_ELIGIBLE: &str = "eligible";
 const CANDIDATE_ACCEPTED: &str = "accepted";
-const CANDIDATE_ACTIVE: &str = "active";
 
 const GENERATION_PREPARED: &str = "prepared";
 const GENERATION_ACTIVE: &str = "active";
-const GENERATION_SUPERSEDED: &str = "superseded";
-const HEALTH_PENDING: &str = "pending";
-const HEALTH_PASSED: &str = "passed";
-const HEALTH_FAILED: &str = "failed";
 
 const REASON_CATALOGUE: &str = "promotion";
+
+/// Registry tables. `jepa_candidates` holds the admitted evidence, `jepa_generations`
+/// the activation journal, `jepa_registry_state` the singleton pointer row.
+const SCHEMA_SQL: &str = "\
+CREATE TABLE IF NOT EXISTS jepa_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, checkpoint_id TEXT NOT NULL UNIQUE,
+    checkpoint_dir TEXT NOT NULL, dataset_digest TEXT NOT NULL,
+    dataset_manifest_path TEXT NOT NULL, weights_sha256 TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL, training_report_sha256 TEXT NOT NULL,
+    backend TEXT NOT NULL, status TEXT NOT NULL,
+    report_created_at_ms INTEGER NOT NULL, registered_at_ms INTEGER NOT NULL,
+    transition_nll REAL NOT NULL, rollout_error REAL NOT NULL,
+    occupancy_iou REAL NOT NULL, occupancy_pr_auc REAL NOT NULL,
+    clamp_fraction REAL NOT NULL, nonfinite_values INTEGER NOT NULL,
+    signature_vector F32_BLOB(12) NOT NULL,
+    manifest_json TEXT NOT NULL, report_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS jepa_candidates_status
+    ON jepa_candidates(status, registered_at_ms DESC);
+CREATE TABLE IF NOT EXISTS jepa_generations (
+    generation INTEGER PRIMARY KEY, checkpoint_id TEXT NOT NULL,
+    checkpoint_dir TEXT NOT NULL, weights_sha256 TEXT NOT NULL,
+    state TEXT NOT NULL, prepared_at_ms INTEGER NOT NULL, activated_at_ms INTEGER,
+    health_state TEXT NOT NULL, previous_generation INTEGER,
+    previous_checkpoint_id TEXT, rollback_of INTEGER, reason TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS jepa_registry_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    active_generation INTEGER, active_checkpoint_id TEXT
+);
+INSERT OR IGNORE INTO jepa_registry_state(singleton) VALUES (1);";
+
+const VECTOR_PROBE_SQL: &str =
+    "SELECT vector_distance_cos(vector32('[1,0]'), vector32('[1,0]'))";
+
+const INSERT_CANDIDATE_SQL: &str = "\
+INSERT INTO jepa_candidates(checkpoint_id, checkpoint_dir, dataset_digest,
+    dataset_manifest_path, weights_sha256, manifest_sha256, training_report_sha256,
+    backend, status, report_created_at_ms, registered_at_ms, transition_nll,
+    rollout_error, occupancy_iou, occupancy_pr_auc, clamp_fraction, nonfinite_values,
+    signature_vector, manifest_json, report_json)
+ VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,vector32(?18),?19,?20)";
+
+const INSERT_GENERATION_SQL: &str = "\
+INSERT INTO jepa_generations(generation, checkpoint_id, checkpoint_dir, weights_sha256,
+    state, prepared_at_ms, health_state, previous_generation, previous_checkpoint_id,
+    rollback_of, reason)
+ VALUES (?1,?2,?3,?4,'prepared',?5,'pending',?6,?7,?8,?9)";
+
+const MARK_GENERATION_ACTIVE_SQL: &str = "\
+UPDATE jepa_generations SET state = 'active', activated_at_ms = ?2
+ WHERE generation = ?1 AND checkpoint_id = ?3 AND weights_sha256 = ?4
+   AND state IN ('prepared','active')";
+
+const SELECT_CANDIDATE_SQL: &str = "\
+SELECT checkpoint_id, checkpoint_dir, dataset_digest, weights_sha256, manifest_sha256,
+       training_report_sha256, backend, status, report_created_at_ms,
+       registered_at_ms, transition_nll, rollout_error, occupancy_iou,
+       occupancy_pr_auc, clamp_fraction, nonfinite_values
+  FROM jepa_candidates WHERE checkpoint_id = ?1";
+
+const SELECT_ROLLBACK_CANDIDATE_SQL: &str = "\
+SELECT c.checkpoint_id, c.checkpoint_dir, c.dataset_digest, c.weights_sha256,
+       c.manifest_sha256, c.training_report_sha256, c.backend, c.status,
+       c.report_created_at_ms, c.registered_at_ms, c.transition_nll, c.rollout_error,
+       c.occupancy_iou, c.occupancy_pr_auc, c.clamp_fraction, c.nonfinite_values
+  FROM jepa_generations g JOIN jepa_candidates c ON c.checkpoint_id = g.checkpoint_id
+ WHERE g.generation < ?1 AND g.checkpoint_id != ?2 AND g.state IN ('superseded','active')
+ ORDER BY g.generation DESC LIMIT 1";
 
 /// The pointer file the observe-only runner reads to find its checkpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,7 +202,37 @@ impl CandidateRegistry {
     /// Open (or create) the registry, install the schema, and probe the native
     /// vector path the similarity search depends on.
     pub async fn open(path: impl AsRef<Path>) -> Result<Self> {
-        todo!()
+        let path = path.as_ref();
+        if let Some(directory) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(directory)
+                .with_context(|| format!("create registry directory {}", directory.display()))?;
+        }
+        let location = path
+            .to_str()
+            .ok_or_else(|| anyhow!("registry path is not valid UTF-8"))?;
+        let database = Builder::new_local(location).build().await?;
+        let connection = database.connect()?;
+        connection.execute_batch(SCHEMA_SQL).await?;
+        // Turso 0.7 ships native `F32_BLOB` vectors and distance kernels but no
+        // ANN index method. Probe the pinned engine now and fail closed rather
+        // than storing metric signatures the engine cannot search.
+        let mut probe = connection.query(VECTOR_PROBE_SQL, ()).await?;
+        let distance: Option<f64> = match probe.next().await? {
+            Some(row) => Some(row.get(0)?),
+            None => None,
+        };
+        match distance {
+            Some(distance) if distance.is_finite() && distance.abs() <= 1e-5 => {}
+            Some(distance) => bail!("Turso vector32 probe returned an unusable distance {distance}"),
+            None => bail!("Turso vector32 probe returned no row"),
+        }
+        Ok(Self {
+            connection,
+            path: path.to_path_buf(),
+        })
     }
 
     /// The database file this handle owns.
@@ -154,7 +248,14 @@ impl CandidateRegistry {
         now_ms: u128,
         max_report_age_ms: u128,
     ) -> Result<CandidateRecord> {
-        todo!()
+        let candidate = verify_candidate(
+            checkpoint_dir.as_ref(),
+            dataset_manifest_path.as_ref(),
+            now_ms,
+            max_report_age_ms,
+        )?;
+        self.insert_verified(&candidate).await?;
+        Ok(candidate.record)
     }
 
     /// Activate an already-admitted candidate as a new generation.
@@ -164,7 +265,25 @@ impl CandidateRegistry {
         generation_file: impl AsRef<Path>,
         now_ms: u128,
     ) -> Result<GenerationPointer> {
-        todo!()
+        let candidate = self
+            .candidate(checkpoint_id)
+            .await?
+            .ok_or_else(|| anyhow!("candidate is not registered"))?;
+        if candidate.status != CANDIDATE_ELIGIBLE && candidate.status != CANDIDATE_ACCEPTED {
+            bail!("candidate is not eligible for activation");
+        }
+        if now_ms.saturating_sub(candidate.report_created_at_ms) > DEFAULT_MAX_REPORT_AGE_MS {
+            bail!("candidate report is stale at promotion time");
+        }
+        self.reject_regression(&candidate).await?;
+        self.activate(
+            candidate,
+            generation_file.as_ref(),
+            now_ms,
+            None,
+            REASON_CATALOGUE,
+        )
+        .await
     }
 
     /// Finish an activation that a crash interrupted after the pointer rename.
@@ -173,7 +292,32 @@ impl CandidateRegistry {
         generation_file: impl AsRef<Path>,
         now_ms: u128,
     ) -> Result<GenerationPointer> {
-        todo!()
+        let pointer = read_generation(generation_file.as_ref())?;
+        let mut rows = self
+            .connection
+            .query(
+                "SELECT state FROM jepa_generations WHERE generation = ?1
+                   AND checkpoint_id = ?2 AND checkpoint_dir = ?3 AND weights_sha256 = ?4",
+                params![
+                    pointer.generation as i64,
+                    pointer.checkpoint_id.clone(),
+                    pointer.checkpoint_dir.clone(),
+                    pointer.weights_sha256.clone(),
+                ],
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| anyhow!("generation pointer was not prepared by this registry"))?;
+        let state: String = row.get(0)?;
+        drop(rows);
+        if state == GENERATION_PREPARED {
+            self.finish_activation(&pointer, now_ms).await?;
+        } else if state != GENERATION_ACTIVE {
+            bail!("generation pointer references a non-active registry generation");
+        }
+        Ok(pointer)
     }
 
     /// Record a soak result; a failure publishes a rollback generation.
@@ -185,7 +329,28 @@ impl CandidateRegistry {
         now_ms: u128,
         reason: &str,
     ) -> Result<GenerationPointer> {
-        todo!()
+        let active = read_generation(generation_file.as_ref())?;
+        if active.generation != generation {
+            bail!("health result does not target the active generation");
+        }
+        if healthy {
+            self.connection
+                .execute(
+                    "UPDATE jepa_generations SET health_state = 'passed'
+                     WHERE generation = ?1 AND state = 'active'",
+                    [generation as i64],
+                )
+                .await?;
+            return Ok(active);
+        }
+        self.connection
+            .execute(
+                "UPDATE jepa_generations SET health_state = 'failed', reason = ?2
+                 WHERE generation = ?1 AND state = 'active'",
+                params![generation as i64, reason.to_string()],
+            )
+            .await?;
+        self.rollback(generation_file, now_ms, reason).await
     }
 
     /// Publish a new generation pointing at the previous accepted checkpoint.
@@ -195,32 +360,144 @@ impl CandidateRegistry {
         now_ms: u128,
         reason: &str,
     ) -> Result<GenerationPointer> {
-        todo!()
+        let active = read_generation(generation_file.as_ref())?;
+        let mut rows = self
+            .connection
+            .query(
+                SELECT_ROLLBACK_CANDIDATE_SQL,
+                params![active.generation as i64, active.checkpoint_id.clone()],
+            )
+            .await?;
+        let candidate = rows
+            .next()
+            .await?
+            .map(candidate_from_row)
+            .transpose()?
+            .ok_or_else(|| anyhow!("no prior accepted generation is available for rollback"))?;
+        drop(rows);
+        self.activate(
+            candidate,
+            generation_file.as_ref(),
+            now_ms,
+            Some(active.generation),
+            reason,
+        )
+        .await
     }
 
     /// Look up one candidate by checkpoint id.
     pub async fn candidate(&self, checkpoint_id: &str) -> Result<Option<CandidateRecord>> {
-        todo!()
+        let mut rows = self
+            .connection
+            .query(SELECT_CANDIDATE_SQL, [checkpoint_id.to_string()])
+            .await?;
+        rows.next().await?.map(candidate_from_row).transpose()
     }
 
     /// Checkpoint ids nearest to `checkpoint_id` by cosine distance.
     pub async fn nearest_candidates(&self, checkpoint_id: &str, limit: u64) -> Result<Vec<String>> {
-        todo!()
+        let mut probe = self
+            .connection
+            .query(
+                "SELECT vector_extract(signature_vector) FROM jepa_candidates
+                 WHERE checkpoint_id = ?1",
+                [checkpoint_id.to_string()],
+            )
+            .await?;
+        let signature: String = probe
+            .next()
+            .await?
+            .ok_or_else(|| anyhow!("candidate is not registered"))?
+            .get(0)?;
+        drop(probe);
+        let mut rows = self
+            .connection
+            .query(
+                "SELECT checkpoint_id, vector_distance_cos(signature_vector, vector32(?1))
+                   AS distance FROM jepa_candidates ORDER BY distance LIMIT ?2",
+                params![signature, limit.clamp(1, 100) as i64],
+            )
+            .await?;
+        let mut ids = Vec::new();
+        while let Some(row) = rows.next().await? {
+            ids.push(row.get(0)?);
+        }
+        Ok(ids)
     }
 
     /// Totals, plus the active pointer when a generation file is given.
     pub async fn status(&self, generation_file: Option<&Path>) -> Result<RegistryStatus> {
-        todo!()
+        Ok(RegistryStatus {
+            schema_version: REGISTRY_SCHEMA.to_string(),
+            active: generation_file.map(read_generation).transpose()?,
+            candidate_count: count(&self.connection, "jepa_candidates").await?,
+            generation_count: count(&self.connection, "jepa_generations").await?,
+        })
     }
 
     /// Insert a fully verified candidate, refusing a predictive regression.
     async fn insert_verified(&self, candidate: &EvidenceCandidate) -> Result<()> {
-        todo!()
+        self.reject_regression(&candidate.record).await?;
+        let record = &candidate.record;
+        let signature = serde_json::to_string(&candidate.signature)?;
+        self.connection.execute("BEGIN IMMEDIATE", ()).await?;
+        let inserted = self
+            .connection
+            .execute(
+                INSERT_CANDIDATE_SQL,
+                params![
+                    record.checkpoint_id.clone(),
+                    record.checkpoint_dir.clone(),
+                    record.dataset_digest.clone(),
+                    candidate.dataset_manifest_path.clone(),
+                    record.weights_sha256.clone(),
+                    record.manifest_sha256.clone(),
+                    record.training_report_sha256.clone(),
+                    record.backend.clone(),
+                    record.status.clone(),
+                    to_i64(record.report_created_at_ms)?,
+                    to_i64(record.registered_at_ms)?,
+                    record.transition_nll,
+                    record.rollout_error,
+                    record.occupancy_iou,
+                    record.occupancy_pr_auc,
+                    record.clamp_fraction,
+                    to_i64(u128::from(record.nonfinite_values))?,
+                    signature,
+                    candidate.manifest_json.clone(),
+                    candidate.report_json.clone(),
+                ],
+            )
+            .await;
+        finish_transaction(
+            &self.connection,
+            inserted.map(|_| ()).map_err(anyhow::Error::from),
+        )
+        .await
     }
 
     /// Refuse a candidate that predictively regresses the active model.
     async fn reject_regression(&self, candidate: &CandidateRecord) -> Result<()> {
-        todo!()
+        let mut rows = self
+            .connection
+            .query(
+                "SELECT transition_nll, rollout_error FROM jepa_candidates
+                 WHERE status = 'active' LIMIT 1",
+                (),
+            )
+            .await?;
+        let Some(row) = rows.next().await? else {
+            return Ok(());
+        };
+        let incumbent_nll: f64 = row.get(0)?;
+        let incumbent_rollout: f64 = row.get(1)?;
+        drop(rows);
+        if candidate.transition_nll > incumbent_nll
+            || candidate.rollout_error > incumbent_rollout
+        {
+            bail!("candidate regresses against the active sensor-only model");
+        }
+        Ok(())
     }
 
     /// Commit the three-step activation journal for one candidate.
@@ -232,22 +509,125 @@ impl CandidateRegistry {
         rollback_of: Option<u64>,
         reason: &str,
     ) -> Result<GenerationPointer> {
-        todo!()
+        let (previous_generation, previous_checkpoint_id) = self.active_identity().await?;
+        let generation = self.next_generation().await?;
+        let pointer = generation_pointer(generation, &candidate);
+        pointer.validate()?;
+        self.connection.execute("BEGIN IMMEDIATE", ()).await?;
+        let prepared = self
+            .connection
+            .execute(
+                INSERT_GENERATION_SQL,
+                params![
+                    to_i64(u128::from(generation))?,
+                    pointer.checkpoint_id.clone(),
+                    pointer.checkpoint_dir.clone(),
+                    pointer.weights_sha256.clone(),
+                    to_i64(now_ms)?,
+                    previous_generation.map(|value| value as i64),
+                    previous_checkpoint_id.clone(),
+                    rollback_of.map(|value| value as i64),
+                    reason.to_string(),
+                ],
+            )
+            .await;
+        finish_transaction(
+            &self.connection,
+            prepared.map(|_| ()).map_err(anyhow::Error::from),
+        )
+        .await?;
+
+        write_generation_atomic(generation_file, &pointer)?;
+        self.finish_activation(&pointer, now_ms).await?;
+        Ok(pointer)
     }
 
     /// Commit step three: mark the prepared generation active.
     async fn finish_activation(&self, pointer: &GenerationPointer, now_ms: u128) -> Result<()> {
-        todo!()
+        self.connection.execute("BEGIN IMMEDIATE", ()).await?;
+        let committed = async {
+            self.connection
+                .execute(
+                    "UPDATE jepa_generations SET state = 'superseded'
+                     WHERE state = 'active' AND generation != ?1",
+                    [pointer.generation as i64],
+                )
+                .await?;
+            let promoted = self
+                .connection
+                .execute(
+                    MARK_GENERATION_ACTIVE_SQL,
+                    params![
+                        pointer.generation as i64,
+                        to_i64(now_ms)?,
+                        pointer.checkpoint_id.clone(),
+                        pointer.weights_sha256.clone(),
+                    ],
+                )
+                .await?;
+            if promoted != 1 {
+                bail!("prepared generation does not match the active pointer");
+            }
+            self.connection
+                .execute(
+                    "UPDATE jepa_candidates SET status = 'accepted'
+                     WHERE status = 'active' AND checkpoint_id != ?1",
+                    [pointer.checkpoint_id.clone()],
+                )
+                .await?;
+            self.connection
+                .execute(
+                    "UPDATE jepa_candidates SET status = 'active' WHERE checkpoint_id = ?1",
+                    [pointer.checkpoint_id.clone()],
+                )
+                .await?;
+            self.connection
+                .execute(
+                    "UPDATE jepa_registry_state
+                     SET active_generation = ?1, active_checkpoint_id = ?2 WHERE singleton = 1",
+                    params![pointer.generation as i64, pointer.checkpoint_id.clone()],
+                )
+                .await?;
+            Ok(())
+        }
+        .await;
+        finish_transaction(&self.connection, committed).await
     }
 
     /// The generation and checkpoint the registry currently considers active.
     async fn active_identity(&self) -> Result<(Option<u64>, Option<String>)> {
-        todo!()
+        let mut rows = self
+            .connection
+            .query(
+                "SELECT active_generation, active_checkpoint_id FROM jepa_registry_state
+                 WHERE singleton = 1",
+                (),
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| anyhow!("registry state is missing"))?;
+        let generation: Option<i64> = row.get(0)?;
+        let checkpoint: Option<String> = row.get(1)?;
+        Ok((generation.map(|value| value.max(0) as u64), checkpoint))
     }
 
     /// One past the highest generation ever journalled.
     async fn next_generation(&self) -> Result<u64> {
-        todo!()
+        let mut rows = self
+            .connection
+            .query(
+                "SELECT COALESCE(MAX(generation), 0) + 1 FROM jepa_generations",
+                (),
+            )
+            .await?;
+        let generation: i64 = rows
+            .next()
+            .await?
+            .ok_or_else(|| anyhow!("generation query returned no row"))?
+            .get(0)?;
+        u64::try_from(generation).context("invalid next generation")
     }
 }
 
@@ -258,12 +638,99 @@ fn verify_candidate(
     now_ms: u128,
     max_report_age_ms: u128,
 ) -> Result<EvidenceCandidate> {
-    todo!()
+    let manifest_bytes = fs::read(checkpoint_dir.join("manifest.json"))
+        .with_context(|| format!("read checkpoint manifest in {}", checkpoint_dir.display()))?;
+    let manifest: CheckpointManifest = serde_json::from_slice(&manifest_bytes)?;
+    if manifest.schema_version != CHECKPOINT_SCHEMA
+        || manifest.architecture_id != ARCHITECTURE_ID
+        || manifest.status != "candidate"
+        || manifest.target_encoder != "ema"
+        || !safe_id(&manifest.checkpoint_id)
+        || !manifest.baseline_gate.passes()
+        || manifest.baseline_gate.dataset_digest != manifest.dataset_digest
+        || !manifest.action_support.passes()
+        || !manifest.grounding_geometry.passes()
+    {
+        bail!("checkpoint manifest does not pass the immutable candidate gates");
+    }
+    let weights = fs::read(checkpoint_dir.join("weights.safetensors"))?;
+    let weights_sha256 = sha256_hex(&weights);
+    if weights_sha256 != manifest.weights_sha256 {
+        bail!("checkpoint weights digest does not match its manifest");
+    }
+    validate_checkpoint_weights(&weights, manifest.parameter_count)
+        .map_err(|error| anyhow!(error.to_string()))?;
+    let report_bytes = fs::read(&manifest.training_report_path)
+        .with_context(|| format!("read training report {}", manifest.training_report_path))?;
+    if sha256_hex(&report_bytes) != manifest.training_report_sha256 {
+        bail!("training report digest does not match its manifest");
+    }
+    let report: TrainingReport = serde_json::from_slice(&report_bytes)?;
+    report
+        .validate_for_promotion(&manifest, now_ms, max_report_age_ms)
+        .map_err(|error| anyhow!(error.to_string()))?;
+
+    let dataset_bytes = fs::read(dataset_manifest_path)?;
+    let dataset: DatasetManifest = serde_json::from_slice(&dataset_bytes)?;
+    verify_dataset(&dataset, &manifest.dataset_digest)?;
+    validate_report_dataset_alignment(&report, &dataset)?;
+    if manifest.baseline_gate.valid_transitions != dataset.audit.valid_transitions
+        || manifest.baseline_gate.sessions != dataset.audit.sessions
+        || manifest.baseline_gate.conditions != dataset.audit.conditions.len() as u64
+        || manifest.baseline_gate.environments != dataset.audit.environments
+    {
+        bail!("checkpoint quotas disagree with the immutable dataset audit");
+    }
+
+    let record = CandidateRecord {
+        checkpoint_id: manifest.checkpoint_id.clone(),
+        checkpoint_dir: checkpoint_dir.canonicalize()?.display().to_string(),
+        dataset_digest: manifest.dataset_digest.clone(),
+        weights_sha256,
+        manifest_sha256: sha256_hex(&manifest_bytes),
+        training_report_sha256: manifest.training_report_sha256.clone(),
+        backend: manifest.backend.clone(),
+        status: CANDIDATE_ELIGIBLE.to_string(),
+        report_created_at_ms: report.created_at_ms,
+        registered_at_ms: now_ms,
+        transition_nll: report.test.tiny_cnn.transition_nll,
+        rollout_error: report.test.tiny_cnn.rollout_error,
+        occupancy_iou: report.test.occupancy.intersection_over_union,
+        occupancy_pr_auc: report.test.occupancy.pr_auc,
+        clamp_fraction: report.test.calibration.clamp_fraction,
+        nonfinite_values: report.test.calibration.nonfinite_values,
+    };
+    Ok(EvidenceCandidate {
+        record,
+        manifest_json: String::from_utf8(manifest_bytes)?,
+        report_json: String::from_utf8(report_bytes)?,
+        dataset_manifest_path: dataset_manifest_path.canonicalize()?.display().to_string(),
+        signature: report_signature(&report),
+    })
 }
 
 /// Re-derive a dataset manifest and re-run its promotion quotas.
 fn verify_dataset(manifest: &DatasetManifest, expected_digest: &str) -> Result<()> {
-    todo!()
+    let recomputed = manifest_digest(manifest).map_err(|error| anyhow!(error.to_string()))?;
+    let condition_total: u64 = manifest.audit.conditions.values().copied().sum();
+    let split_total: u64 = manifest.audit.split_samples.values().copied().sum();
+    if manifest.schema_version != DATASET_SCHEMA
+        || manifest.digest != expected_digest
+        || manifest.digest != recomputed
+        || manifest.audit.valid_transitions != manifest.samples.len() as u64
+        || manifest.audit.sessions != manifest.sources.len() as u64
+        || condition_total != manifest.audit.valid_transitions
+        || split_total != manifest.audit.valid_transitions
+    {
+        bail!("dataset evidence counts do not close over its immutable manifest");
+    }
+    validate_dataset_promotion_gate(manifest).map_err(|error| anyhow!(error.to_string()))?;
+    let rebuilt = build_manifest(manifest.sources.clone(), manifest.config)
+        .map_err(|error| anyhow!(error.to_string()))?;
+    if &rebuilt != manifest {
+        bail!("dataset manifest does not reproduce from its immutable MCAP sources");
+    }
+    Ok(())
 }
 
 /// Recompute split counts, action support and step accounting from evidence.
@@ -271,42 +738,193 @@ fn validate_report_dataset_alignment(
     report: &TrainingReport,
     dataset: &DatasetManifest,
 ) -> Result<()> {
-    todo!()
+    let measured = measured_action_support(dataset).map_err(|error| anyhow!(error.to_string()))?;
+    if report.action_support != measured
+        || report.grounding_geometry.resolution_m != dataset.config.grounding_resolution_m
+    {
+        bail!("training report support or grounding geometry does not match dataset evidence");
+    }
+
+    for (split, reported_samples, reported_sessions) in [
+        (
+            DatasetSplit::Validation,
+            report.validation.samples,
+            report.validation.sessions,
+        ),
+        (
+            DatasetSplit::Test,
+            report.test.samples,
+            report.test.sessions,
+        ),
+    ] {
+        let mut sessions = BTreeSet::new();
+        let measured_samples = dataset
+            .samples
+            .iter()
+            .filter(|sample| sample.split == split)
+            .inspect(|sample| {
+                sessions.insert(sample.session_id.as_str());
+            })
+            .count() as u64;
+        if reported_samples != measured_samples || reported_sessions != sessions.len() as u64 {
+            bail!("training report held-out counts do not match dataset provenance");
+        }
+    }
+
+    let training_samples = measured.sample_count;
+    let batch_size = u64::try_from(report.batch_size).context("training batch size overflows")?;
+    let epochs = u64::try_from(report.epochs).context("training epoch count overflows")?;
+    let complete_batches = training_samples / batch_size;
+    let remainder = training_samples % batch_size;
+    let steps_per_epoch = complete_batches + u64::from(remainder >= 2);
+    let expected_steps = steps_per_epoch
+        .checked_mul(epochs)
+        .context("training step count overflows")?;
+    let expected_singletons = u64::from(remainder == 1)
+        .checked_mul(epochs)
+        .context("training singleton count overflows")?;
+    if report.cnn_steps != expected_steps
+        || report.flat_steps != expected_steps
+        || report.skipped_singletons != expected_singletons
+    {
+        bail!("training report step accounting does not match dataset and batch contract");
+    }
+    Ok(())
 }
 
 /// Rebuild a record from one `jepa_candidates` row.
 fn candidate_from_row(row: turso::Row) -> Result<CandidateRecord> {
-    todo!()
+    let report_created_at_ms: i64 = row.get(8)?;
+    let registered_at_ms: i64 = row.get(9)?;
+    let nonfinite_values: i64 = row.get(15)?;
+    let record = CandidateRecord {
+        checkpoint_id: row.get(0)?,
+        checkpoint_dir: row.get(1)?,
+        dataset_digest: row.get(2)?,
+        weights_sha256: row.get(3)?,
+        manifest_sha256: row.get(4)?,
+        training_report_sha256: row.get(5)?,
+        backend: row.get(6)?,
+        status: row.get(7)?,
+        report_created_at_ms: report_created_at_ms.max(0) as u128,
+        registered_at_ms: registered_at_ms.max(0) as u128,
+        transition_nll: row.get(10)?,
+        rollout_error: row.get(11)?,
+        occupancy_iou: row.get(12)?,
+        occupancy_pr_auc: row.get(13)?,
+        clamp_fraction: row.get(14)?,
+        nonfinite_values: nonfinite_values.max(0) as u64,
+    };
+    Ok(record)
 }
 
 /// The metric signature stored beside a candidate.
 fn report_signature(report: &TrainingReport) -> [f32; SIGNATURE_DIM] {
-    todo!()
+    let held_out = &report.test;
+    let calibration = &held_out.calibration;
+    [
+        held_out.tiny_cnn.transition_nll as f32,
+        held_out.tiny_cnn.rollout_error as f32,
+        held_out.occupancy.intersection_over_union as f32,
+        held_out.occupancy.pr_auc as f32,
+        calibration.transition_nll as f32,
+        calibration.mean_standardized_squared_residual as f32,
+        calibration.coverage_50 as f32,
+        calibration.coverage_90 as f32,
+        calibration.coverage_95 as f32,
+        calibration.calibration_slope as f32,
+        calibration.clamp_fraction as f32,
+        report.effective_rank.effective_rank as f32,
+    ]
 }
 
 /// Commit or roll back the transaction `result` was produced inside.
 async fn finish_transaction(connection: &Connection, result: Result<()>) -> Result<()> {
-    todo!()
+    match result {
+        Ok(()) => {
+            connection.execute("COMMIT", ()).await?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = connection.execute("ROLLBACK", ()).await;
+            Err(error)
+        }
+    }
 }
 
 /// Count the rows of one registry table.
 async fn count(connection: &Connection, table: &str) -> Result<u64> {
-    todo!()
+    let sql = match table {
+        "jepa_candidates" => "SELECT COUNT(*) FROM jepa_candidates",
+        "jepa_generations" => "SELECT COUNT(*) FROM jepa_generations",
+        _ => bail!("unsupported registry count"),
+    };
+    let mut rows = connection.query(sql, ()).await?;
+    let total: i64 = rows
+        .next()
+        .await?
+        .ok_or_else(|| anyhow!("registry count returned no row"))?
+        .get(0)?;
+    Ok(total.max(0) as u64)
 }
 
 /// Build the pointer an activation publishes.
 fn generation_pointer(generation: u64, candidate: &CandidateRecord) -> GenerationPointer {
-    todo!()
+    GenerationPointer {
+        schema_version: GENERATION_SCHEMA.to_string(),
+        generation,
+        checkpoint_dir: candidate.checkpoint_dir.clone(),
+        checkpoint_id: candidate.checkpoint_id.clone(),
+        weights_sha256: candidate.weights_sha256.clone(),
+        mode: OBSERVE_ONLY_MODE.to_string(),
+        approved_observe_only: true,
+    }
 }
 
 /// Read and verify a generation pointer against its immutable checkpoint.
 pub fn read_generation(path: &Path) -> Result<GenerationPointer> {
-    todo!()
+    let pointer: GenerationPointer = serde_json::from_slice(&fs::read(path)?)?;
+    pointer.validate()?;
+    let checkpoint_dir = Path::new(&pointer.checkpoint_dir);
+    let manifest: CheckpointManifest =
+        serde_json::from_slice(&fs::read(checkpoint_dir.join("manifest.json"))?)?;
+    let weights_digest = sha256_hex(&fs::read(checkpoint_dir.join("weights.safetensors"))?);
+    if manifest.checkpoint_id != pointer.checkpoint_id
+        || manifest.weights_sha256 != pointer.weights_sha256
+        || weights_digest != pointer.weights_sha256
+    {
+        bail!("generation pointer does not match its immutable checkpoint");
+    }
+    Ok(pointer)
 }
 
 /// Write a generation pointer with an fsync and a rename.
 pub fn write_generation_atomic(path: &Path, pointer: &GenerationPointer) -> Result<()> {
-    todo!()
+    pointer.validate()?;
+    let directory = path
+        .parent()
+        .ok_or_else(|| anyhow!("generation pointer requires a parent directory"))?;
+    fs::create_dir_all(directory)?;
+    let marker = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("generation");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let partial = directory.join(format!(".{marker}.{}.{nonce}.partial", std::process::id()));
+    let bytes = serde_json::to_vec_pretty(pointer)?;
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&partial)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    fs::rename(&partial, path)?;
+    #[cfg(unix)]
+    fs::File::open(directory)?.sync_all()?;
+    Ok(())
 }
 
 /// Whether a checkpoint id is a safe path component.
@@ -761,7 +1379,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .status,
-            CANDIDATE_ACTIVE
+            "active"
         );
         registry
             .record_health(&pointer_file, 1, true, now + 1, "soak passed")
