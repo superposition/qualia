@@ -277,6 +277,22 @@ pub fn env_flag(name: &str, fallback: bool) -> bool {
     }
 }
 
+/// The auth key's boolean spelling, which is not the stack's: the reference
+/// reads `QUALIA_AUTH_ALLOW_LOOPBACK` with an off-only parse, so every value but
+/// `0`, `false` and `no` — trimmed, case-insensitively — leaves the loopback
+/// bypass on. `Yes`, `on`, `ON`, `True` and `" 1 "` are on here as they are
+/// there; a runbook that writes one of them still gets the console its own host
+/// is trusted with.
+pub fn env_bool(name: &str, fallback: bool) -> bool {
+    match std::env::var(name) {
+        Ok(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no"
+        ),
+        Err(_) => fallback,
+    }
+}
+
 /// Load the entity profiles named by `QUALIA_ENTITY_PROFILES`.
 ///
 /// Failing to read or decode a declared profile is fatal at start: an agent

@@ -12,7 +12,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 
-use crate::config::env_flag;
+use crate::config::env_bool;
 
 /// What a caller is asking to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +66,7 @@ impl AuthConfig {
                 "QUALIA_MISSION_BROKER_TOKEN_FILE",
             ),
             admin_token: load_secret("QUALIA_ADMIN_TOKEN", "QUALIA_ADMIN_TOKEN_FILE"),
-            allow_loopback: env_flag("QUALIA_AUTH_ALLOW_LOOPBACK", true),
+            allow_loopback: env_bool("QUALIA_AUTH_ALLOW_LOOPBACK", true),
         }
     }
 

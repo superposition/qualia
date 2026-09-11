@@ -89,7 +89,7 @@ fn camera_quality(luminance_mean: f32, luminance_stddev: f32) -> &'static str {
     }
 }
 
-fn unavailable_status(state: &AppState, reason: &str) -> PerceptionStatus {
+fn unavailable_status(reason: &str) -> PerceptionStatus {
     PerceptionStatus {
         schema_version: "qualia.perception-status.v1",
         status: "unavailable",
@@ -133,7 +133,7 @@ pub async fn status_get(State(state): State<AppState>) -> (StatusCode, Json<Perc
     let Some(region) = state.shm_opt() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(unavailable_status(&state, "Qualia shared memory is unavailable")),
+            Json(unavailable_status("Qualia shared memory is unavailable")),
         );
     };
 
