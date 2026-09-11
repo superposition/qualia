@@ -7,6 +7,7 @@ use qualia_shm::ShmRegion;
 
 use crate::stack::SensingSet;
 use crate::views::belief::BeliefView;
+use crate::views::brain::BrainView;
 use crate::views::evidence::LedgerRow;
 use crate::views::telemetry::TelemetryView;
 use crate::views::world::WorldView;
@@ -24,12 +25,13 @@ pub fn region_name() -> String {
         .unwrap_or_else(|| DEFAULT_SHM_NAME.to_owned())
 }
 
-/// The three panel readings plus the ledger, or one reason they are absent.
+/// The four panel readings plus the ledger, or one reason they are absent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShmSample {
     pub belief: BeliefView,
     pub world: WorldView,
     pub telemetry: TelemetryView,
+    pub brain: BrainView,
     pub ledger: Vec<LedgerRow>,
     pub error: Option<String>,
 }
@@ -37,14 +39,15 @@ pub struct ShmSample {
 fn unavailable(region: Option<String>, reason: String) -> ShmSample {
     ShmSample {
         belief: BeliefView::unattached(region.clone(), reason.clone()),
-        world: WorldView::unattached(region, reason.clone()),
+        world: WorldView::unattached(region.clone(), reason.clone()),
         telemetry: TelemetryView::unattached(reason.clone()),
+        brain: BrainView::unattached(region, reason.clone()),
         ledger: Vec::new(),
         error: Some(reason),
     }
 }
 
-/// Attach to `region` and read the belief, world, telemetry and ledger.
+/// Attach to `region` and read the belief, world, brain, telemetry and ledger.
 ///
 /// `sensing` is the sensing row set the stack declares, or the reason the
 /// manifest naming it could not be read; the telemetry rows come from that set,
@@ -60,6 +63,10 @@ pub fn sample(region: &str, sensing: &Result<SensingSet, String>) -> ShmSample {
             world: WorldView {
                 region: Some(region.to_owned()),
                 ..WorldView::sample(&region_handle)
+            },
+            brain: BrainView {
+                region: Some(region.to_owned()),
+                ..BrainView::sample(&region_handle)
             },
             telemetry: match sensing {
                 Ok(set) => TelemetryView::sample(&region_handle, set),

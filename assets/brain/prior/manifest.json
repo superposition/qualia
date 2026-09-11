@@ -1,0 +1,16 @@
+{
+  "schema": "qualia.connectome-prior.v1",
+  "type_count": 5,
+  "edge_count": 9,
+  "source_sha256": "bbb291afb22e8a0648efd57476d2b8768c718168950e0a7c330566ed666a494c",
+  "rowptr_sha256": "09be209699f4060f7cac38226355851372682ae0104d627cf5d480b21e56945e",
+  "cols_sha256": "b80f432cdc9e7b2097ab4e420bf9117ed8c5b232bd1a2a07cce0af6eac2a4f4f",
+  "weights_sha256": "e2ff98c16d73f161483f8e4a5765ea771c3f2692fa871d603d7718ffe7ed6ae9",
+  "created_at_ms": 1789152082414,
+  "attribution": {
+    "dataset": "male-cns:v1.0",
+    "licence": "CC-BY-4.0",
+    "url": "https://male-cns.janelia.org",
+    "citation": "Berg et al. 2026, Cell"
+  }
+}

@@ -6,6 +6,7 @@
 //! `crate::VIEWS` is that table; each module below owns exactly one arm.
 
 pub mod belief;
+pub mod brain;
 pub mod evidence;
 pub mod mission;
 pub mod telemetry;

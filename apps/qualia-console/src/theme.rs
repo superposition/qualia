@@ -66,21 +66,25 @@ pub const DASH: &str = "—";
 
 /// One floating panel's default place on the page: `[x, y, width, height]`.
 ///
-/// The five panels are a diagonal cascade and do not overlap at 1280x820 — the
-/// window the console opens with — nor at 1920x1080. The top row sits below
-/// the strip; the second row starts under it, so all five are on screen at
-/// once and the operator reads them together instead of paging between tabs.
-pub const PANEL_LAYOUT: [[f32; 4]; 5] = [
+/// The six panels are a 3×2 grid below the strip: two rows of three at 24 px
+/// margins and 24 px gutters, which fits 1280x820 — the window the console opens
+/// with — and leaves the same absolute gaps at 1920x1080. Every panel is open on
+/// start-up and none overlaps another, so the operator reads the whole stack at
+/// once instead of paging between tabs; each is still movable and resizable, and
+/// the Brain panel (the 3D scene) sits bottom-right at [856, 432, 392, 364].
+pub const PANEL_LAYOUT: [[f32; 4]; 6] = [
     // Mission
-    [24.0, 40.0, 392.0, 340.0],
+    [24.0, 44.0, 392.0, 364.0],
     // Belief
-    [24.0, 424.0, 568.0, 372.0],
+    [440.0, 44.0, 392.0, 364.0],
     // World
-    [432.0, 56.0, 392.0, 340.0],
+    [856.0, 44.0, 392.0, 364.0],
     // Evidence
-    [840.0, 72.0, 416.0, 340.0],
+    [24.0, 432.0, 392.0, 364.0],
     // Telemetry
-    [608.0, 444.0, 648.0, 352.0],
+    [440.0, 432.0, 392.0, 364.0],
+    // Brain
+    [856.0, 432.0, 392.0, 364.0],
 ];
 
 /// Install the palette and type scale. Applied every frame: the console has one
@@ -151,6 +155,21 @@ fn tint(color: Color32, weight: f32) -> Color32 {
         mix(color.r(), BG.r()),
         mix(color.g(), BG.g()),
         mix(color.b(), BG.b()),
+    )
+}
+
+/// The accent ramp `t` in 0..1: muted ink for an idle cell, the live accent for
+/// a firing one. One function, so the scene and the matrix heatmaps cannot
+/// disagree about what "bright" means.
+pub fn ramp(intensity: f32) -> Color32 {
+    let weight = intensity.clamp(0.0, 1.0);
+    let mix = |from: u8, to: u8| {
+        (from as f32 * (1.0 - weight) + to as f32 * weight).round() as u8
+    };
+    Color32::from_rgb(
+        mix(MUTED.r(), ACCENT.r()),
+        mix(MUTED.g(), ACCENT.g()),
+        mix(MUTED.b(), ACCENT.b()),
     )
 }
 
@@ -387,7 +406,7 @@ pub fn menu_strip(ui: &mut Ui, state: &mut crate::ConsoleState) {
 }
 
 /// One floating panel: a movable, resizable, collapsible, closable window at
-/// its own default cascade position, with a scrolling body.
+/// its own default grid position, with a scrolling body.
 pub fn panel(
     ctx: &egui::Context,
     view: crate::View,

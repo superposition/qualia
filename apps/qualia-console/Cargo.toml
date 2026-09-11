@@ -3,7 +3,7 @@ name = "qualia-console"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Native egui operator console for the braid: mission, belief, world, evidence, telemetry"
+description = "Native egui operator console for the braid: mission, belief, world, evidence, telemetry, brain"
 
 [lib]
 name = "qualia_console"
@@ -54,4 +54,8 @@ wgpu = { version = "=27.0.1", default-features = false, features = [
 
 [dev-dependencies]
 egui_kittest = { version = "=0.33.3", features = ["snapshot", "wgpu"] }
+# The evidence example steps the real rate model over the committed prior, so
+# the figures and the panel draw the numbers the model actually produces. This
+# is a dev-dependency: the shipped console only reads the published slot.
+qualia-fly-circuit = { workspace = true, features = ["sim"] }
 tempfile = "3"
