@@ -481,23 +481,27 @@ fn import_media(
         })?;
     } else {
         for spec in stream_specs {
-            let parts = spec.split(':').collect::<Vec<_>>();
-            if parts.len() < 4 {
-                bail!("invalid --stream spec `{spec}`; expected KEY:KIND:ROLE:PATH[:SYNC_GROUP]");
-            }
-            store.upsert_stream(&SessionStreamUpsert {
-                session_id,
-                stream_key: parts[0].to_string(),
-                stream_kind: parts[1].to_string(),
-                role: parts[2].to_string(),
-                path: parts[3].to_string(),
-                sync_group: parts.get(4).copied().unwrap_or("default").to_string(),
-                metadata_json: stream_metadata_json(parts[1], parts[3], json!({}))?,
-            })?;
+            upsert_manifest_stream(store, session_id, parse_stream_spec(spec)?)?;
         }
     }
 
     show_session(store, session_id)
+}
+
+/// Parses one `--stream KEY:KIND:ROLE:PATH[:SYNC_GROUP]` spec.
+fn parse_stream_spec(spec: &str) -> Result<StreamManifest> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    if parts.len() < 4 {
+        bail!("invalid --stream spec `{spec}`; expected KEY:KIND:ROLE:PATH[:SYNC_GROUP]");
+    }
+    Ok(StreamManifest {
+        key: parts[0].to_string(),
+        kind: parts[1].to_string(),
+        role: parts[2].to_string(),
+        path: parts[3].to_string(),
+        sync_group: parts.get(4).copied().unwrap_or("default").to_string(),
+        metadata: json!({}),
+    })
 }
 
 fn upsert_manifest_stream(
@@ -583,38 +587,27 @@ fn import_ros2_jsonl(
     let reader = BufReader::new(
         std::fs::File::open(input).with_context(|| format!("open {input}"))?,
     );
-    for (line_no, line) in reader.lines().enumerate() {
-        let line = line.with_context(|| format!("read line {}", line_no + 1))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let value: Value = serde_json::from_str(&line)
-            .with_context(|| format!("parse json line {}", line_no + 1))?;
-        let Some(topic) = value.get("topic").and_then(Value::as_str) else {
+    let mut row_index = 0usize;
+    for raw in reader.lines() {
+        let raw = raw.with_context(|| format!("read line {}", row_index + 1))?;
+        let row = ingest_ros2_row(&raw, row_index)?;
+        row_index += 1;
+        let Some(row) = row else {
             ignored_total += 1;
             continue;
         };
-        if !matches!(topic, "/tf" | "/tf_static" | "/odom" | "/scan" | "/cmd_vel") {
-            ignored_total += 1;
-            continue;
-        }
-        let mapped = map_ros2_message(topic, &value, line_no as i64);
-        if mapped.is_empty() {
-            ignored_total += 1;
-            continue;
-        }
-        *topics.entry(topic.to_string()).or_insert(0) += mapped.len();
-        for (space_name, sample) in mapped {
+        *topics.entry(row.topic).or_insert(0) += row.samples.len();
+        for (space_name, sample) in row.samples {
             if let Some(buffer) = spaces.get_mut(space_name) {
-                buffer.samples.push(sample);
                 ingested_total += 1;
+                buffer.samples.push(sample);
             }
         }
     }
 
     for buffer in spaces.values_mut() {
-        let space_id = store.upsert_space(&buffer.upsert)?;
         buffer.samples.sort_by_key(|sample| sample.step);
+        let space_id = store.upsert_space(&buffer.upsert)?;
         store.replace_state_samples(epoch_id, space_id, &buffer.samples)?;
     }
 
@@ -627,6 +620,39 @@ fn import_ros2_jsonl(
     };
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
+}
+
+/// The five ROS2 topics this ingest accepts; every other topic is counted as ignored.
+const ROS2_TOPICS: [&str; 5] = ["/tf", "/tf_static", "/odom", "/scan", "/cmd_vel"];
+
+/// One accepted JSONL line: the topic that named it and the samples its mapper produced.
+struct Ros2Row {
+    topic: String,
+    samples: Vec<(&'static str, AbstractStateSample)>,
+}
+
+/// Maps one JSONL line, or reports `None` when the line is blank, unnamed, off-contract or
+/// produced no sample at all.
+fn ingest_ros2_row(raw: &str, row_index: usize) -> Result<Option<Ros2Row>> {
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    let value: Value =
+        serde_json::from_str(raw).with_context(|| format!("parse json line {}", row_index + 1))?;
+    let Some(topic) = value.get("topic").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if !ROS2_TOPICS.contains(&topic) {
+        return Ok(None);
+    }
+    let samples = map_ros2_message(topic, &value, row_index as i64);
+    if samples.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Ros2Row {
+        topic: topic.to_string(),
+        samples,
+    }))
 }
 
 /// The five core ROS2 topic spaces, keyed by the space name the mapper emits.
@@ -692,70 +718,18 @@ fn map_ros2_message(topic: &str, line: &Value, line_idx: i64) -> Vec<(&'static s
     let envelope_stamp = parse_stamp_value(line).or_else(|| parse_stamp_value(msg));
 
     match topic {
-        "/tf" | "/tf_static" => {
-            let space_name = if topic == "/tf" {
-                "tf_observation"
-            } else {
-                "tf_static_observation"
-            };
-            let transforms = msg
-                .get("transforms")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            transforms
-                .into_iter()
-                .enumerate()
-                .map(|(index, transform)| {
-                    let timestamp_sec = transform
-                        .get("header")
-                        .and_then(parse_stamp_value)
-                        .or(envelope_stamp)
-                        .unwrap_or(line_idx as f64);
-                    let step = line_idx * 1000 + index as i64;
-                    let parent = transform
-                        .get("header")
-                        .and_then(|header| header.get("frame_id"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    let child = transform
-                        .get("child_frame_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    let symbol_key = format!("{parent}->{child}");
-                    (
-                        space_name,
-                        AbstractStateSample {
-                            step,
-                            timestamp_sec,
-                            symbol_key: symbol_key.clone(),
-                            payload_json: transform.to_string(),
-                            confidence: 1.0,
-                            sample_hash: stable_hash(&format!(
-                                "{topic}|{step}|{symbol_key}|{transform}"
-                            )),
-                        },
-                    )
-                })
-                .collect()
-        }
+        "/tf" | "/tf_static" => tf_samples(topic, msg, line_idx, envelope_stamp),
         "/odom" => {
             let timestamp_sec = header_stamp(msg).or(envelope_stamp).unwrap_or(line_idx as f64);
-            let frame_id = header_frame_id(msg);
-            let child = msg
-                .get("child_frame_id")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            vec![(
+            let child = msg.get("child_frame_id").and_then(Value::as_str).unwrap_or("");
+            let symbol_key = format!("{}->{child}", header_frame_id(msg));
+            vec![whole_message_sample(
                 "odom_observation",
-                AbstractStateSample {
-                    step: line_idx,
-                    timestamp_sec,
-                    symbol_key: format!("{frame_id}->{child}"),
-                    payload_json: msg.to_string(),
-                    confidence: 1.0,
-                    sample_hash: stable_hash(&format!("{topic}|{line_idx}|{msg}")),
-                },
+                topic,
+                symbol_key,
+                msg,
+                line_idx,
+                timestamp_sec,
             )]
         }
         "/scan" => {
@@ -765,34 +739,101 @@ fn map_ros2_message(topic: &str, line: &Value, line_idx: i64) -> Vec<(&'static s
                 .and_then(|header| header.get("frame_id"))
                 .and_then(Value::as_str)
                 .unwrap_or("laser");
-            vec![(
+            vec![whole_message_sample(
                 "scan_observation",
-                AbstractStateSample {
-                    step: line_idx,
-                    timestamp_sec,
-                    symbol_key: frame_id.to_string(),
-                    payload_json: msg.to_string(),
-                    confidence: 1.0,
-                    sample_hash: stable_hash(&format!("{topic}|{line_idx}|{msg}")),
-                },
+                topic,
+                frame_id.to_string(),
+                msg,
+                line_idx,
+                timestamp_sec,
             )]
         }
         "/cmd_vel" => {
             let timestamp_sec = envelope_stamp.unwrap_or(line_idx as f64);
-            vec![(
+            vec![whole_message_sample(
                 "cmd_vel_action",
-                AbstractStateSample {
-                    step: line_idx,
-                    timestamp_sec,
-                    symbol_key: infer_cmd_vel_symbol(msg),
-                    payload_json: msg.to_string(),
-                    confidence: 1.0,
-                    sample_hash: stable_hash(&format!("{topic}|{line_idx}|{msg}")),
-                },
+                topic,
+                infer_cmd_vel_symbol(msg),
+                msg,
+                line_idx,
+                timestamp_sec,
             )]
         }
         _ => Vec::new(),
     }
+}
+
+/// One sample per transform in a `/tf` or `/tf_static` message.
+fn tf_samples(
+    topic: &str,
+    msg: &Value,
+    line_idx: i64,
+    envelope_stamp: Option<f64>,
+) -> Vec<(&'static str, AbstractStateSample)> {
+    let space_name = if topic == "/tf" {
+        "tf_observation"
+    } else {
+        "tf_static_observation"
+    };
+    let transforms = msg
+        .get("transforms")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    transforms
+        .into_iter()
+        .enumerate()
+        .map(|(index, transform)| {
+            let header = transform.get("header");
+            let timestamp_sec = header
+                .and_then(parse_stamp_value)
+                .or(envelope_stamp)
+                .unwrap_or(line_idx as f64);
+            let step = line_idx * 1000 + index as i64;
+            let parent = header
+                .and_then(|header| header.get("frame_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let child = transform
+                .get("child_frame_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let symbol_key = format!("{parent}->{child}");
+            (
+                space_name,
+                AbstractStateSample {
+                    step,
+                    timestamp_sec,
+                    symbol_key: symbol_key.clone(),
+                    payload_json: transform.to_string(),
+                    confidence: 1.0,
+                    sample_hash: stable_hash(&format!("{topic}|{step}|{symbol_key}|{transform}")),
+                },
+            )
+        })
+        .collect()
+}
+
+/// One sample carrying the whole message the line delivered, stamped at the line's ordinal.
+fn whole_message_sample(
+    space_name: &'static str,
+    topic: &str,
+    symbol_key: String,
+    msg: &Value,
+    line_idx: i64,
+    timestamp_sec: f64,
+) -> (&'static str, AbstractStateSample) {
+    (
+        space_name,
+        AbstractStateSample {
+            step: line_idx,
+            timestamp_sec,
+            symbol_key,
+            payload_json: msg.to_string(),
+            confidence: 1.0,
+            sample_hash: stable_hash(&format!("{topic}|{line_idx}|{msg}")),
+        },
+    )
 }
 
 fn header_stamp(msg: &Value) -> Option<f64> {
@@ -935,130 +976,87 @@ fn attach_daaam_output(
         bail!("DAAAM output directory {} not found", output_dir.display());
     }
 
-    let dsg_path = resolve_daaam_dsg_path(output_dir, dsg_override)?;
-    let dsg_text = std::fs::read_to_string(&dsg_path)
-        .with_context(|| format!("read DAAAM DSG artifact {}", dsg_path.display()))?;
-    let dsg_json: Value = serde_json::from_str(&dsg_text)
-        .with_context(|| format!("parse DAAAM DSG artifact {}", dsg_path.display()))?;
-    let scan = scan_daaam_graph(&dsg_json);
-    if scan.node_count == 0 && scan.edge_count == 0 {
-        bail!(
-            "DAAAM DSG artifact {} did not expose nodes or edges",
-            dsg_path.display()
-        );
-    }
-
-    let artifact_paths = list_daaam_artifact_paths(output_dir)?;
+    let (dsg_path, dsg_text, scan) = load_daaam_graph(output_dir, dsg_override)?;
     let dsg_artifact_path = relative_path_or_display(&dsg_path, output_dir);
-    let requested_at = now_iso8601();
-    let completed_at = requested_at.clone();
+    let artifact_paths = list_daaam_artifact_paths(output_dir)?;
     let graph_kind = parse_graph_kind(graph_kind)?;
     let window_start_sec = window_start_sec.unwrap_or(0.0);
     let window_end_sec =
         window_end_sec.unwrap_or_else(|| session.duration_sec.max(window_start_sec));
-    let fragment_key = fragment_key_override
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            format!(
-                "daaam:{}:{}",
-                dsg_path
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("dsg"),
-                stable_hash(&format!("{}|{}", output_dir.display(), dsg_artifact_path))
-            )
-        });
+    let fragment_key =
+        daaam_fragment_key(fragment_key_override, output_dir, &dsg_path, &dsg_artifact_path);
     let root_node_key = scan
         .root_node_key
         .clone()
         .unwrap_or_else(|| "daaam/root".to_string());
     let confidence = daaam_region_confidence(&scan);
+    let requested_at = now_iso8601();
+    let completed_at = requested_at.clone();
 
-    let spec_json = json!({
-        "source": "daaam",
-        "output_dir": output_dir.display().to_string(),
-        "dsg_artifact_path": dsg_artifact_path,
-        "stream_key": stream_key,
-        "fragment_key": fragment_key,
-        "graph_kind": graph_kind,
-        "source_repo": "https://github.com/MIT-SPARK/DAAAM",
-    })
-    .to_string();
-    let summary_json = json!({
-        "source": "daaam",
-        "schema": "qualia.daaam_attachment.v1",
-        "output_dir": output_dir.display().to_string(),
-        "dsg_artifact_path": dsg_artifact_path,
-        "artifact_paths": artifact_paths,
-        "node_count": scan.node_count,
-        "edge_count": scan.edge_count,
-        "layer_counts": scan.layer_counts,
-        "coordinate_sample_count": scan.points.len(),
-        "source_repo": "https://github.com/MIT-SPARK/DAAAM",
-    })
-    .to_string();
+    let spec_json = daaam_spec_json(
+        output_dir,
+        &dsg_artifact_path,
+        stream_key,
+        &fragment_key,
+        &graph_kind,
+    );
+    let summary_json = daaam_summary_json(output_dir, &dsg_artifact_path, &artifact_paths, &scan);
 
+    let job_upsert = AnalysisJobUpsert {
+        session_id,
+        environment_id: Some(session_id),
+        job_kind: AnalysisJobKind::GraphInference,
+        status: AnalysisJobStatus::Complete,
+        requested_at,
+        started_at: None,
+        completed_at: Some(completed_at),
+        window_start_sec: Some(window_start_sec),
+        window_end_sec: Some(window_end_sec),
+        spec_json,
+        summary_json: summary_json.clone(),
+        failure_json: None,
+    };
     let analysis_job_id = store
-        .upsert_analysis_job(&AnalysisJobUpsert {
-            session_id,
-            environment_id: Some(session_id),
-            job_kind: AnalysisJobKind::GraphInference,
-            status: AnalysisJobStatus::Complete,
-            requested_at,
-            started_at: None,
-            completed_at: Some(completed_at),
-            window_start_sec: Some(window_start_sec),
-            window_end_sec: Some(window_end_sec),
-            spec_json,
-            summary_json: summary_json.clone(),
-            failure_json: None,
-        })
+        .upsert_analysis_job(&job_upsert)
         .context("persist DAAAM analysis job")?;
 
+    let fragment_upsert = GraphFragmentUpsert {
+        analysis_job_id,
+        session_id,
+        epoch_id: None,
+        stream_key: stream_key.to_string(),
+        fragment_key: fragment_key.clone(),
+        graph_kind,
+        graph_form: GraphForm::Loopy,
+        exactness: ExactnessKind::Approximate,
+        variable_count: scan.node_count as i64,
+        factor_count: scan.edge_count as i64,
+        tree_width: None,
+        root_variable_key: Some(root_node_key),
+        window_start_sec,
+        window_end_sec,
+        summary_json,
+    };
     let graph_fragment_id = store
-        .upsert_graph_fragment(&GraphFragmentUpsert {
-            analysis_job_id,
-            session_id,
-            epoch_id: None,
-            stream_key: stream_key.to_string(),
-            fragment_key: fragment_key.clone(),
-            graph_kind,
-            graph_form: GraphForm::Loopy,
-            exactness: ExactnessKind::Approximate,
-            variable_count: scan.node_count as i64,
-            factor_count: scan.edge_count as i64,
-            tree_width: None,
-            root_variable_key: Some(root_node_key),
-            window_start_sec,
-            window_end_sec,
-            summary_json,
-        })
+        .upsert_graph_fragment(&fragment_upsert)
         .context("persist DAAAM graph fragment")?;
 
     let (centroid_json, bounds_json, support_point_count) = daaam_region_geometry(&scan);
+    let region_upsert = WorldRegionUpsert {
+        environment_id: Some(session_id),
+        session_id,
+        source_fragment_id: graph_fragment_id,
+        region_key: format!("daaam_world_{}", stable_hash(&fragment_key)),
+        region_kind: RegionKind::LocalSpace,
+        support_point_count,
+        confidence,
+        centroid_json,
+        bounds_json,
+        signature_hash: daaam_signature_hash(&fragment_key, &dsg_text),
+        metadata_json: daaam_region_metadata_json(&fragment_key, &dsg_artifact_path, &scan),
+    };
     let world_region_id = store
-        .upsert_world_region(&WorldRegionUpsert {
-            environment_id: Some(session_id),
-            session_id,
-            source_fragment_id: graph_fragment_id,
-            region_key: format!("daaam_world_{}", stable_hash(&fragment_key)),
-            region_kind: RegionKind::LocalSpace,
-            support_point_count,
-            confidence,
-            centroid_json,
-            bounds_json,
-            signature_hash: stable_hash(&format!("{fragment_key}|{}", stable_hash(&dsg_text))),
-            metadata_json: json!({
-                "source": "daaam",
-                "fragment_key": fragment_key,
-                "dsg_artifact_path": dsg_artifact_path,
-                "node_count": scan.node_count,
-                "edge_count": scan.edge_count,
-                "coordinate_sample_count": scan.points.len(),
-                "coordinate_frame": "daaam_native",
-            })
-            .to_string(),
-        })
+        .upsert_world_region(&region_upsert)
         .context("persist DAAAM world region")?;
 
     let report = DaaamAttachReport {
@@ -1076,41 +1074,157 @@ fn attach_daaam_output(
     Ok(())
 }
 
+/// Loads the DSG artifact and scans it, rejecting one that exposes neither node nor edge.
+fn load_daaam_graph(
+    output_dir: &Path,
+    dsg_override: Option<&str>,
+) -> Result<(PathBuf, String, DaaamGraphScan)> {
+    let dsg_path = resolve_daaam_dsg_path(output_dir, dsg_override)?;
+    let dsg_text = read_dsg_artifact(&dsg_path)?;
+    let scan = scan_dsg_artifact(&dsg_path, &dsg_text)?;
+    Ok((dsg_path, dsg_text, scan))
+}
+
+/// Reads the DSG artifact, naming it in any failure.
+fn read_dsg_artifact(dsg_path: &Path) -> Result<String> {
+    std::fs::read_to_string(dsg_path)
+        .with_context(|| format!("read DAAAM DSG artifact {}", dsg_path.display()))
+}
+
+/// Parses a DSG artifact and rejects one that exposes neither node nor edge.
+fn scan_dsg_artifact(dsg_path: &Path, dsg_text: &str) -> Result<DaaamGraphScan> {
+    let dsg_json = serde_json::from_str::<Value>(dsg_text)
+        .with_context(|| format!("parse DAAAM DSG artifact {}", dsg_path.display()))?;
+    let scan = scan_daaam_graph(&dsg_json);
+    match (scan.node_count, scan.edge_count) {
+        (0, 0) => bail!(
+            "DAAAM DSG artifact {} did not expose nodes or edges",
+            dsg_path.display()
+        ),
+        _ => Ok(scan),
+    }
+}
+
+/// The attachment's fragment key: the caller's override, else `daaam:<stem>:<location digest>`.
+fn daaam_fragment_key(
+    override_key: Option<&str>,
+    output_dir: &Path,
+    dsg_path: &Path,
+    dsg_artifact_path: &str,
+) -> String {
+    if let Some(explicit) = override_key {
+        return explicit.to_string();
+    }
+    let stem = dsg_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("dsg");
+    let location = stable_hash(&format!("{}|{}", output_dir.display(), dsg_artifact_path));
+    format!("daaam:{stem}:{location}")
+}
+
+/// The analysis job's spec payload.
+fn daaam_spec_json(
+    output_dir: &Path,
+    dsg_artifact_path: &str,
+    stream_key: &str,
+    fragment_key: &str,
+    graph_kind: &GraphKind,
+) -> String {
+    json!({
+        "source": "daaam",
+        "output_dir": output_dir.display().to_string(),
+        "dsg_artifact_path": dsg_artifact_path,
+        "stream_key": stream_key,
+        "fragment_key": fragment_key,
+        "graph_kind": graph_kind,
+        "source_repo": "https://github.com/MIT-SPARK/DAAAM",
+    })
+    .to_string()
+}
+
+/// The analysis job's summary payload, carrying the scan's counts.
+fn daaam_summary_json(
+    output_dir: &Path,
+    dsg_artifact_path: &str,
+    artifact_paths: &[String],
+    scan: &DaaamGraphScan,
+) -> String {
+    json!({
+        "source": "daaam",
+        "schema": "qualia.daaam_attachment.v1",
+        "output_dir": output_dir.display().to_string(),
+        "dsg_artifact_path": dsg_artifact_path,
+        "artifact_paths": artifact_paths,
+        "node_count": scan.node_count,
+        "edge_count": scan.edge_count,
+        "layer_counts": scan.layer_counts,
+        "coordinate_sample_count": scan.points.len(),
+        "source_repo": "https://github.com/MIT-SPARK/DAAAM",
+    })
+    .to_string()
+}
+
+/// The attachment's signature: its fragment key over the digest of the DSG text.
+fn daaam_signature_hash(fragment_key: &str, dsg_text: &str) -> String {
+    let artifact = stable_hash(dsg_text);
+    stable_hash(&format!("{fragment_key}|{artifact}"))
+}
+
+/// The world region's provenance payload.
+fn daaam_region_metadata_json(
+    fragment_key: &str,
+    dsg_artifact_path: &str,
+    scan: &DaaamGraphScan,
+) -> String {
+    json!({
+        "source": "daaam",
+        "fragment_key": fragment_key,
+        "dsg_artifact_path": dsg_artifact_path,
+        "node_count": scan.node_count,
+        "edge_count": scan.edge_count,
+        "coordinate_sample_count": scan.points.len(),
+        "coordinate_frame": "daaam_native",
+    })
+    .to_string()
+}
+
 fn resolve_daaam_dsg_path(output_dir: &Path, explicit: Option<&str>) -> Result<PathBuf> {
     if let Some(explicit) = explicit {
         let candidate = PathBuf::from(explicit);
-        let resolved = if candidate.is_absolute() {
-            candidate
-        } else {
-            output_dir.join(candidate)
+        let resolved = match candidate.is_absolute() {
+            true => candidate,
+            false => output_dir.join(candidate),
         };
         if resolved.is_file() {
             return Ok(resolved);
         }
         bail!("DAAAM DSG artifact {} not found", resolved.display());
     }
-
-    for name in ["clustered_dsg.json", "dsg_updated.json", "dsg.json"] {
-        let candidate = output_dir.join(name);
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
+    let expected = ["clustered_dsg.json", "dsg_updated.json", "dsg.json"];
+    let found = expected
+        .iter()
+        .map(|name| output_dir.join(name))
+        .find(|candidate| candidate.is_file());
+    match found {
+        Some(path) => Ok(path),
+        None => bail!(
+            "no DAAAM DSG artifact found in {}; expected clustered_dsg.json, dsg_updated.json, or dsg.json",
+            output_dir.display()
+        ),
     }
-    bail!(
-        "no DAAAM DSG artifact found in {}; expected clustered_dsg.json, dsg_updated.json, or dsg.json",
-        output_dir.display()
-    )
 }
 
 fn list_daaam_artifact_paths(output_dir: &Path) -> Result<Vec<String>> {
+    let listing = std::fs::read_dir(output_dir)
+        .with_context(|| format!("read DAAAM output directory {}", output_dir.display()))?;
     let mut paths = Vec::new();
-    for entry in std::fs::read_dir(output_dir)
-        .with_context(|| format!("read DAAAM output directory {}", output_dir.display()))?
-    {
+    for entry in listing {
         let path = entry?.path();
-        if path.is_file() {
-            paths.push(relative_path_or_display(&path, output_dir));
+        if !path.is_file() {
+            continue;
         }
+        paths.push(relative_path_or_display(&path, output_dir));
     }
     paths.sort();
     Ok(paths)
@@ -1122,68 +1236,10 @@ fn scan_daaam_graph(value: &Value) -> DaaamGraphScan {
     scan
 }
 
+/// Walks one DSG JSON node, folding whatever evidence it carries into `scan`.
 fn scan_daaam_value(value: &Value, layer: Option<&str>, scan: &mut DaaamGraphScan) {
     match value {
-        Value::Object(object) => {
-            if let Some(point) = daaam_point_from_object(object) {
-                scan.points.push(point);
-            }
-            if let Some(confidence) = daaam_confidence_from_object(object) {
-                scan.confidence_sum += confidence;
-                scan.confidence_count += 1;
-            }
-
-            if let Some(nodes) = object.get("nodes") {
-                let count = daaam_collection_count(nodes);
-                scan.node_count += count;
-                if count > 0 {
-                    *scan
-                        .layer_counts
-                        .entry(layer.unwrap_or("graph").to_string())
-                        .or_insert(0) += count;
-                    if scan.root_node_key.is_none() {
-                        scan.root_node_key = first_daaam_node_key(nodes);
-                    }
-                }
-                scan_daaam_value(nodes, layer, scan);
-            }
-            for key in ["edges", "interlayer_edges", "layer_edges"] {
-                if let Some(edges) = object.get(key) {
-                    scan.edge_count += daaam_collection_count(edges);
-                    scan_daaam_value(edges, layer, scan);
-                }
-            }
-            if let Some(layers) = object.get("layers") {
-                match layers {
-                    Value::Object(layer_map) => {
-                        for (name, layer_value) in layer_map {
-                            scan_daaam_value(layer_value, Some(name), scan);
-                        }
-                    }
-                    Value::Array(layer_values) => {
-                        for layer_value in layer_values {
-                            let name = layer_value
-                                .get("name")
-                                .or_else(|| layer_value.get("id"))
-                                .and_then(Value::as_str)
-                                .unwrap_or("layer");
-                            scan_daaam_value(layer_value, Some(name), scan);
-                        }
-                    }
-                    _ => scan_daaam_value(layers, layer, scan),
-                }
-            }
-
-            for (key, child) in object {
-                if matches!(
-                    key.as_str(),
-                    "nodes" | "edges" | "interlayer_edges" | "layer_edges" | "layers"
-                ) {
-                    continue;
-                }
-                scan_daaam_value(child, layer, scan);
-            }
-        }
+        Value::Object(object) => scan_daaam_object(object, layer, scan),
         Value::Array(values) => {
             for child in values {
                 scan_daaam_value(child, layer, scan);
@@ -1193,119 +1249,184 @@ fn scan_daaam_value(value: &Value, layer: Option<&str>, scan: &mut DaaamGraphSca
     }
 }
 
-fn daaam_collection_count(value: &Value) -> usize {
-    match value {
-        Value::Array(values) => values.len(),
-        Value::Object(values) => values.len(),
-        _ => 0,
+/// Counts and recurses through one DSG object's graph members, then visits every other child.
+fn scan_daaam_object(object: &Map<String, Value>, layer: Option<&str>, scan: &mut DaaamGraphScan) {
+    if let Some(point) = daaam_point_from_object(object) {
+        scan.points.push(point);
+    }
+    if let Some(confidence) = daaam_confidence_from_object(object) {
+        scan.confidence_sum += confidence;
+        scan.confidence_count += 1;
+    }
+    if let Some(nodes) = object.get("nodes") {
+        let count = daaam_collection_count(nodes);
+        scan.node_count += count;
+        if count > 0 {
+            let layer_key = layer.unwrap_or("graph").to_string();
+            *scan.layer_counts.entry(layer_key).or_insert(0) += count;
+            if scan.root_node_key.is_none() {
+                scan.root_node_key = first_daaam_node_key(nodes);
+            }
+        }
+        scan_daaam_value(nodes, layer, scan);
+    }
+    for container in ["edges", "interlayer_edges", "layer_edges"] {
+        if let Some(edges) = object.get(container) {
+            scan.edge_count += daaam_collection_count(edges);
+            scan_daaam_value(edges, layer, scan);
+        }
+    }
+    if let Some(layers) = object.get("layers") {
+        scan_daaam_layers(layers, layer, scan);
+    }
+    for (key, child) in object {
+        if !is_daaam_graph_member(key) {
+            scan_daaam_value(child, layer, scan);
+        }
     }
 }
 
-fn first_daaam_node_key(value: &Value) -> Option<String> {
-    match value {
-        Value::Object(values) => values
-            .keys()
-            .next()
-            .cloned()
-            .or_else(|| values.values().find_map(node_key_from_value)),
-        Value::Array(values) => values.iter().find_map(node_key_from_value),
-        _ => None,
+/// True for the DSG keys that `scan_daaam_object` already visits by name.
+fn is_daaam_graph_member(key: &str) -> bool {
+    matches!(
+        key,
+        "nodes" | "edges" | "interlayer_edges" | "layer_edges" | "layers"
+    )
+}
+
+/// Recurses through a `layers` member, labelling the layer it tracks where the DSG names one.
+fn scan_daaam_layers(layers: &Value, layer: Option<&str>, scan: &mut DaaamGraphScan) {
+    match layers {
+        Value::Object(layer_map) => {
+            for (name, layer_value) in layer_map {
+                scan_daaam_value(layer_value, Some(name), scan);
+            }
+        }
+        Value::Array(layer_values) => {
+            for layer_value in layer_values {
+                let name = daaam_layer_name(layer_value);
+                scan_daaam_value(layer_value, Some(name), scan);
+            }
+        }
+        _ => scan_daaam_value(layers, layer, scan),
     }
+}
+
+/// The layer name a DSG layer entry declares, or `layer` when it declares none.
+fn daaam_layer_name(layer_value: &Value) -> &str {
+    layer_value
+        .get("name")
+        .or_else(|| layer_value.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("layer")
+}
+
+fn daaam_collection_count(value: &Value) -> usize {
+    value
+        .as_array()
+        .map(Vec::len)
+        .or_else(|| value.as_object().map(Map::len))
+        .unwrap_or(0)
+}
+
+fn first_daaam_node_key(value: &Value) -> Option<String> {
+    let Value::Object(object) = value else {
+        return value
+            .as_array()
+            .and_then(|values| values.iter().find_map(node_key_from_value));
+    };
+    object
+        .keys()
+        .next()
+        .cloned()
+        .or_else(|| object.values().find_map(node_key_from_value))
 }
 
 fn node_key_from_value(value: &Value) -> Option<String> {
     let object = value.as_object()?;
-    for key in ["id", "key", "node_id", "label", "name"] {
-        if let Some(candidate) = object.get(key) {
-            if let Some(text) = candidate.as_str() {
-                return Some(text.to_string());
-            }
-            if let Some(number) = candidate.as_i64() {
-                return Some(number.to_string());
-            }
+    let fields = ["id", "key", "node_id", "label", "name"];
+    fields
+        .iter()
+        .find_map(|field| object.get(*field).and_then(daaam_identifier))
+}
+
+/// The identifier a DSG value carries, as text: its string form, else its integer form.
+fn daaam_identifier(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+    value.as_i64().map(|number| number.to_string())
+}
+
+fn daaam_point_from_object(object: &Map<String, Value>) -> Option<DaaamPoint> {
+    for field in ["position", "pos", "centroid", "translation"] {
+        if let Some(point) = object.get(field).and_then(point_from_array) {
+            return Some(point);
+        }
+    }
+    Some(DaaamPoint {
+        x: number_field(object, &["x", "tx", "px"])?,
+        y: number_field(object, &["y", "ty", "py"])?,
+        z: number_field(object, &["z", "tz", "pz"]).unwrap_or(0.0),
+    })
+}
+
+fn point_from_array(value: &Value) -> Option<DaaamPoint> {
+    let coords = value.as_array()?;
+    if coords.len() < 2 {
+        return None;
+    }
+    Some(DaaamPoint {
+        x: coords[0].as_f64()?,
+        y: coords[1].as_f64()?,
+        z: coords.get(2).and_then(Value::as_f64).unwrap_or(0.0),
+    })
+}
+
+fn number_field(object: &Map<String, Value>, keys: &[&str]) -> Option<f64> {
+    for key in keys {
+        if let Some(number) = object.get(*key).and_then(Value::as_f64) {
+            return Some(number);
         }
     }
     None
 }
 
-fn daaam_point_from_object(object: &Map<String, Value>) -> Option<DaaamPoint> {
-    for key in ["position", "pos", "centroid", "translation"] {
-        if let Some(value) = object.get(key) {
-            if let Some(point) = point_from_array(value) {
-                return Some(point);
-            }
-        }
-    }
-    let x = number_field(object, &["x", "tx", "px"])?;
-    let y = number_field(object, &["y", "ty", "py"])?;
-    let z = number_field(object, &["z", "tz", "pz"]).unwrap_or(0.0);
-    Some(DaaamPoint { x, y, z })
-}
-
-fn point_from_array(value: &Value) -> Option<DaaamPoint> {
-    let values = value.as_array()?;
-    if values.len() < 2 {
-        return None;
-    }
-    Some(DaaamPoint {
-        x: values.first()?.as_f64()?,
-        y: values.get(1)?.as_f64()?,
-        z: values.get(2).and_then(Value::as_f64).unwrap_or(0.0),
-    })
-}
-
-fn number_field(object: &Map<String, Value>, keys: &[&str]) -> Option<f64> {
-    keys.iter()
-        .find_map(|key| object.get(*key).and_then(Value::as_f64))
-}
-
 fn daaam_confidence_from_object(object: &Map<String, Value>) -> Option<f64> {
-    number_field(object, &["confidence", "score", "probability"]).map(|value| value.clamp(0.0, 1.0))
+    let reported = number_field(object, &["confidence", "score", "probability"])?;
+    Some(reported.clamp(0.0, 1.0))
 }
 
 fn daaam_region_confidence(scan: &DaaamGraphScan) -> f64 {
-    if scan.confidence_count == 0 {
-        return 1.0;
+    match scan.confidence_count {
+        0 => 1.0,
+        count => (scan.confidence_sum / count as f64).clamp(0.0, 1.0),
     }
-    (scan.confidence_sum / scan.confidence_count as f64).clamp(0.0, 1.0)
 }
 
 fn daaam_region_geometry(scan: &DaaamGraphScan) -> (String, String, i64) {
     if scan.points.is_empty() {
-        return (
-            json!([0.0, 0.0]).to_string(),
-            json!([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]).to_string(),
-            scan.node_count as i64,
-        );
+        let bounds = json!([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]).to_string();
+        return (json!([0.0, 0.0]).to_string(), bounds, scan.node_count as i64);
     }
-
-    let min_x = scan.points.iter().map(|point| point.x).fold(f64::INFINITY, f64::min);
-    let max_x = scan
-        .points
-        .iter()
-        .map(|point| point.x)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_y = scan.points.iter().map(|point| point.y).fold(f64::INFINITY, f64::min);
-    let max_y = scan
-        .points
-        .iter()
-        .map(|point| point.y)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let centroid_x = scan.points.iter().map(|point| point.x).sum::<f64>() / scan.points.len() as f64;
-    let centroid_y = scan.points.iter().map(|point| point.y).sum::<f64>() / scan.points.len() as f64;
-    let avg_z = scan.points.iter().map(|point| point.z).sum::<f64>() / scan.points.len() as f64;
-
-    (
-        json!([centroid_x, centroid_y, avg_z]).to_string(),
-        json!([
-            [min_x, min_y],
-            [max_x, min_y],
-            [max_x, max_y],
-            [min_x, max_y]
-        ])
-        .to_string(),
-        scan.points.len() as i64,
-    )
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let (mut sum_x, mut sum_y, mut sum_z) = (0.0f64, 0.0f64, 0.0f64);
+    for point in &scan.points {
+        min_x = min_x.min(point.x);
+        max_x = max_x.max(point.x);
+        min_y = min_y.min(point.y);
+        max_y = max_y.max(point.y);
+        sum_x += point.x;
+        sum_y += point.y;
+        sum_z += point.z;
+    }
+    let count = scan.points.len() as f64;
+    let centroid = json!([sum_x / count, sum_y / count, sum_z / count]).to_string();
+    let bounds = json!([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]]).to_string();
+    (centroid, bounds, scan.points.len() as i64)
 }
 
 #[cfg(test)]

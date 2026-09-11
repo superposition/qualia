@@ -56,38 +56,8 @@ pub fn run_offline_inference(
     store: &SessionStore,
     spec: InferenceJobSpec,
 ) -> Result<InferenceJobResult> {
-    if spec.session_id <= 0 {
-        bail!("session_id must be > 0");
-    }
-    if let (Some(start), Some(end)) = (spec.window_start_sec, spec.window_end_sec) {
-        if start > end {
-            bail!("window_start_sec must be <= window_end_sec");
-        }
-    }
-
-    if store
-        .session_by_id(spec.session_id)
-        .context("session lookup")?
-        .is_none()
-    {
-        bail!("session {} not found", spec.session_id);
-    }
-
-    let requested_at = now_iso8601();
-    let mut job = AnalysisJobUpsert {
-        session_id: spec.session_id,
-        environment_id: spec.environment_id,
-        job_kind: AnalysisJobKind::GraphInference,
-        status: AnalysisJobStatus::Queued,
-        requested_at: requested_at.clone(),
-        started_at: None,
-        completed_at: None,
-        window_start_sec: spec.window_start_sec,
-        window_end_sec: spec.window_end_sec,
-        spec_json: serde_json::to_string(&spec)?,
-        summary_json: "{}".to_string(),
-        failure_json: None,
-    };
+    validate_spec(store, &spec)?;
+    let mut job = queued_job(&spec)?;
     let job_id = store
         .upsert_analysis_job(&job)
         .context("insert queued analysis job")?;
@@ -132,6 +102,41 @@ pub fn run_offline_inference(
     store.upsert_analysis_job(&job).context(phase)?;
 
     outcome
+}
+
+/// Rejects a spec whose session or window cannot describe a job.
+fn validate_spec(store: &SessionStore, spec: &InferenceJobSpec) -> Result<()> {
+    if spec.session_id <= 0 {
+        bail!("session_id must be > 0");
+    }
+    if let (Some(start), Some(end)) = (spec.window_start_sec, spec.window_end_sec) {
+        if start > end {
+            bail!("window_start_sec must be <= window_end_sec");
+        }
+    }
+    match store.session_by_id(spec.session_id).context("session lookup")? {
+        Some(_) => Ok(()),
+        None => bail!("session {} not found", spec.session_id),
+    }
+}
+
+/// The queued record a new inference job starts from.
+fn queued_job(spec: &InferenceJobSpec) -> Result<AnalysisJobUpsert> {
+    let requested_at = now_iso8601();
+    Ok(AnalysisJobUpsert {
+        session_id: spec.session_id,
+        environment_id: spec.environment_id,
+        job_kind: AnalysisJobKind::GraphInference,
+        status: AnalysisJobStatus::Queued,
+        requested_at,
+        started_at: None,
+        completed_at: None,
+        window_start_sec: spec.window_start_sec,
+        window_end_sec: spec.window_end_sec,
+        spec_json: serde_json::to_string(spec)?,
+        summary_json: "{}".to_string(),
+        failure_json: None,
+    })
 }
 
 /// One tree fragment per epoch that has samples inside the requested window.
@@ -299,17 +304,9 @@ fn build_fragments(
 }
 
 fn in_window(timestamp_sec: f64, start: Option<f64>, end: Option<f64>) -> bool {
-    if let Some(start) = start {
-        if timestamp_sec < start {
-            return false;
-        }
-    }
-    if let Some(end) = end {
-        if timestamp_sec > end {
-            return false;
-        }
-    }
-    true
+    let after_start = start.map_or(true, |start| timestamp_sec >= start);
+    let before_end = end.map_or(true, |end| timestamp_sec <= end);
+    after_start && before_end
 }
 
 /// Symbol frequencies of one abstraction, normalised to a distribution.

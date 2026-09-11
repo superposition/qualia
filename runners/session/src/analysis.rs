@@ -104,6 +104,24 @@ struct ControlProxyRow {
     pitch_active: bool,
 }
 
+impl ControlProxyRow {
+    /// A zeroed command row for `row`, before any pose delta has been applied.
+    fn idle(row: &PoseTraceRow) -> Self {
+        Self {
+            step: row.step,
+            timestamp_sec: row.timestamp_sec,
+            throttle_cmd: 0.0,
+            yaw_cmd: 0.0,
+            roll_cmd: 0.0,
+            pitch_cmd: 0.0,
+            throttle_active: false,
+            yaw_active: false,
+            roll_active: false,
+            pitch_active: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ControllerCaptureSamples {
     control_proxy: Vec<AbstractStateSample>,
@@ -119,6 +137,15 @@ struct Vec3 {
 }
 
 impl Vec3 {
+    /// The pose row's position, in feet.
+    fn from_row(row: &PoseTraceRow) -> Self {
+        Self {
+            x: row.tx_ft,
+            y: row.ty_ft,
+            z: row.tz_ft,
+        }
+    }
+
     fn minus(self, other: Self) -> Self {
         Self {
             x: self.x - other.x,
@@ -137,6 +164,17 @@ struct Quaternion {
 }
 
 impl Quaternion {
+    /// The pose row's orientation, normalised.
+    fn from_row(row: &PoseTraceRow) -> Self {
+        Self {
+            w: row.qw,
+            x: row.qx,
+            y: row.qy,
+            z: row.qz,
+        }
+        .normalized()
+    }
+
     fn normalized(self) -> Self {
         let length = (self.w * self.w + self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
         if length <= f64::EPSILON {
@@ -214,19 +252,14 @@ impl Quaternion {
     /// Row-major rotation matrix; column 2 is the body forward axis.
     fn rotation_matrix(self) -> [[f64; 3]; 3] {
         let q = self.normalized();
-        let xx = q.x * q.x;
-        let yy = q.y * q.y;
-        let zz = q.z * q.z;
-        let xy = q.x * q.y;
-        let xz = q.x * q.z;
-        let yz = q.y * q.z;
-        let wx = q.w * q.x;
-        let wy = q.w * q.y;
-        let wz = q.w * q.z;
+        let (w, x, y, z) = (q.w, q.x, q.y, q.z);
+        let (x_x, y_y, z_z) = (x * x, y * y, z * z);
+        let (x_y, x_z, y_z) = (x * y, x * z, y * z);
+        let (w_x, w_y, w_z) = (w * x, w * y, w * z);
         [
-            [1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz), 2.0 * (xz + wy)],
-            [2.0 * (xy + wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx)],
-            [2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (xx + yy)],
+            [1.0 - 2.0 * (y_y + z_z), 2.0 * (x_y - w_z), 2.0 * (x_z + w_y)],
+            [2.0 * (x_y + w_z), 1.0 - 2.0 * (x_x + z_z), 2.0 * (y_z - w_x)],
+            [2.0 * (x_z - w_y), 2.0 * (y_z + w_x), 1.0 - 2.0 * (x_x + y_y)],
         ]
     }
 }
@@ -265,12 +298,18 @@ fn split_columns<'a>(line: &'a str, expected: usize, line_no: usize, what: &str,
     Ok(columns)
 }
 
-pub(crate) fn read_pose_trace_csv(path: &Path) -> Result<Vec<PoseTraceRow>> {
+/// Walks every data row of `path`, skipping blank lines and the header line, and hands each
+/// split row to `row` with its 1-based line number.
+fn for_each_csv_row(
+    path: &Path,
+    what: &str,
+    expected: usize,
+    header_prefix: &str,
+    mut row: impl FnMut(usize, &[&str]) -> Result<()>,
+) -> Result<()> {
     let reader = BufReader::new(
         std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
     );
-    let mut rows = Vec::new();
-
     for (line_no, line) in reader.lines().enumerate() {
         let line =
             line.with_context(|| format!("read line {} from {}", line_no + 1, path.display()))?;
@@ -278,11 +317,19 @@ pub(crate) fn read_pose_trace_csv(path: &Path) -> Result<Vec<PoseTraceRow>> {
         if trimmed.is_empty() {
             continue;
         }
-        if line_no == 0 && trimmed.starts_with("step,") {
+        if line_no == 0 && trimmed.starts_with(header_prefix) {
             continue;
         }
-        let columns = split_columns(trimmed, 12, line_no + 1, "pose trace", path)?;
         let at = line_no + 1;
+        let columns = split_columns(trimmed, expected, at, what, path)?;
+        row(at, &columns)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn read_pose_trace_csv(path: &Path) -> Result<Vec<PoseTraceRow>> {
+    let mut rows = Vec::new();
+    for_each_csv_row(path, "pose trace", 12, "step,", |at, columns| {
         rows.push(PoseTraceRow {
             step: parse_column(columns[0], "step", at)?,
             timestamp_sec: parse_column(columns[1], "timestamp_sec", at)?,
@@ -297,8 +344,8 @@ pub(crate) fn read_pose_trace_csv(path: &Path) -> Result<Vec<PoseTraceRow>> {
             inliers: parse_column(columns[10], "inliers", at)?,
             motion_px: parse_column(columns[11], "motion_px", at)?,
         });
-    }
-
+        Ok(())
+    })?;
     if rows.is_empty() {
         bail!("pose trace csv {} had no rows", path.display());
     }
@@ -306,23 +353,8 @@ pub(crate) fn read_pose_trace_csv(path: &Path) -> Result<Vec<PoseTraceRow>> {
 }
 
 pub(crate) fn read_controller_capture_csv(path: &Path) -> Result<Vec<ControllerCaptureRow>> {
-    let reader = BufReader::new(
-        std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
-    );
     let mut rows = Vec::new();
-
-    for (line_no, line) in reader.lines().enumerate() {
-        let line =
-            line.with_context(|| format!("read line {} from {}", line_no + 1, path.display()))?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if line_no == 0 && trimmed.starts_with("step,") {
-            continue;
-        }
-        let columns = split_columns(trimmed, 9, line_no + 1, "controller capture", path)?;
-        let at = line_no + 1;
+    for_each_csv_row(path, "controller capture", 9, "step,", |at, columns| {
         rows.push(ControllerCaptureRow {
             step: parse_column(columns[0], "step", at)?,
             timestamp_sec: parse_column(columns[1], "timestamp_sec", at)?,
@@ -334,8 +366,8 @@ pub(crate) fn read_controller_capture_csv(path: &Path) -> Result<Vec<ControllerC
             right_confidence: parse_column(columns[7], "right_confidence", at)?,
             controller_confidence: parse_column(columns[8], "controller_confidence", at)?,
         });
-    }
-
+        Ok(())
+    })?;
     if rows.is_empty() {
         bail!("controller capture csv {} had no rows", path.display());
     }
@@ -343,23 +375,8 @@ pub(crate) fn read_controller_capture_csv(path: &Path) -> Result<Vec<ControllerC
 }
 
 pub(crate) fn read_scene_cloud_csv(path: &Path) -> Result<Vec<SceneCloudPointRow>> {
-    let reader = BufReader::new(
-        std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
-    );
     let mut rows = Vec::new();
-
-    for (line_no, line) in reader.lines().enumerate() {
-        let line =
-            line.with_context(|| format!("read line {} from {}", line_no + 1, path.display()))?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if line_no == 0 && trimmed.starts_with("x_ft,") {
-            continue;
-        }
-        let columns = split_columns(trimmed, 8, line_no + 1, "scene cloud", path)?;
-        let at = line_no + 1;
+    for_each_csv_row(path, "scene cloud", 8, "x_ft,", |at, columns| {
         rows.push(SceneCloudPointRow {
             x_ft: parse_column(columns[0], "x_ft", at)?,
             y_ft: parse_column(columns[1], "y_ft", at)?,
@@ -370,8 +387,8 @@ pub(crate) fn read_scene_cloud_csv(path: &Path) -> Result<Vec<SceneCloudPointRow
             observation_count: parse_column(columns[6], "observation_count", at)?,
             pair_count: parse_column(columns[7], "pair_count", at)?,
         });
-    }
-
+        Ok(())
+    })?;
     if rows.is_empty() {
         bail!("scene cloud csv {} had no rows", path.display());
     }
@@ -555,31 +572,45 @@ fn maybe_generate_scene_cloud(
     }
 
     let helper = crate::util::resolve_video_trace_bin(video_trace_bin_override)?;
-    if let Err(error) = run_scene_cloud(
+    let Some(rows) = extract_scene_cloud_rows(
         &helper,
         input_path,
         trace_path,
         optimized_trace_path,
         output_path,
-    ) {
-        eprintln!("warn: scene-cloud skipped for {}: {error:#}", input_path);
+    ) else {
         return Ok(None);
-    }
-
-    let rows = match read_scene_cloud_csv(output_path) {
-        Ok(rows) => rows,
-        Err(error) => {
-            eprintln!(
-                "warn: scene-cloud parse skipped for {}: {error:#}",
-                output_path.display()
-            );
-            return Ok(None);
-        }
     };
     let Some(summary) = summarize_scene_cloud(&rows) else {
         return Ok(None);
     };
     Ok(Some((output_path.to_path_buf(), summary)))
+}
+
+/// Runs the cloud helper and reads back its CSV, reporting `None` with a `warn:` line on failure.
+fn extract_scene_cloud_rows(
+    helper: &Path,
+    input_path: &str,
+    trace_path: &Path,
+    optimized_trace_path: Option<&Path>,
+    output_path: &Path,
+) -> Option<Vec<SceneCloudPointRow>> {
+    if let Err(error) =
+        run_scene_cloud(helper, input_path, trace_path, optimized_trace_path, output_path)
+    {
+        eprintln!("warn: scene-cloud skipped for {}: {error:#}", input_path);
+        return None;
+    }
+    match read_scene_cloud_csv(output_path) {
+        Ok(rows) => Some(rows),
+        Err(error) => {
+            eprintln!(
+                "warn: scene-cloud parse skipped for {}: {error:#}",
+                output_path.display()
+            );
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -621,130 +652,123 @@ pub(crate) fn ypr_from_quaternion_rad(qw: f64, qx: f64, qy: f64, qz: f64) -> (f6
 /// Confidence the pose trace carries per sample: a fixed opener, then a blend of inlier ratio and
 /// image motion.
 pub(crate) fn pose_confidence(matches: i64, inliers: i64, motion_px: f64, index: usize) -> f64 {
+    const OPENER: f64 = 0.85;
+    const UNMATCHED: f64 = 0.40;
     if index == 0 {
-        return 0.85;
+        return OPENER;
     }
     if matches <= 0 {
-        return 0.40;
+        return UNMATCHED;
     }
-    let inlier_ratio = (inliers.max(0) as f64 / matches.max(1) as f64).clamp(0.0, 1.0);
+    let matched = matches.max(1) as f64;
+    let inlier_ratio = (inliers.max(0) as f64 / matched).clamp(0.0, 1.0);
     let motion_score = (motion_px / 12.0).clamp(0.0, 1.0);
-    (0.35 + 0.45 * inlier_ratio + 0.20 * motion_score).clamp(0.0, 0.99)
+    let blended = 0.35 + 0.45 * inlier_ratio + 0.20 * motion_score;
+    blended.clamp(0.0, 0.99)
 }
 
 pub(crate) fn normalize_pose_trace_rows(rows: &[PoseTraceRow]) -> Vec<AbstractStateSample> {
-    rows.iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let x_m = row.tx_ft * METERS_PER_FOOT;
-            let y_m = row.ty_ft * METERS_PER_FOOT;
-            let z_m = row.tz_ft * METERS_PER_FOOT;
-            let (yaw_rad, pitch_rad, roll_rad) =
-                ypr_from_quaternion_rad(row.qw, row.qx, row.qy, row.qz);
-            let payload = json!({
-                "x_m": x_m,
-                "y_m": y_m,
-                "z_m": z_m,
-                "yaw_rad": yaw_rad,
-                "pitch_rad": pitch_rad,
-                "roll_rad": roll_rad,
-                "qw": row.qw,
-                "qx": row.qx,
-                "qy": row.qy,
-                "qz": row.qz,
-                "matches": row.matches,
-                "inliers": row.inliers,
-                "motion_px": row.motion_px,
-                "source_unit": "ft",
-                "position_source": {
-                    "tx_ft": row.tx_ft,
-                    "ty_ft": row.ty_ft,
-                    "tz_ft": row.tz_ft
-                }
-            });
-            AbstractStateSample {
-                step: row.step,
-                timestamp_sec: row.timestamp_sec,
-                symbol_key: "pose_observation".to_string(),
-                payload_json: payload.to_string(),
-                confidence: pose_confidence(row.matches, row.inliers, row.motion_px, index),
-                sample_hash: stable_hash(&format!(
-                    "pose_trace|{}|{:.6}|{:.6}|{:.6}|{:.6}|{:.6}",
-                    row.step, row.timestamp_sec, x_m, y_m, z_m, yaw_rad
-                )),
-            }
-        })
+    (0..rows.len())
+        .map(|index| pose_trace_sample(&rows[index], index))
         .collect()
+}
+
+/// The `pose_observation` sample one trace row contributes, at its ordinal `index`.
+fn pose_trace_sample(row: &PoseTraceRow, index: usize) -> AbstractStateSample {
+    let feet_to_metres = |feet: f64| feet * METERS_PER_FOOT;
+    let x_m = feet_to_metres(row.tx_ft);
+    let y_m = feet_to_metres(row.ty_ft);
+    let z_m = feet_to_metres(row.tz_ft);
+    let (yaw_rad, pitch_rad, roll_rad) = ypr_from_quaternion_rad(row.qw, row.qx, row.qy, row.qz);
+    let payload = json!({
+        "x_m": x_m,
+        "y_m": y_m,
+        "z_m": z_m,
+        "yaw_rad": yaw_rad,
+        "pitch_rad": pitch_rad,
+        "roll_rad": roll_rad,
+        "qw": row.qw,
+        "qx": row.qx,
+        "qy": row.qy,
+        "qz": row.qz,
+        "matches": row.matches,
+        "inliers": row.inliers,
+        "motion_px": row.motion_px,
+        "source_unit": "ft",
+        "position_source": {
+            "tx_ft": row.tx_ft,
+            "ty_ft": row.ty_ft,
+            "tz_ft": row.tz_ft
+        }
+    });
+    let confidence = pose_confidence(row.matches, row.inliers, row.motion_px, index);
+    let sample_hash = stable_hash(&format!(
+        "pose_trace|{}|{:.6}|{:.6}|{:.6}|{:.6}|{:.6}",
+        row.step, row.timestamp_sec, x_m, y_m, z_m, yaw_rad
+    ));
+    AbstractStateSample {
+        step: row.step,
+        timestamp_sec: row.timestamp_sec,
+        symbol_key: "pose_observation".to_string(),
+        payload_json: payload.to_string(),
+        confidence,
+        sample_hash,
+    }
 }
 
 pub(crate) fn normalize_controller_capture_rows(
     rows: &[ControllerCaptureRow],
 ) -> Vec<AbstractStateSample> {
-    rows.iter()
-        .map(|row| {
-            let payload = json!({
-                "left_u": row.left_u,
-                "left_v": row.left_v,
-                "right_u": row.right_u,
-                "right_v": row.right_v,
-                "left_confidence": row.left_confidence,
-                "right_confidence": row.right_confidence,
-                "controller_confidence": row.controller_confidence,
-            });
-            AbstractStateSample {
-                step: row.step,
-                timestamp_sec: row.timestamp_sec,
-                symbol_key: "rc_input_observation".to_string(),
-                payload_json: payload.to_string(),
-                confidence: row.controller_confidence.clamp(0.0, 1.0),
-                sample_hash: stable_hash(&format!(
-                    "rc_input_observation|{}|{:.6}|{}",
-                    row.step, row.timestamp_sec, payload
-                )),
-            }
-        })
-        .collect()
+    rows.iter().map(rc_input_sample).collect()
 }
 
-fn position_vec_ft(row: &PoseTraceRow) -> Vec3 {
-    Vec3 {
-        x: row.tx_ft,
-        y: row.ty_ft,
-        z: row.tz_ft,
+/// The `rc_input_observation` sample one controller-capture row contributes.
+fn rc_input_sample(row: &ControllerCaptureRow) -> AbstractStateSample {
+    let payload = json!({
+        "left_u": row.left_u,
+        "left_v": row.left_v,
+        "right_u": row.right_u,
+        "right_v": row.right_v,
+        "left_confidence": row.left_confidence,
+        "right_confidence": row.right_confidence,
+        "controller_confidence": row.controller_confidence,
+    });
+    let payload_json = payload.to_string();
+    let confidence = row.controller_confidence.clamp(0.0, 1.0);
+    let sample_hash = stable_hash(&format!(
+        "rc_input_observation|{}|{:.6}|{}",
+        row.step, row.timestamp_sec, payload
+    ));
+    AbstractStateSample {
+        step: row.step,
+        timestamp_sec: row.timestamp_sec,
+        symbol_key: "rc_input_observation".to_string(),
+        payload_json,
+        confidence,
+        sample_hash,
     }
 }
 
-fn orientation_quaternion(row: &PoseTraceRow) -> Quaternion {
-    Quaternion {
-        w: row.qw,
-        x: row.qx,
-        y: row.qy,
-        z: row.qz,
-    }
-    .normalized()
-}
-
+/// The flight regime a derived command row reads as: the first label whose command profile the row
+/// matches, else `maneuver`.
 fn flight_regime_label(row: &ControlProxyRow) -> &'static str {
     let throttle = row.throttle_cmd.abs();
     let yaw = row.yaw_cmd.abs();
     let roll = row.roll_cmd.abs();
     let pitch = row.pitch_cmd.abs();
-    if throttle.max(yaw).max(roll).max(pitch) < 0.12 {
-        return "hover";
-    }
-    if yaw > 0.45 && roll < 0.25 && pitch < 0.25 {
-        return "yaw_turn";
-    }
-    if throttle > 0.5 && roll < 0.35 && pitch < 0.35 {
-        return "climb_descent";
-    }
-    if pitch > 0.35 && roll < 0.35 {
-        return "forward_back";
-    }
-    if roll > 0.35 && pitch < 0.35 {
-        return "lateral_bank";
-    }
-    "maneuver"
+    let loudest = throttle.max(yaw).max(roll).max(pitch);
+    let regimes = [
+        ("hover", loudest < 0.12),
+        ("yaw_turn", yaw > 0.45 && roll < 0.25 && pitch < 0.25),
+        ("climb_descent", throttle > 0.5 && roll < 0.35 && pitch < 0.35),
+        ("forward_back", pitch > 0.35 && roll < 0.35),
+        ("lateral_bank", roll > 0.35 && pitch < 0.35),
+    ];
+    regimes
+        .iter()
+        .find(|(_, matched)| *matched)
+        .map(|(label, _)| *label)
+        .unwrap_or("maneuver")
 }
 
 /// Rebuild the command, gimbal and regime surfaces from pose deltas expressed in each frame's own
@@ -777,18 +801,7 @@ fn build_controller_capture_samples(rows: &[PoseTraceRow]) -> ControllerCaptureS
 
     let mut controls = Vec::with_capacity(rows.len());
     for (index, row) in rows.iter().enumerate() {
-        let mut control = ControlProxyRow {
-            step: row.step,
-            timestamp_sec: row.timestamp_sec,
-            throttle_cmd: 0.0,
-            yaw_cmd: 0.0,
-            roll_cmd: 0.0,
-            pitch_cmd: 0.0,
-            throttle_active: false,
-            yaw_active: false,
-            roll_active: false,
-            pitch_active: false,
-        };
+        let mut control = ControlProxyRow::idle(row);
         if index > 0 {
             let (delta, yaw_deg) = local_delta(&rows[index - 1], row);
             control.roll_cmd = clamp_unit(delta.x / lateral_scale);
@@ -840,7 +853,7 @@ fn build_controller_capture_samples(rows: &[PoseTraceRow]) -> ControllerCaptureS
         .enumerate()
         .map(|(index, row)| {
             let control = &controls[index];
-            let orientation = orientation_quaternion(row);
+            let orientation = Quaternion::from_row(row);
             let (gimbal_yaw, gimbal_pitch, gimbal_roll) = orientation.ypr_degrees();
             let matrix = orientation.rotation_matrix();
             let payload = json!({
@@ -917,12 +930,12 @@ fn build_controller_capture_samples(rows: &[PoseTraceRow]) -> ControllerCaptureS
 /// Translation delta of `current` relative to `previous`, rotated into the previous body frame,
 /// with the yaw change in degrees.
 fn local_delta(previous: &PoseTraceRow, current: &PoseTraceRow) -> (Vec3, f64) {
-    let global = position_vec_ft(current).minus(position_vec_ft(previous));
-    let rotation = orientation_quaternion(previous);
+    let global = Vec3::from_row(current).minus(Vec3::from_row(previous));
+    let rotation = Quaternion::from_row(previous);
     let local = rotation.conjugated().rotated(global);
     let delta_rotation = rotation
         .conjugated()
-        .times(orientation_quaternion(current))
+        .times(Quaternion::from_row(current))
         .normalized();
     let (yaw_deg, _, _) = delta_rotation.ypr_degrees();
     (local, yaw_deg)
@@ -932,27 +945,20 @@ fn local_delta(previous: &PoseTraceRow, current: &PoseTraceRow) -> (Vec3, f64) {
 // Controller capture discovery
 // ---------------------------------------------------------------------------------------------
 
+/// Whether the session's description names the capture rigs this extraction understands.
 fn should_attempt_controller_capture(
     session: &qualia_session_store::SessionRow,
     input_path: &str,
 ) -> bool {
-    let haystack = format!(
+    const MARKERS: [&str; 6] = ["controller", "sticks", "gimbal", "dji", "cleanshot", "desktop"];
+    let described = format!(
         "{} {} {} {}",
         session.media_kind.to_ascii_lowercase(),
         session.analysis_kind.to_ascii_lowercase(),
         session.filename.to_ascii_lowercase(),
         input_path.to_ascii_lowercase()
     );
-    [
-        "controller",
-        "sticks",
-        "gimbal",
-        "dji",
-        "cleanshot",
-        "desktop",
-    ]
-    .iter()
-    .any(|needle| haystack.contains(needle))
+    MARKERS.iter().any(|marker| described.contains(marker))
 }
 
 fn load_or_extract_controller_capture(
@@ -965,39 +971,18 @@ fn load_or_extract_controller_capture(
     frame_stride: i64,
 ) -> Result<Option<Vec<ControllerCaptureRow>>> {
     if let Some(controller_csv) = controller_csv_override {
-        if output_path != Path::new(controller_csv) {
-            if let Some(parent) = output_path.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("create controller output directory {}", parent.display())
-                })?;
-            }
-            std::fs::copy(controller_csv, output_path).with_context(|| {
-                format!(
-                    "copy controller csv from {} to {}",
-                    controller_csv,
-                    output_path.display()
-                )
-            })?;
-        }
+        copy_controller_csv(controller_csv, output_path)?;
         return read_controller_capture_csv(output_path).map(Some);
     }
-
     if !should_attempt_controller_capture(session, input_path) {
         return Ok(None);
     }
 
     let helper = crate::util::resolve_video_trace_bin(video_trace_bin_override)?;
-    if let Err(error) = run_controller_capture(
-        &helper,
-        input_path,
-        output_path,
-        max_frames,
-        frame_stride,
-    ) {
-        eprintln!(
-            "warn: controller-capture skipped for {}: {error:#}",
-            input_path
-        );
+    if let Err(error) =
+        run_controller_capture(&helper, input_path, output_path, max_frames, frame_stride)
+    {
+        eprintln!("warn: controller-capture skipped for {}: {error:#}", input_path);
         return Ok(None);
     }
 
@@ -1011,8 +996,7 @@ fn load_or_extract_controller_capture(
             return Ok(None);
         }
     };
-    let mean_confidence =
-        rows.iter().map(|row| row.controller_confidence).sum::<f64>() / rows.len() as f64;
+    let mean_confidence = mean_controller_confidence(&rows);
     if mean_confidence < 0.10 {
         eprintln!(
             "warn: controller-capture confidence too low for {} ({:.3}); ignoring",
@@ -1021,6 +1005,32 @@ fn load_or_extract_controller_capture(
         return Ok(None);
     }
     Ok(Some(rows))
+}
+
+/// Copies a caller-supplied controller CSV to `output_path`, creating its directory first.
+fn copy_controller_csv(controller_csv: &str, output_path: &Path) -> Result<()> {
+    if output_path == Path::new(controller_csv) {
+        return Ok(());
+    }
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!("create controller output directory {}", parent.display())
+        })?;
+    }
+    std::fs::copy(controller_csv, output_path).with_context(|| {
+        format!(
+            "copy controller csv from {} to {}",
+            controller_csv,
+            output_path.display()
+        )
+    })?;
+    Ok(())
+}
+
+/// Mean reported confidence over a controller capture.
+fn mean_controller_confidence(rows: &[ControllerCaptureRow]) -> f64 {
+    let total: f64 = rows.iter().map(|row| row.controller_confidence).sum();
+    total / rows.len() as f64
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1100,41 +1110,13 @@ fn write_trajectory_spline_artifact(
     let indices = select_knot_indices(samples.len());
     let mut knots = Vec::with_capacity(indices.len());
     let mut confidence_sum = 0.0f64;
-
     for &index in &indices {
-        let sample = &samples[index];
-        let payload: Value = serde_json::from_str(&sample.payload_json).with_context(|| {
-            format!(
-                "parse pose payload for trajectory spline at sample {}",
-                sample.step
-            )
-        })?;
-        let x_m = payload.get("x_m").and_then(Value::as_f64).unwrap_or(0.0);
-        let y_m = payload.get("y_m").and_then(Value::as_f64).unwrap_or(0.0);
-        let z_m = payload.get("z_m").and_then(Value::as_f64).unwrap_or(0.0);
-        let qw = payload.get("qw").and_then(Value::as_f64).unwrap_or(1.0);
-        let qx = payload.get("qx").and_then(Value::as_f64).unwrap_or(0.0);
-        let qy = payload.get("qy").and_then(Value::as_f64).unwrap_or(0.0);
-        let qz = payload.get("qz").and_then(Value::as_f64).unwrap_or(0.0);
-
-        let previous = index.checked_sub(1).map(|before| &samples[before]);
-        let next = samples.get(index + 1);
-        let velocity = estimate_velocity(previous, sample, next)?;
-        let weight = sample.confidence.clamp(0.0, 1.0);
+        let (knot, weight) = spline_knot(index, samples)?;
         confidence_sum += weight;
-
-        knots.push(json!({
-            "sample_index": index,
-            "step": sample.step,
-            "timestamp_sec": sample.timestamp_sec,
-            "position_m": [x_m, y_m, z_m],
-            "velocity_mps": [velocity.0, velocity.1, velocity.2],
-            "orientation_quat": [qw, qx, qy, qz],
-            "weight": weight
-        }));
+        knots.push(knot);
     }
 
-    let artifact = json!({
+    let artifact_text = serde_json::to_string_pretty(&json!({
         "schema": "trajectory_spline.v1",
         "basis": "weighted_quintic_hermite_seed",
         "frame": "relative_monocular",
@@ -1142,20 +1124,60 @@ fn write_trajectory_spline_artifact(
         "sample_count": samples.len(),
         "knot_count": knots.len(),
         "knots": knots
-    });
-    let artifact_text = serde_json::to_string_pretty(&artifact)?;
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create spline artifact directory {}", parent.display()))?;
-    }
-    std::fs::write(output_path, &artifact_text)
-        .with_context(|| format!("write trajectory spline artifact {}", output_path.display()))?;
+    }))?;
+    write_spline_artifact(output_path, &artifact_text)?;
 
     Ok((
         output_path.to_string_lossy().into_owned(),
         stable_hash(&artifact_text),
         (confidence_sum / indices.len() as f64).clamp(0.0, 1.0) as f32,
     ))
+}
+
+/// One spline knot for `samples[index]`, plus the weight it adds to the artifact's mean.
+fn spline_knot(index: usize, samples: &[AbstractStateSample]) -> Result<(Value, f64)> {
+    let sample = &samples[index];
+    let payload: Value = serde_json::from_str(&sample.payload_json).with_context(|| {
+        format!(
+            "parse pose payload for trajectory spline at sample {}",
+            sample.step
+        )
+    })?;
+    let coordinate = |key: &str, or_else: f64| {
+        payload.get(key).and_then(Value::as_f64).unwrap_or(or_else)
+    };
+    let x_m = coordinate("x_m", 0.0);
+    let y_m = coordinate("y_m", 0.0);
+    let z_m = coordinate("z_m", 0.0);
+    let qw = coordinate("qw", 1.0);
+    let qx = coordinate("qx", 0.0);
+    let qy = coordinate("qy", 0.0);
+    let qz = coordinate("qz", 0.0);
+    let previous = index.checked_sub(1).map(|before| &samples[before]);
+    let next = samples.get(index + 1);
+    let velocity = estimate_velocity(previous, sample, next)?;
+    let weight = sample.confidence.clamp(0.0, 1.0);
+    let knot = json!({
+        "sample_index": index,
+        "step": sample.step,
+        "timestamp_sec": sample.timestamp_sec,
+        "position_m": [x_m, y_m, z_m],
+        "velocity_mps": [velocity.0, velocity.1, velocity.2],
+        "orientation_quat": [qw, qx, qy, qz],
+        "weight": weight
+    });
+    Ok((knot, weight))
+}
+
+/// Writes the serialised spline artifact, creating its directory first.
+fn write_spline_artifact(output_path: &Path, artifact_text: &str) -> Result<()> {
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create spline artifact directory {}", parent.display()))?;
+    }
+    std::fs::write(output_path, artifact_text)
+        .with_context(|| format!("write trajectory spline artifact {}", output_path.display()))?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1170,6 +1192,48 @@ pub(crate) fn select_observation_video_stream(
         .find(|stream| stream.stream_kind == "video" && stream.role == "observation")
         .or_else(|| streams.iter().find(|stream| stream.stream_kind == "video"))
         .cloned()
+}
+
+/// The three capture artifacts an analysis writes beside the session's other artifacts.
+fn analysis_artifact_paths(artifact_dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    (
+        artifact_dir.join("controller_capture.csv"),
+        artifact_dir.join("scene_cloud.csv"),
+        artifact_dir.join("trajectory_spline.json"),
+    )
+}
+
+/// Where the pose trace and its optional optimized companion are read from or written to.
+fn trace_output_paths(
+    artifact_dir: &Path,
+    output: Option<&str>,
+    optimized_output: Option<&str>,
+) -> (PathBuf, Option<PathBuf>) {
+    let trace_path = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| artifact_dir.join("pose_trace.csv"));
+    (trace_path, optimized_output.map(PathBuf::from))
+}
+
+/// Copies a caller-supplied trace CSV onto the path this run would otherwise write.
+fn copy_trace_csv(trace_csv: &str, trace_path: &Path, artifact_dir: &Path) -> Result<()> {
+    if trace_path == Path::new(trace_csv) {
+        return Ok(());
+    }
+    let parent = trace_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| artifact_dir.to_path_buf());
+    std::fs::create_dir_all(&parent)
+        .with_context(|| format!("create trace output directory {}", parent.display()))?;
+    std::fs::copy(trace_csv, trace_path).with_context(|| {
+        format!(
+            "copy trace csv from {} to {}",
+            trace_csv,
+            trace_path.display()
+        )
+    })?;
+    Ok(())
 }
 
 pub(crate) fn default_session_artifact_dir(store_path: &str, session_id: i64) -> PathBuf {
@@ -1200,155 +1264,197 @@ fn persist_epoch_samples(
     trace_rows: &[PoseTraceRow],
     camera_geometry: Option<&CameraGeometrySummary>,
 ) -> Result<(i64, i64, Option<i64>)> {
-    let frame_space_id = store.upsert_space(&AbstractionSpaceUpsert {
+    let frame_space_id = register_space(
+        store,
         epoch_id,
-        space_family: "observation".to_string(),
-        abstraction_name: "frame_observation".to_string(),
-        source_kind: "video_trace".to_string(),
-        representation_kind: "discrete".to_string(),
-        uncertainty_kind: "reported".to_string(),
-        dimensionality: 3,
-        schema_json: json!({
+        "observation",
+        "frame_observation",
+        "video_trace",
+        "discrete",
+        "reported",
+        3,
+        json!({
             "fields": ["frame_index", "stream_key", "artifact_path"],
             "artifact_kind": "video_frame",
             "camera_geometry": camera_geometry
-        })
-        .to_string(),
-    })?;
-    let frame_samples = samples
-        .iter()
-        .map(|sample| {
-            let payload = json!({
-                "frame_index": sample.step,
-                "stream_key": observation_stream_key,
-                "artifact_path": input_path
-            });
-            AbstractStateSample {
-                step: sample.step,
-                timestamp_sec: sample.timestamp_sec,
-                symbol_key: observation_stream_key
-                    .unwrap_or("frame_observation")
-                    .to_string(),
-                payload_json: payload.to_string(),
-                confidence: 1.0,
-                sample_hash: stable_hash(&format!(
-                    "frame_observation|{}|{:.6}|{}|{}",
-                    sample.step,
-                    sample.timestamp_sec,
-                    observation_stream_key.unwrap_or(""),
-                    input_path
-                )),
-            }
-        })
-        .collect::<Vec<_>>();
+        }),
+    )?;
+    let frame_samples = frame_observation_samples(samples, observation_stream_key, input_path);
     store.replace_state_samples(epoch_id, frame_space_id, &frame_samples)?;
 
-    let space_id = store.upsert_space(&AbstractionSpaceUpsert {
+    let space_id = register_space(
+        store,
         epoch_id,
-        space_family: "observation".to_string(),
-        abstraction_name: "pose_observation".to_string(),
-        source_kind: "video_trace".to_string(),
-        representation_kind: "continuous".to_string(),
-        uncertainty_kind: "estimated".to_string(),
-        dimensionality: 12,
-        schema_json: json!({
+        "observation",
+        "pose_observation",
+        "video_trace",
+        "continuous",
+        "estimated",
+        12,
+        json!({
             "fields": [
                 "x_m", "y_m", "z_m", "yaw_rad", "pitch_rad", "roll_rad",
                 "qw", "qx", "qy", "qz", "matches", "inliers", "motion_px"
             ],
             "source_unit": "ft",
             "normalized_unit": "m"
-        })
-        .to_string(),
-    })?;
+        }),
+    )?;
     store.replace_state_samples(epoch_id, space_id, samples)?;
 
-    let rc_input_space_id = if let Some(capture_samples) = controller_capture_samples {
-        let rc_space_id = store.upsert_space(&AbstractionSpaceUpsert {
-            epoch_id,
-            space_family: "action".to_string(),
-            abstraction_name: "rc_input_observation".to_string(),
-            source_kind: "controller_capture".to_string(),
-            representation_kind: "continuous".to_string(),
-            uncertainty_kind: "estimated".to_string(),
-            dimensionality: 7,
-            schema_json: json!({
-                "fields": [
-                    "left_u", "left_v", "right_u", "right_v",
-                    "left_confidence", "right_confidence", "controller_confidence"
-                ],
-                "capture_source": "controller_video"
-            })
-            .to_string(),
-        })?;
-        store.replace_state_samples(epoch_id, rc_space_id, capture_samples)?;
-        Some(rc_space_id)
-    } else {
-        None
+    let rc_input_space_id = match controller_capture_samples {
+        Some(capture_samples) => {
+            let rc_space_id = register_space(
+                store,
+                epoch_id,
+                "action",
+                "rc_input_observation",
+                "controller_capture",
+                "continuous",
+                "estimated",
+                7,
+                json!({
+                    "fields": [
+                        "left_u", "left_v", "right_u", "right_v",
+                        "left_confidence", "right_confidence", "controller_confidence"
+                    ],
+                    "capture_source": "controller_video"
+                }),
+            )?;
+            store.replace_state_samples(epoch_id, rc_space_id, capture_samples)?;
+            Some(rc_space_id)
+        }
+        None => None,
     };
 
     let derived = build_controller_capture_samples(trace_rows);
     if !derived.control_proxy.is_empty() {
-        let control_space_id = store.upsert_space(&AbstractionSpaceUpsert {
+        let control_space_id = register_space(
+            store,
             epoch_id,
-            space_family: "action".to_string(),
-            abstraction_name: "control_proxy".to_string(),
-            source_kind: "video_trace_derived".to_string(),
-            representation_kind: "continuous".to_string(),
-            uncertainty_kind: "estimated".to_string(),
-            dimensionality: 4,
-            schema_json: json!({
+            "action",
+            "control_proxy",
+            "video_trace_derived",
+            "continuous",
+            "estimated",
+            4,
+            json!({
                 "fields": ["throttle_cmd", "yaw_cmd", "roll_cmd", "pitch_cmd"],
                 "derivation": "pose_trace_proxy"
-            })
-            .to_string(),
-        })?;
+            }),
+        )?;
         store.replace_state_samples(epoch_id, control_space_id, &derived.control_proxy)?;
     }
 
     if !derived.gimbal_form.is_empty() {
-        let gimbal_space_id = store.upsert_space(&AbstractionSpaceUpsert {
+        let gimbal_space_id = register_space(
+            store,
             epoch_id,
-            space_family: "action".to_string(),
-            abstraction_name: "gimbal_form".to_string(),
-            source_kind: "video_trace_derived".to_string(),
-            representation_kind: "continuous".to_string(),
-            uncertainty_kind: "estimated".to_string(),
-            dimensionality: 10,
-            schema_json: json!({
+            "action",
+            "gimbal_form",
+            "video_trace_derived",
+            "continuous",
+            "estimated",
+            10,
+            json!({
                 "fields": [
                     "left_u", "left_v", "right_u", "right_v",
                     "gimbal_yaw", "gimbal_pitch", "gimbal_roll", "nx", "ny", "nz"
                 ],
                 "derivation": "pose_trace_proxy"
-            })
-            .to_string(),
-        })?;
+            }),
+        )?;
         store.replace_state_samples(epoch_id, gimbal_space_id, &derived.gimbal_form)?;
     }
 
     if !derived.flight_regime.is_empty() {
-        let regime_space_id = store.upsert_space(&AbstractionSpaceUpsert {
+        let regime_space_id = register_space(
+            store,
             epoch_id,
-            space_family: "state".to_string(),
-            abstraction_name: "flight_regime".to_string(),
-            source_kind: "video_trace_derived".to_string(),
-            representation_kind: "discrete".to_string(),
-            uncertainty_kind: "estimated".to_string(),
-            dimensionality: 1,
-            schema_json: json!({
+            "state",
+            "flight_regime",
+            "video_trace_derived",
+            "discrete",
+            "estimated",
+            1,
+            json!({
                 "labels": [
                     "hover", "yaw_turn", "climb_descent",
                     "forward_back", "lateral_bank", "maneuver"
                 ],
                 "derivation": "pose_trace_proxy"
-            })
-            .to_string(),
-        })?;
+            }),
+        )?;
         store.replace_state_samples(epoch_id, regime_space_id, &derived.flight_regime)?;
     }
 
     Ok((frame_space_id, space_id, rc_input_space_id))
+}
+
+/// Registers one abstraction space for `epoch_id` and returns its id.
+fn register_space(
+    store: &SessionStore,
+    epoch_id: i64,
+    family: &str,
+    name: &str,
+    source: &str,
+    representation: &str,
+    uncertainty: &str,
+    dimensionality: i64,
+    schema: Value,
+) -> Result<i64> {
+    let space = store.upsert_space(&AbstractionSpaceUpsert {
+        epoch_id,
+        space_family: family.to_string(),
+        abstraction_name: name.to_string(),
+        source_kind: source.to_string(),
+        representation_kind: representation.to_string(),
+        uncertainty_kind: uncertainty.to_string(),
+        dimensionality,
+        schema_json: schema.to_string(),
+    })?;
+    Ok(space)
+}
+
+/// The `frame_observation` samples for one epoch: one per analysed frame.
+fn frame_observation_samples(
+    samples: &[AbstractStateSample],
+    observation_stream_key: Option<&str>,
+    input_path: &str,
+) -> Vec<AbstractStateSample> {
+    samples
+        .iter()
+        .map(|sample| frame_observation_sample(sample, observation_stream_key, input_path))
+        .collect()
+}
+
+/// The `frame_observation` sample one analysed frame contributes.
+fn frame_observation_sample(
+    sample: &AbstractStateSample,
+    observation_stream_key: Option<&str>,
+    input_path: &str,
+) -> AbstractStateSample {
+    let stream_key = observation_stream_key.unwrap_or("frame_observation");
+    let payload = json!({
+        "frame_index": sample.step,
+        "stream_key": observation_stream_key,
+        "artifact_path": input_path
+    });
+    let sample_hash = stable_hash(&format!(
+        "frame_observation|{}|{:.6}|{}|{}",
+        sample.step,
+        sample.timestamp_sec,
+        observation_stream_key.unwrap_or(""),
+        input_path
+    ));
+    AbstractStateSample {
+        step: sample.step,
+        timestamp_sec: sample.timestamp_sec,
+        symbol_key: stream_key.to_string(),
+        payload_json: payload.to_string(),
+        confidence: 1.0,
+        sample_hash,
+    }
 }
 
 fn trace_point_from_sample(sample: &AbstractStateSample) -> Option<TracePoint> {
@@ -1782,30 +1888,13 @@ pub(crate) fn analyze_session(
     std::fs::create_dir_all(&artifact_dir)
         .with_context(|| format!("create artifact directory {}", artifact_dir.display()))?;
 
-    let controller_capture_path = artifact_dir.join("controller_capture.csv");
-    let scene_cloud_path = artifact_dir.join("scene_cloud.csv");
-    let trajectory_spline_path = artifact_dir.join("trajectory_spline.json");
-    let trace_path = output_override
-        .map(PathBuf::from)
-        .unwrap_or_else(|| artifact_dir.join("pose_trace.csv"));
-    let optimized_trace_path = optimized_output_override.map(PathBuf::from);
+    let (controller_capture_path, scene_cloud_path, trajectory_spline_path) =
+        analysis_artifact_paths(&artifact_dir);
+    let (trace_path, optimized_trace_path) =
+        trace_output_paths(&artifact_dir, output_override, optimized_output_override);
 
     if let Some(trace_csv) = trace_csv_override {
-        if trace_path.as_path() != Path::new(trace_csv) {
-            let parent = trace_path
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| artifact_dir.clone());
-            std::fs::create_dir_all(&parent)
-                .with_context(|| format!("create trace output directory {}", parent.display()))?;
-            std::fs::copy(trace_csv, &trace_path).with_context(|| {
-                format!(
-                    "copy trace csv from {} to {}",
-                    trace_csv,
-                    trace_path.display()
-                )
-            })?;
-        }
+        copy_trace_csv(trace_csv, &trace_path, &artifact_dir)?;
     } else {
         let helper = crate::util::resolve_video_trace_bin(video_trace_bin_override)?;
         run_video_trace(
