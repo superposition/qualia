@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Clean-room provenance check (see docs/decisions.md D-001).
 
-Nothing is copied from the private engine. Two things are fatal, one is
+Nothing is copied from the private engine. Two things are fatal, two are
 reported:
 
-FATAL   byte-identical whole file;
+FATAL   byte-identical whole file, where the match cannot be a line-ending
+        accident (see EOL-IDENTICAL below);
 FATAL   a run of more than two consecutive identical *comment or doc* lines
         (prose is never forced by an interface, so shared prose means copied
         prose);
@@ -12,7 +13,16 @@ REPORT  the longest run of identical code lines, and the share of this file's
         non-trivial lines that also appear in the reference. These are
         reported rather than fatal because a faithful reimplementation of a
         fixed interface necessarily shares declaration lines: constant tables,
-        enum variants, struct field lists, `name = "..."` manifest entries.
+        enum variants, struct field lists, `name = "..."` manifest entries;
+REPORT  files whose text equals the reference's once line endings are folded
+        (EOL-IDENTICAL). The reference tree is a Windows checkout of LF blobs
+        (`core.autocrlf=true`), so the same text reaches it as CRLF and a
+        worktree of this repository as LF; a file that legitimately coincides
+        with the reference — a manifest whose keys the interface fixes — is
+        therefore identical modulo line endings and not byte-identical. Line
+        endings are a checkout setting, not authored content: no
+        `core.autocrlf` value and no way of checking out a worktree may change
+        this gate's verdict.
 
 Generated files are excluded from the run metrics; they are machine output,
 not authorship.
@@ -107,6 +117,16 @@ def read_lines(path):
         return handle.read().splitlines()
 
 
+def normalise_eol(data):
+    """`data` with every line ending folded to LF.
+
+    The reference tree is checked out with `core.autocrlf=true` (LF blobs,
+    CRLF files), so text that is CRLF there is LF here. Folding both sides
+    makes identity a property of the text, not of the checkout.
+    """
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def trivial(line):
     stripped = line.strip()
     if not stripped:
@@ -167,6 +187,7 @@ def main(argv):
     checked = 0
     skipped_generated = 0
     identical = 0
+    eol_identical = 0
     prose_offences = []
     over_run = []
     worst_share = (0.0, "")
@@ -181,10 +202,18 @@ def main(argv):
         checked += 1
         mine = os.path.join(ROOT, rel)
         with open(mine, "rb") as handle_a, open(other, "rb") as handle_b:
-            if handle_a.read() == handle_b.read():
-                print("IDENTICAL: %s" % rel)
-                identical += 1
-                continue
+            our_bytes = handle_a.read()
+            ref_bytes = handle_b.read()
+        if our_bytes == ref_bytes and b"\r" not in our_bytes:
+            print("IDENTICAL: %s" % rel)
+            identical += 1
+            continue
+        if normalise_eol(our_bytes) == normalise_eol(ref_bytes):
+            # Same text, different line endings: the reference's CRLF is its
+            # checkout, this worktree's LF is ours. Reported, not fatal, and
+            # still measured for code runs and shared prose below.
+            print("EOL-IDENTICAL: %s" % rel)
+            eol_identical += 1
 
         a_lines = read_lines(mine)
         b_lines = read_lines(other)
@@ -208,11 +237,13 @@ def main(argv):
 
     print(
         "provenance: compared %d authored file(s) (%d generated skipped); "
-        "%d byte-identical, %d code runs over %d, %d prose runs over %d"
+        "%d byte-identical, %d EOL-identical, %d code runs over %d, "
+        "%d prose runs over %d"
         % (
             checked,
             skipped_generated,
             identical,
+            eol_identical,
             len(over_run),
             max_run,
             len(prose_offences),

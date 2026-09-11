@@ -59,7 +59,13 @@ notes: <count>
   the evidence in the PR is evidence you reproduced yourself.
 - **clean-room** — `python scripts/provenance_check.py` prints `OK`; no comment or doc prose is shared
   with the reference, and any long identical code run is a declaration the contract forces (constant
-  table, enum variant, field list, manifest key), not copied logic.
+  table, enum variant, field list, manifest key), not copied logic. Line endings are a checkout
+  setting, not authored content: the reference tree is a Windows checkout of LF blobs
+  (`core.autocrlf=true`), so the gate folds CRLF to LF before it compares and reports two classes —
+  `IDENTICAL` (fatal, byte-for-byte, only when no line-ending difference can explain the match) and
+  `EOL-IDENTICAL` (reported, the same text once endings are folded: the interface-forced manifests).
+  The verdict is the same from a CRLF and an LF worktree, so no `core.autocrlf` value and no
+  `checkout-index` workaround is needed to run the gate.
 - **contract** — package name, feature flags, public types, function signatures, constants and wire or
   JSON field names match the reference interface; the diff touches only the files the ticket names.
 
