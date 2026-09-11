@@ -1,0 +1,24 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "<binary>",
+    "--test-threads=1"
+  ],
+  "profiler_argv": [
+    "/usr/local/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=<output-dir>/mage-nsys-<run>/capture",
+    "<binary>",
+    "--test-threads=1"
+  ],
+  "command": "<binary> --test-threads=1",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 16
+}
