@@ -379,11 +379,13 @@ fn unwritable_sink_path_is_reported_with_context() {
     fs::write(&blocker, b"not a directory").expect("write blocker file");
     let path = blocker.join("recording.rrd");
 
-    let error = QualiaRerunBridge::new(&RerunBridgeConfig {
+    let error = match QualiaRerunBridge::new(&RerunBridgeConfig {
         application_id: "qualia-test".to_string(),
         sink: RerunSinkConfig::Save(path),
-    })
-    .expect_err("a file cannot host a recording directory");
+    }) {
+        Ok(_) => panic!("a file cannot host a recording directory"),
+        Err(error) => error,
+    };
 
     let message = error.to_string();
     assert!(
@@ -495,7 +497,7 @@ fn world_model_projection_covers_taxonomy_counts_geometry_and_coach_timeline() {
         WorldModelProjectionContent::LogEvent { text, level, .. } => {
             assert!(text.contains("promote"), "{text}");
             assert!(text.contains("targets=1"), "{text}");
-            assert_eq!(format!("{level:?}"), "INFO");
+            assert_eq!(level.as_str(), "INFO");
         }
         other => panic!("expected a coach timeline event, got {other:?}"),
     }
