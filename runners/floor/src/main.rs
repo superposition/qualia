@@ -71,10 +71,12 @@ fn write_floor_grid(grid: &mut CameraFloorGrid, frame: &CameraFrameSnapshot) {
     grid.last_update_ns = frame.timestamp_ns;
 
     for gz in 0..VOXEL_D {
-        let depth_bias = 1.0 - gz as f32 / VOXEL_D as f32;
+        // Rows nearer the camera are weighted higher; all of these values are
+        // exact f32 fractions of the grid depth.
+        let near_bias = (VOXEL_D - gz) as f32 / VOXEL_D as f32;
         for gx in 0..VOXEL_W {
             let luma = frame.thumbnail_luma[sampled_pixel(gx, gz)] as f32 / CONFIDENCE_SCALE;
-            let confidence = (luma * LUMA_WEIGHT + depth_bias * DEPTH_WEIGHT) * CONFIDENCE_SCALE;
+            let confidence = (luma * LUMA_WEIGHT + near_bias * DEPTH_WEIGHT) * CONFIDENCE_SCALE;
             grid.cells[gz * VOXEL_W + gx] = confidence.clamp(0.0, CONFIDENCE_SCALE) as u8;
         }
     }
