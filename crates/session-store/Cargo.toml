@@ -1,0 +1,13 @@
+[package]
+name = "qualia-session-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Persistent session, epoch, and abstraction storage for Qualia"
+
+[dependencies]
+qualia-mcap = { workspace = true }
+qualia-sync-types = { workspace = true }
+rusqlite = { version = "0.34", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

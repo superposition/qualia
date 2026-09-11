@@ -1,0 +1,24 @@
+[package]
+name = "qualia-vslam"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "qualia-vslam"
+path = "src/main.rs"
+
+[features]
+cuda = ["dep:cudarc"]
+
+[dependencies]
+qualia-types.workspace = true
+qualia-shm.workspace = true
+cudarc = { version = "0.19", default-features = false, features = [
+    "std",
+    "driver",
+    "nvrtc",
+    "cuda-12020",
+    "fallback-dynamic-loading",
+], optional = true }

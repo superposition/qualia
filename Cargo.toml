@@ -1,11 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "apps/qualia-console",
-    "crates/braid",
-    "crates/connectome-prior",
     "crates/cuda",
-    "crates/fly-circuit",
     "crates/ipc",
     "crates/jepa",
     "crates/jepa-dataset",

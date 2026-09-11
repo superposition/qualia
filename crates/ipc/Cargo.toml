@@ -1,0 +1,9 @@
+[package]
+name = "qualia-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Unix socket helpers, pipe utils"
+
+[dependencies]
+qualia-types.workspace = true

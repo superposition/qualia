@@ -1,0 +1,23 @@
+[package]
+name = "qualia-arena-recorder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "qualia-arena-recorder"
+path = "src/main.rs"
+
+[dependencies]
+ctrlc = "3"
+qualia-mcap = { workspace = true }
+qualia-session-store = { workspace = true }
+qualia-shm = { workspace = true }
+qualia-types = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

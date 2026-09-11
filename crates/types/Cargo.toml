@@ -1,0 +1,10 @@
+[package]
+name = "qualia-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BeliefSlot, LayerSlot, LedgerEntry, HealthReport — zero deps, #[repr(C)]"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

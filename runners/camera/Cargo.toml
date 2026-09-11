@@ -1,0 +1,12 @@
+[package]
+name = "qualia-camera"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Webcam sensor ingestion — captures frames, writes to L7 sensor slot"
+
+[dependencies]
+qualia-types.workspace = true
+qualia-shm.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+ureq = "2"

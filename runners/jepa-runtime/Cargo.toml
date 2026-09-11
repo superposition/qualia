@@ -1,0 +1,29 @@
+[package]
+name = "qualia-jepa-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "qualia-jepa-runtime"
+path = "src/main.rs"
+
+[features]
+default = []
+metal = ["qualia-jepa-model/metal"]
+cuda = ["qualia-jepa-model/cuda"]
+
+[dependencies]
+ctrlc = "3"
+qualia-jepa = { workspace = true }
+qualia-jepa-model = { workspace = true }
+qualia-shm = { workspace = true }
+qualia-types = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+candle-core = { version = "=0.9.1", default-features = false }
+candle-nn = { version = "=0.9.1", default-features = false }
+libc = "0.2"
+tempfile = "3"

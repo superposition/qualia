@@ -1,0 +1,23 @@
+[package]
+name = "qualia-jepa-registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Evidence-gated Turso registry and atomic generation manager for Qualia JEPA"
+
+[[bin]]
+name = "qualia-jepa-registry"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+qualia-jepa-dataset = { workspace = true }
+qualia-jepa-model = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+turso = { version = "0.7", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"

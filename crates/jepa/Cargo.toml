@@ -1,0 +1,8 @@
+[package]
+name = "qualia-jepa"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CPU reference contracts and mathematics for Qualia's learned belief manifold"
+
+[dependencies]

@@ -1,0 +1,43 @@
+[package]
+name = "qualia-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "qualia-agent"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+qualia-session-store = { workspace = true }
+qualia-sync-types = { workspace = true }
+qualia-types = { workspace = true }
+qualia-shm = { workspace = true }
+qualia-metal = { workspace = true }
+qualia-mcap = { workspace = true }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rcgen = "0.13"
+rustls = { version = "0.23", features = ["ring"] }
+tokio-util = { version = "0.7", features = ["io"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+sha2 = "0.10"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+turso = { version = "0.7", default-features = false }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+apriltag = "0.4.0"
+
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+qualia-cuda = { workspace = true, features = ["cuda"] }
+
+[dev-dependencies]
+tempfile = "3"

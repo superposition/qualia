@@ -1,0 +1,12 @@
+[package]
+name = "qualia-init"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qualia-types.workspace = true
+qualia-shm.workspace = true
+qualia-ipc.workspace = true
+libc = "0.2"
+serde_json = "1"

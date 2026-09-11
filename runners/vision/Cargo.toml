@@ -1,0 +1,18 @@
+[package]
+name = "qualia-vision"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "qualia-vision"
+path = "src/main.rs"
+
+[dependencies]
+qualia-types = { workspace = true }
+qualia-shm = { workspace = true }
+ureq = "2"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

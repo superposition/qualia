@@ -1,0 +1,19 @@
+[package]
+name = "qualia-lidar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "qualia-lidar"
+path = "src/main.rs"
+
+[[bin]]
+name = "qualia-lidar-inspect"
+path = "src/bin/inspect.rs"
+
+[dependencies]
+qualia-types.workspace = true
+qualia-shm.workspace = true
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+tokio-serial = "5"

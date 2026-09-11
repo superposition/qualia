@@ -1,0 +1,15 @@
+[package]
+name = "qualia-mcap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Crash-safe pure-Rust MCAP logging and replay for Qualia arena evidence"
+
+[dependencies]
+mcap = { version = "=0.25.0", default-features = false, features = ["zstd"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

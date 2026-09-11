@@ -1,0 +1,16 @@
+[package]
+name = "qualia-l6-semantic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["metal"]
+metal = ["dep:qualia-metal"]
+cuda  = ["dep:qualia-cuda", "qualia-cuda/cuda"]
+
+[dependencies]
+qualia-types.workspace = true
+qualia-shm.workspace = true
+qualia-metal = { workspace = true, optional = true }
+qualia-cuda  = { workspace = true, optional = true }

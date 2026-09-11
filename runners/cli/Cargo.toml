@@ -1,0 +1,16 @@
+[package]
+name = "qualia-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "qualia"
+path = "src/main.rs"
+
+[dependencies]
+qualia-ipc.workspace = true
+qualia-sync-types.workspace = true
+qualia-types.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,13 @@
+[package]
+name = "qualia-watch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qualia-types.workspace = true
+qualia-shm.workspace = true
+qualia-ipc.workspace = true
+crossterm = "0.28"
+ratatui = "0.29"
+libc = "0.2"
