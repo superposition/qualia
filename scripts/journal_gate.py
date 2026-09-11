@@ -3,7 +3,7 @@
 
 An entry is produced by agents and reviewed before it goes live, and every role's
 output is a comment on the entry's PR, so this gate reads the PR: the comments are
-the process, not an agent's memory. It checks three legs:
+the process, not an agent's memory. It checks these legs:
 
   checklists  `docs/journal-review.md` holds three distinct checklists, one
               `## accuracy`, `## teaching`, `## style` section each. This is the
@@ -11,19 +11,23 @@ the process, not an agent's memory. It checks three legs:
               distinct checklists".
   roles       the entry PR carries an editorial comment per role, each beginning
               with the `braid-review` fenced block that `docs/journal-review.md`
-              fixes (`role:`, `verdict:`, `notes:`), and no `<!-- ASK: -->`
-              question survives in the entry. The last comment per role wins, so
-              the re-read after a revision is the verdict that counts and an
-              earlier one is reported as superseded, not fatal; a fence that
+              fixes (`role:`, `verdict:`, `notes:`). The last comment per role
+              wins, so the re-read after a revision is the verdict that counts and
+              an earlier one is reported as superseded, not fatal; a fence that
               names two roles at once is refused. The ticket's Command counts the
               `role:` blocks with `gh pr view <n> --comments`; that display form
               aborts in this repository on the deprecated `projectCards` GraphQL
               field, so the same comment stream is read as JSON here.
-  gate        publish happens only when all three verdicts are `approve`: a
-              `request-changes` closes the gate and names the role. With `--url`,
-              the live entry and every absolute figure URL in the entry must
-              return 200, and a relative figure reference is refused as the
-              `docs/journal-review.md` style 4 failure it is (absolute URL).
+  entry       the entry text — the PR's added lines, `--diff`, or `--entry` —
+              carries no surviving `<!-- ASK: -->` question and holds the style
+              form `docs/journal-review.md` fixes. This is a leg of its own: the
+              comment stream says nothing about the entry it reviews.
+  gate        publish happens only when BOTH the roles leg and the entry leg were
+              evaluated and all three verdicts are `approve`: a `request-changes`
+              closes the gate and names the role. With `--url`, the live entry and
+              every absolute figure URL in the entry must return 200, and a
+              relative figure reference is refused as the `docs/journal-review.md`
+              style 4 failure it is (absolute URL).
 
 Usage:
 
@@ -34,17 +38,25 @@ Usage:
     python scripts/journal_gate.py --entry _posts/2026-09-11-the-public-record.md
 
 `--comments` is the JSON array `gh pr view <n> --repo R --json comments --jq
-'[.comments[].body]'` prints and needs `--pr <n>` to say which PR it came from;
-`--diff` is `gh pr diff <n> --repo R`. Both replace the network calls for a dry
-run or a test. `--entry` checks one local markdown file instead of a PR's diff.
-`--self-test` runs the built-in fixtures and needs no network.
+'[.comments[].body]'` prints and needs `--pr <n>` to say which PR it came from,
+plus an entry source: `--diff` (the PR's diff) or `--entry` (a local markdown
+file). `--diff` is `gh pr diff <n> --repo R`; both `--comments` and `--diff`
+replace the network calls for a dry run or a test. `--entry` checks one local
+markdown file instead of a PR's diff. `--self-test` runs the built-in fixtures
+and needs no network.
 
-The checklists are checked by every run. The roles leg needs a PR context: a bare
-run, or `--entry` alone, checks less than the publish rule asks, so it prints
-`journal-gate: <entry|checklists> OK (roles not checked: pass --pr <n>)` and
-exits 1 — `journal-gate: OK`, exit 0, is printed only when the roles leg was
-evaluated and every leg holds. `--comments` without `--pr` is a usage error,
-exit 2. Any other failure exits 1 with the failing leg named on stderr.
+The checklists are checked by every run, but `journal-gate: OK`, exit 0, is
+printed only when BOTH the roles leg and the entry leg were evaluated and every
+leg holds. Three runs check less than the publish rule asks and never print
+`journal-gate: OK`: a bare run (or any run with neither `--pr` nor `--entry` —
+`--diff` alone is read by nothing) prints `journal-gate: checklists OK (roles not
+checked: pass --pr <n>)` and exits 1; an `--entry`-only run checks the entry's
+form and its `<!-- ASK: -->` questions too but not the roles, prints
+`journal-gate: entry OK (roles not checked: pass --pr <n>)` and exits 1; an
+entry-less roles run prints `journal-gate: roles OK (entry not checked)` and
+exits 1, and the `--comments` form refuses it up front as a usage error, exit 2.
+`--comments` without `--pr` is a usage error, exit 2. Any other failure exits 1
+with the failing leg named on stderr.
 """
 
 import argparse
@@ -377,6 +389,13 @@ def self_test():
             code = exit_error.code
         return code, out.getvalue(), err.getvalue()
 
+    def run_finish(*args):
+        """Drive finish() directly, capturing stdout/stderr and the exit code."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = finish(*args)
+        return code, out.getvalue(), err.getvalue()
+
     roles, problems, _ = parse_editorial([editorial_comment(role, "approve", 0) for role in ROLES])
     check("three approvals parse", not problems and set(roles) == set(ROLES))
     check("three approvals open the gate", gate_state(roles) == ([], []))
@@ -519,6 +538,21 @@ def self_test():
         code, _, _ = run_gate("--comments", ok_comments)
         check("--comments without --pr is a usage error", code == 2)
 
+        code, _, err = run_gate("--pr", "37", "--comments", ok_comments)
+        check(
+            "--comments without an entry source is a usage error",
+            code == 2 and "entry source" in err,
+        )
+
+        code, out, _ = run_finish([], True, True)
+        check("both legs checked open the gate", code == 0 and "journal-gate: OK" in out)
+
+        code, out, _ = run_finish([], True, False)
+        check(
+            "a roles run that never read the entry does not print OK",
+            code == 1 and "entry not checked" in out and "\njournal-gate: OK\n" not in out,
+        )
+
         code, out, _ = run_gate("--pr", "37", "--comments", ok_comments, "--diff", entry_diff)
         check("roles and entry open the gate", code == 0 and "journal-gate: OK" in out)
 
@@ -546,8 +580,10 @@ def self_test():
 def finish(problems, roles_checked, entry_checked):
     """Print the closing lines and return the exit code.
 
-    `journal-gate: OK`, exit 0, is only reachable when the roles leg was actually
-    evaluated; a run that could not check the roles says so and exits 1.
+    `journal-gate: OK`, exit 0, is only reachable when BOTH legs were actually
+    evaluated — the roles leg (all three verdicts `approve`) and the entry leg
+    (no surviving `<!-- ASK: -->`, the style form) — so a run that read one and
+    not the other names the missing leg and exits 1 instead.
     """
     if problems:
         for problem in problems:
@@ -560,6 +596,14 @@ def finish(problems, roles_checked, entry_checked):
         print(
             "journal-gate: FAIL - the roles leg was not checked; `journal-gate: OK` "
             "needs an entry PR (--pr <n>, or --comments FILE with --pr <n>)"
+        )
+        return 1
+    if not entry_checked:
+        print("journal-gate: roles OK (entry not checked)")
+        print(
+            "journal-gate: FAIL - the entry leg was not checked; `journal-gate: OK` "
+            "needs the entry text (--diff <file> or --entry <file>, or a --pr <n> "
+            "whose diff can be read)"
         )
         return 1
     print("journal-gate: OK")
@@ -586,6 +630,14 @@ def main(argv):
         parser.error(
             "--comments needs --pr <n>: the JSON is that entry PR's comment stream, "
             "and without it the roles leg cannot be checked"
+        )
+
+    if args.comments is not None and args.diff is None and args.entry is None:
+        parser.error(
+            "--comments needs an entry source (--diff <file>, the PR's diff, or "
+            "--entry <file>): the entry leg reads the `<!-- ASK: -->` questions and "
+            "the style form, and a comment stream alone would let an unchecked entry "
+            "through"
         )
 
     problems = []

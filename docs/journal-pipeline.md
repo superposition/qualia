@@ -94,17 +94,29 @@ python scripts/journal_gate.py --entry _posts/2026-09-11-the-public-record.md
 ```
 
 The script counts the `braid-review` blocks — the last one per role — checks the three distinct
-checklists, and prints `journal-gate: OK` with exit 0 **only when the roles leg was actually
-evaluated**: the checklists hold, the roles hold, no `<!-- ASK: -->` survives in the entry, the gate is
-open, and, under `--url`, the live entry and every figure URL return 200. It exits non-zero whenever it
-cannot open the gate:
+checklists, and prints `journal-gate: OK` with exit 0 **only when both the roles leg and the entry leg
+were actually evaluated**: the checklists hold, the roles hold, no `<!-- ASK: -->` survives in the
+entry, the gate is open, and, under `--url`, the live entry and every figure URL return 200. It exits
+non-zero whenever it cannot open the gate. Three run modes check less than the publish rule asks and
+never print `journal-gate: OK`:
 
-- a bare `python scripts/journal_gate.py` and an `--entry`-only run check the checklists (and the
-  entry's form) but not the roles, so they print
-  `journal-gate: entry OK (roles not checked: pass --pr <n>)` — a bare run says `checklists` where the
-  entry run says `entry` — and exit 1; they never print `journal-gate: OK`;
-- `--comments` is the PR's comment stream and needs its `--pr <n>`; without it the run is a usage
-  error, exit 2, because the JSON would otherwise be silently dropped;
+- a **bare run** (`python scripts/journal_gate.py`, or any run with neither `--pr` nor `--entry` —
+  `--diff` alone is read by nothing) checks the checklists only: it prints
+  `journal-gate: checklists OK (roles not checked: pass --pr <n>)` and exits 1;
+- an **`--entry`-only run** checks the entry's style form and its `<!-- ASK: -->` questions as well,
+  but not the roles: it prints `journal-gate: entry OK (roles not checked: pass --pr <n>)` and exits 1;
+- an **entry-less roles run** — the roles leg read, the entry leg not — never prints `OK`: the
+  `--comments` form needs an entry source (`--diff <file>`, the PR's diff, or `--entry <file>`) the way
+  it needs `--pr <n>`, and without one it is a usage error, exit 2, because the comment stream alone
+  would let an entry carrying an unresolved `<!-- ASK: -->` through; if a run reaches the close with
+  the roles leg checked and the entry leg not, it prints `journal-gate: roles OK (entry not checked)`
+  and exits 1.
+
+Two further rules:
+
+- `--comments` is the PR's comment stream; `--pr <n>` says which PR it came from. A `--comments` run
+  missing either `--pr <n>` or the entry source is a usage error, exit 2, because the JSON (or the
+  entry) would otherwise be silently dropped;
 - in a `--url` run a figure referenced by a relative URL is a **style failure**, not a silent skip:
   the gate names the reference and closes.
 
