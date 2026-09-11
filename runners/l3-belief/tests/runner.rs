@@ -3,11 +3,17 @@
 //! The belief loop belongs to the compute backend, so what this binary owns and
 //! can be held to is the identity it hands over and what it does where no
 //! backend can run the layer: fail, name layer 3 and this runner, and leave the
-//! shared arena exactly as it found it. On macOS the same binary enters the
-//! real loop and blocks, so these checks cover the hosts where the refusal is
-//! the reachable path.
+//! shared arena exactly as it found it.
+//!
+//! The refusal is only the reachable path where the compiled-in backend cannot
+//! run the layer at all. On macOS the metal build blocks; with the `cuda`
+//! feature on a CUDA host the layer runs for real (`running at ... Hz`), so the
+//! checks below would wait on a live belief loop rather than read a refusal —
+//! and the one that hands the child a live arena would wait forever. They
+//! therefore cover the metal-on-a-non-macOS-host configuration, where the
+//! refusal is structural.
 
-#![cfg(not(target_os = "macos"))]
+#![cfg(all(not(target_os = "macos"), not(feature = "cuda")))]
 
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
