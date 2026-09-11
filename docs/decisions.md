@@ -152,7 +152,8 @@ and samples RAM, pagefile, VRAM and build-process count every 10 s into `C:/tmp/
 letting the host run out of memory costs the session.
 
 The budget this enforces, stated for every agent in [`agents.md`](agents.md) §Host safety: agent builds
-use `cargo -j 4`; no workspace-wide build/test matrices; GPU work is one bounded job at a time; profiling
+use `cargo -j 2` (D-014 tightens this from the original `-j 4` while the CPU fault lasts); no
+workspace-wide build/test matrices; GPU work is one bounded job at a time; profiling
 happens on Pinkie. Measured 2026-09-11 with 21 agents building at once: 19.5–21.7 GiB of 63.9 GiB used
 and pagefile slack ≥ 41 GiB, so the guard is a ceiling, not a routine actor.
 

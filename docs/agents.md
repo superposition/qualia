@@ -109,7 +109,8 @@ The dev host is shared by every agent and cannot be rebooted cheaply. Four rules
   adapter, no driver reinstall, no profiler-permission script. The 06:10 crash was exactly this (D-012).
 - **One GPU job at a time, bounded.** `--test-threads=1`, iteration caps, no open-ended benchmarks;
   `ncu`/`nsys` runs count. Profiling happens on Pinkie (the board), not the host.
-- **Build bounded.** `cargo ... -j 4` for agent builds; no `--workspace` build/test matrices, no
+- **Build bounded.** `cargo ... -j 2` for agent builds while the CPU fault lasts (D-014; the general
+  budget is D-013); no `--workspace` build/test matrices, no
   unbounded test loops; prefer one package at a time.
 - **The CPU itself is currently faulty.** Since 05:44 on 2026-09-11 the host logs WHEA-Logger Id 19
   corrected machine checks (processor core, internal parity error) every 1–3 minutes under load; rustc
