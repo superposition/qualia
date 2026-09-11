@@ -986,15 +986,8 @@ fn load_or_extract_controller_capture(
         return Ok(None);
     }
 
-    let rows = match read_controller_capture_csv(output_path) {
-        Ok(rows) => rows,
-        Err(error) => {
-            eprintln!(
-                "warn: controller-capture parse skipped for {}: {error:#}",
-                output_path.display()
-            );
-            return Ok(None);
-        }
+    let Some(rows) = read_controller_capture_or_warn(output_path) else {
+        return Ok(None);
     };
     let mean_confidence = mean_controller_confidence(&rows);
     if mean_confidence < 0.10 {
@@ -1025,6 +1018,21 @@ fn copy_controller_csv(controller_csv: &str, output_path: &Path) -> Result<()> {
         )
     })?;
     Ok(())
+}
+
+/// Reads the extracted controller capture, warning and giving up when it cannot be parsed.
+fn read_controller_capture_or_warn(output_path: &Path) -> Option<Vec<ControllerCaptureRow>> {
+    let parsed = read_controller_capture_csv(output_path);
+    match parsed {
+        Ok(rows) => Some(rows),
+        Err(error) => {
+            eprintln!(
+                "warn: controller-capture parse skipped for {}: {error:#}",
+                output_path.display()
+            );
+            None
+        }
+    }
 }
 
 /// Mean reported confidence over a controller capture.
@@ -1459,13 +1467,11 @@ fn frame_observation_sample(
 
 fn trace_point_from_sample(sample: &AbstractStateSample) -> Option<TracePoint> {
     let payload = serde_json::from_str::<Value>(&sample.payload_json).ok()?;
+    let coordinate = |key: &str| payload.get(key).and_then(Value::as_f64);
     Some(TracePoint {
-        x_m: payload.get("x_m")?.as_f64()?,
-        z_m: payload.get("z_m")?.as_f64()?,
-        motion_px: payload
-            .get("motion_px")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0),
+        x_m: coordinate("x_m")?,
+        z_m: coordinate("z_m")?,
+        motion_px: coordinate("motion_px").unwrap_or(0.0),
         confidence: sample.confidence,
     })
 }

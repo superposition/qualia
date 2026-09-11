@@ -148,12 +148,7 @@ fn build_fragments(
     let streams = store
         .list_streams(spec.session_id)
         .context("list streams for inference")?;
-    let stream_key = streams
-        .iter()
-        .find(|stream| stream.role == "observation")
-        .map(|stream| stream.stream_key.clone())
-        .or_else(|| streams.first().map(|stream| stream.stream_key.clone()))
-        .unwrap_or_else(|| "derived".to_string());
+    let stream_key = observation_stream_key(&streams);
 
     let epochs = store
         .list_epochs(spec.session_id)
@@ -179,30 +174,7 @@ fn build_fragments(
         let spaces = store
             .list_spaces(epoch.id)
             .with_context(|| format!("list spaces for epoch {}", epoch.id))?;
-        if spaces.is_empty() {
-            continue;
-        }
-
-        let mut beliefs = Vec::new();
-        for space in spaces {
-            let samples = store
-                .list_state_samples(space.id, None, None, None)
-                .with_context(|| format!("list samples for space {}", space.id))?;
-            let windowed = samples
-                .into_iter()
-                .filter(|sample| {
-                    in_window(
-                        sample.timestamp_sec,
-                        spec.window_start_sec,
-                        spec.window_end_sec,
-                    )
-                })
-                .collect::<Vec<_>>();
-            if windowed.is_empty() {
-                continue;
-            }
-            beliefs.push(derive_belief(&space.abstraction_name, &windowed)?);
-        }
+        let beliefs = epoch_beliefs(store, &spaces, spec)?;
         if beliefs.is_empty() {
             continue;
         }
@@ -301,6 +273,48 @@ fn build_fragments(
         approximate_fragment_count: if spec.require_exact { 0 } else { fragment_ids.len() },
         fragment_ids,
     })
+}
+
+/// The stream the fragments hang off: the first observation stream, else the first stream, else
+/// `derived`.
+fn observation_stream_key(streams: &[qualia_session_store::SessionStreamRow]) -> String {
+    let chosen = streams
+        .iter()
+        .find(|stream| stream.role == "observation")
+        .or_else(|| streams.first());
+    match chosen {
+        Some(stream) => stream.stream_key.clone(),
+        None => "derived".to_string(),
+    }
+}
+
+/// One belief per space of `epoch` that holds samples inside the requested window.
+fn epoch_beliefs(
+    store: &SessionStore,
+    spaces: &[qualia_session_store::AbstractionSpaceRow],
+    spec: &InferenceJobSpec,
+) -> Result<Vec<VariableBelief>> {
+    let mut beliefs = Vec::new();
+    for space in spaces {
+        let samples = store
+            .list_state_samples(space.id, None, None, None)
+            .with_context(|| format!("list samples for space {}", space.id))?;
+        let windowed: Vec<_> = samples
+            .into_iter()
+            .filter(|sample| {
+                in_window(
+                    sample.timestamp_sec,
+                    spec.window_start_sec,
+                    spec.window_end_sec,
+                )
+            })
+            .collect();
+        if windowed.is_empty() {
+            continue;
+        }
+        beliefs.push(derive_belief(&space.abstraction_name, &windowed)?);
+    }
+    Ok(beliefs)
 }
 
 fn in_window(timestamp_sec: f64, start: Option<f64>, end: Option<f64>) -> bool {

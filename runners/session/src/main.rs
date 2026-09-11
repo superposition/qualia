@@ -847,6 +847,10 @@ fn header_frame_id(msg: &Value) -> &str {
         .unwrap_or("")
 }
 
+/// The legacy keys a ROS2 value may carry its stamp under when it has no `stamp` member.
+const LEGACY_STAMP_KEYS: [&str; 3] = ["timestamp", "time", "t"];
+
+/// The seconds a ROS2 value stamps itself with: a bare number, its `stamp` member, or a legacy key.
 fn parse_stamp_value(value: &Value) -> Option<f64> {
     if let Some(number) = value.as_f64() {
         return Some(number);
@@ -854,31 +858,25 @@ fn parse_stamp_value(value: &Value) -> Option<f64> {
     if let Some(stamp) = value.get("stamp") {
         return parse_stamp_struct(stamp);
     }
-    for key in ["timestamp", "time", "t"] {
-        if let Some(number) = value.get(key).and_then(Value::as_f64) {
-            return Some(number);
-        }
-    }
-    None
+    LEGACY_STAMP_KEYS
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_f64))
 }
 
+/// The seconds a ROS2 stamp object carries, as `sec`/`secs`/`s` plus `nanosec`/`nsec`/`nsecs`/`ns`.
 fn parse_stamp_struct(stamp: &Value) -> Option<f64> {
     if let Some(number) = stamp.as_f64() {
         return Some(number);
     }
-    let seconds = stamp
-        .get("sec")
-        .or_else(|| stamp.get("secs"))
-        .or_else(|| stamp.get("s"))
-        .and_then(Value::as_f64)?;
-    let nanoseconds = stamp
-        .get("nanosec")
-        .or_else(|| stamp.get("nsec"))
-        .or_else(|| stamp.get("nsecs"))
-        .or_else(|| stamp.get("ns"))
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
-    Some(seconds + nanoseconds / 1_000_000_000.0)
+    let whole = stamp_field(stamp, &["sec", "secs", "s"])?;
+    let fraction = stamp_field(stamp, &["nanosec", "nsec", "nsecs", "ns"]).unwrap_or(0.0);
+    Some(whole + fraction / 1_000_000_000.0)
+}
+
+/// The first of `keys` a stamp object carries as a number.
+fn stamp_field(stamp: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter()
+        .find_map(|key| stamp.get(*key).and_then(Value::as_f64))
 }
 
 fn infer_cmd_vel_symbol(msg: &Value) -> String {
