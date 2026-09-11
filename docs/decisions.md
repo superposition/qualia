@@ -257,6 +257,22 @@ capture and the C39/T23/T26 legs use it; the board's crate cache is populated), 
 a host-built artifact only when it is architecture-independent. Operator action to restore the cross
 lane: install the `aarch64-unknown-linux-gnu` toolchain, start Docker, or install `cross`.
 
+## D-019 — A PR based on another ticket's branch can strand its work; base PRs on `main`
+
+Instance: PR #185 (T12, ticket #27) was opened with base `ticket/T11` and merged into that branch at
+`f2ad305` on 2026-09-11 10:52Z, which closed #27. When `ticket/T11` was later rebased onto `main`,
+the rebase dropped the merge commit and with it T12's commits (`53233ce` and siblings), so the work
+existed only in the merge commit's parents — an ancestor of neither `main` nor the branch. The
+stranded work is being replayed (`ticket/T12-replay`, `Closes #27`).
+
+Consequences:
+
+- **PRs are based on `main`.** A dependency that has not landed yet is stated in the ticket body and
+  recorded in a `blocked_on:` field, never expressed as another branch as the PR base.
+- **Closing is not landing.** A `Closes #n` in a PR that merges into a non-default branch closes the
+  issue without the work reaching the trunk; the tracker lies until someone checks. When a ticket's
+  work is found stranded, replay it and reopen the issue rather than trusting the label.
+
 ## D-003 — Repository
 
 
