@@ -160,8 +160,9 @@ impl CoherentJepaRuntime {
         let occupancy_logits = self.model.occupancy_decoder.forward(&prediction.mean)?;
         let synchronized_latency_us = end_measurement(&self.device, started)?;
 
+        let values = head_values(&latent, &prediction, &evidence, &occupancy_logits, None)?;
         let [latent, predicted_mean, predicted_log_variance, evidence, occupancy_logits] =
-            head_values(&latent, &prediction, &evidence, &occupancy_logits)?;
+            split_values(&values, HEAD_WIDTHS);
         let output = RuntimeOutput {
             latent, predicted_mean, predicted_log_variance,
             evidence, occupancy_logits,
@@ -205,10 +206,18 @@ impl CoherentJepaRuntime {
         let occupancy_logits = self.model.occupancy_decoder.forward(&prediction.mean)?;
         let nll_tensor = transition_nll_tensor(&prediction, &metric_latent)?;
         let synchronized_latency_us = end_measurement(&self.device, started)?;
-        let transition_nll = nll_tensor.to_scalar::<f32>()?;
+        let values = head_values(
+            &target_latent,
+            &prediction,
+            &evidence,
+            &occupancy_logits,
+            Some(&nll_tensor),
+        )?;
+        let (heads, scored) = values.split_at(HEAD_VALUES);
+        let transition_nll = scored[0];
 
         let [latent, predicted_mean, predicted_log_variance, evidence, occupancy_logits] =
-            head_values(&target_latent, &prediction, &evidence, &occupancy_logits)?;
+            split_values(heads, HEAD_WIDTHS);
         let output = RuntimeOutput {
             latent, predicted_mean, predicted_log_variance,
             evidence, occupancy_logits,
@@ -244,13 +253,11 @@ impl CoherentJepaRuntime {
         let action_tensor = row_tensor(&action, ACTION_DIM, &self.device)?;
         let delta_tensor = dt_tensor(delta_seconds, &self.device)?;
 
-        self.device.synchronize()?;
         let prediction = self
             .model
             .predictor
             .forward(&latent_tensor, &action_tensor, &delta_tensor)?;
         let occupancy = self.model.occupancy_decoder.forward(&prediction.mean)?;
-        self.device.synchronize()?;
         let output = PredictedRolloutStep {
             mean: tensor_values(&prediction.mean, CORE_DIM)?,
             log_variance: tensor_values(&prediction.log_variance, CORE_DIM)?,
@@ -300,25 +307,62 @@ fn begin_measurement(device: &Device) -> candle_core::Result<Instant> {
 }
 
 /// Drain queued device work again and close the latency window, saturated.
+///
+/// The window closes on this synchronize rather than on the head readback, so
+/// the readback that follows never waits: the copy's own drain would otherwise
+/// be charged to the readback instead of to the queue it waits on.
 fn end_measurement(device: &Device, started: Instant) -> candle_core::Result<u64> {
     device.synchronize()?;
     Ok(started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64)
 }
 
+/// Contract width of each published head, in readback order.
+const HEAD_WIDTHS: [usize; 5] = [CORE_DIM, CORE_DIM, CORE_DIM, BELIEF_DIM, GROUNDING_CELLS];
+
+/// Number of `f32` values one concatenated head readback carries.
+const HEAD_VALUES: usize = CORE_DIM + CORE_DIM + CORE_DIM + BELIEF_DIM + GROUNDING_CELLS;
+
 /// Copy every published head down to the host at its contract width.
+///
+/// One device-side concatenation and one host copy, not five. A host copy pays
+/// a fixed setup on an accelerator, so five separate copies of the same bytes
+/// cost five times one joined copy. `scored_nll`, when present, rides in the
+/// same copy as a trailing one-element column and lands at `HEAD_VALUES`.
 fn head_values(
     latent: &Tensor,
     prediction: &TransitionPrediction,
     evidence: &Tensor,
     occupancy_logits: &Tensor,
-) -> candle_core::Result<[Vec<f32>; 5]> {
-    Ok([
-        tensor_values(latent, CORE_DIM)?,
-        tensor_values(&prediction.mean, CORE_DIM)?,
-        tensor_values(&prediction.log_variance, CORE_DIM)?,
-        tensor_values(evidence, BELIEF_DIM)?,
-        tensor_values(occupancy_logits, GROUNDING_CELLS)?,
-    ])
+    scored_nll: Option<&Tensor>,
+) -> candle_core::Result<Vec<f32>> {
+    let heads = [
+        latent,
+        &prediction.mean,
+        &prediction.log_variance,
+        evidence,
+        occupancy_logits,
+    ];
+    let joined = match scored_nll {
+        None => Tensor::cat(&heads, 1)?,
+        Some(nll) => {
+            let nll = nll.reshape((1, 1))?;
+            Tensor::cat(&[heads[0], heads[1], heads[2], heads[3], heads[4], &nll], 1)?
+        }
+    };
+    tensor_values(&joined, HEAD_VALUES + usize::from(scored_nll.is_some()))
+}
+
+/// Split one concatenated readback at the given contract widths.
+fn split_values<const N: usize>(values: &[f32], widths: [usize; N]) -> [Vec<f32>; N] {
+    let mut parts: [Vec<f32>; N] = std::array::from_fn(|_| Vec::new());
+    let mut rest = values;
+    for (part, width) in parts.iter_mut().zip(widths) {
+        let (head, tail) = rest.split_at(width);
+        part.extend_from_slice(head);
+        rest = tail;
+    }
+    debug_assert!(rest.is_empty());
+    parts
 }
 
 fn validate_input(input: &RuntimeInput) -> candle_core::Result<()> {

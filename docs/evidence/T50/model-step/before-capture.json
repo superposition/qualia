@@ -1,0 +1,34 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "./target/release/qualia-jepa-runtime-probe-before",
+    "--backend",
+    "cuda",
+    "--iterations",
+    "30",
+    "--warmup",
+    "3"
+  ],
+  "profiler_argv": [
+    "/usr/local/cuda/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=<output-dir>/capture",
+    "./target/release/qualia-jepa-runtime-probe-before",
+    "--backend",
+    "cuda",
+    "--iterations",
+    "30",
+    "--warmup",
+    "3"
+  ],
+  "command": "./target/release/qualia-jepa-runtime-probe-before --backend cuda --iterations 30 --warmup 3",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 2255
+}
