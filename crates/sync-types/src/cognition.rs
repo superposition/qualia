@@ -55,8 +55,8 @@ pub struct CognitionBoundaryFrameV2 {
     pub source: String,
     pub destination: String,
     pub layer: u8,
-    /// Identifies one producer boot/runtime. Sequence numbers are monotonic
-    /// only within this epoch and may restart from zero in a later epoch.
+    /// Written once per producer boot. `sequence` is monotonic inside one
+    /// epoch and starts again from zero when the producer restarts.
     #[serde(default)]
     pub producer_epoch: String,
     pub sequence: u64,
@@ -65,9 +65,9 @@ pub struct CognitionBoundaryFrameV2 {
     pub latent: Vec<f32>,
 }
 
-/// Source compatibility for callers compiled against the original type name.
-/// Serialized v2 frames are distinguished by `schema_version` and
-/// `producer_epoch`; legacy v1 JSON remains readable during the migration.
+/// Kept so callers written against the earlier name still compile. The JSON is
+/// the v2 envelope either way; a reader tells the two apart by `schema_version`
+/// and `producer_epoch`, and v1 documents keep parsing through the migration.
 pub type CognitionBoundaryFrameV1 = CognitionBoundaryFrameV2;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -314,9 +314,10 @@ impl SemanticEvidenceRefV2 {
 /// Source compatibility for internal call sites. Serialized input is v2 only.
 pub type SemanticPriorV1 = SemanticPriorV2;
 
-/// Fixed, versioned, non-learned semantic view adapter. It never accesses or
-/// mutates JEPA/Cognition parameters. Each typed feature owns a disjoint block
-/// of 64 L3 dimensions, making provenance and ablation exact.
+/// Projects a frozen, versioned view of the priors into L3. The function only
+/// reads: no JEPA or Cognition parameter is touched, and every typed feature
+/// lands in its own 64-dimension span, so one feature can be traced or ablated
+/// exactly.
 pub fn project_typed_priors_to_l3(priors: &[SemanticPriorV2]) -> [f32; COGNITION_STATE_DIM] {
     let mut projected = [0.0; COGNITION_STATE_DIM];
     if priors.is_empty() {
