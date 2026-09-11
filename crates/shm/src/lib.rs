@@ -23,14 +23,12 @@ use windows_sys::Win32::System::Memory::{
     MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE,
 };
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+// ── Errors ──────────────────────────────────────────────────────────────────
 
 /// Why a region could not be created, attached or validated.
 pub enum ShmError {
-    /// The operating system refused the call; the payload is the raw `errno` or
-    /// `GetLastError` value it reported.
+    /// The operating system refused the call; the payload is the raw code it
+    /// reported, `errno` on POSIX and `GetLastError` on Windows.
     OsError(i32),
     /// The mapped bytes do not open with [`SHM_MAGIC`], so they are not ours.
     BadMagic,
@@ -48,10 +46,11 @@ impl std::fmt::Debug for ShmError {
             Self::OsError(code) => write!(f, "ShmError::OsError({code})"),
             Self::BadMagic => f.write_str("ShmError::BadMagic"),
             Self::SizeMismatch => f.write_str("ShmError::SizeMismatch"),
-            Self::VersionMismatch { expected, found } => write!(
-                f,
-                "ShmError::VersionMismatch {{ expected: {expected}, found: {found} }}"
-            ),
+            Self::VersionMismatch { expected, found } => f
+                .debug_struct("ShmError::VersionMismatch")
+                .field("expected", expected)
+                .field("found", found)
+                .finish(),
             Self::LayoutMismatch => f.write_str("ShmError::LayoutMismatch"),
         }
     }
@@ -74,14 +73,12 @@ impl std::fmt::Display for ShmError {
 
 impl std::error::Error for ShmError {}
 
-// ---------------------------------------------------------------------------
-// Layout
-// ---------------------------------------------------------------------------
+// ── Layout ──────────────────────────────────────────────────────────────────
 
 /// Size of the arena: 64 MiB, fixed for the lifetime of the ABI.
 pub const SHM_SIZE: usize = 64 * 1024 * 1024;
 
-const fn align_offset(value: usize, align: usize) -> usize {
+const fn round_up(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
@@ -143,25 +140,25 @@ pub const CAMERA_FLOOR_OFFSET: usize =
 
 /// Completed action intervals follow every legacy sensor slot, aligned for the
 /// atomic pair they carry.
-pub const APPLIED_ACTION_OFFSET: usize = align_offset(
+pub const APPLIED_ACTION_OFFSET: usize = round_up(
     CAMERA_FLOOR_OFFSET + std::mem::size_of::<CameraFloorGrid>(),
     std::mem::align_of::<AppliedActionSlot>(),
 );
 
 /// The versioned JEPA region is append-only and starts after the legacy slots.
-pub const JEPA_REGION_OFFSET: usize = align_offset(
+pub const JEPA_REGION_OFFSET: usize = round_up(
     APPLIED_ACTION_OFFSET + std::mem::size_of::<AppliedActionSlot>(),
     64,
 );
 /// The coherent evidence snapshot opens the JEPA region.
 pub const JEPA_EVIDENCE_OFFSET: usize = JEPA_REGION_OFFSET;
 /// The runtime telemetry snapshot follows the evidence snapshot.
-pub const JEPA_TELEMETRY_OFFSET: usize = align_offset(
+pub const JEPA_TELEMETRY_OFFSET: usize = round_up(
     JEPA_EVIDENCE_OFFSET + std::mem::size_of::<JepaEvidenceSlot>(),
     std::mem::align_of::<JepaTelemetrySlot>(),
 );
 /// The lossless applied-action history follows the telemetry snapshot.
-pub const APPLIED_ACTION_HISTORY_OFFSET: usize = align_offset(
+pub const APPLIED_ACTION_HISTORY_OFFSET: usize = round_up(
     JEPA_TELEMETRY_OFFSET + std::mem::size_of::<JepaTelemetrySlot>(),
     std::mem::align_of::<AppliedActionHistory>(),
 );
@@ -170,9 +167,7 @@ pub const JEPA_REGION_SIZE: usize = APPLIED_ACTION_HISTORY_OFFSET
     + std::mem::size_of::<AppliedActionHistory>()
     - JEPA_REGION_OFFSET;
 
-// ---------------------------------------------------------------------------
-// ShmRegion
-// ---------------------------------------------------------------------------
+// ── ShmRegion ───────────────────────────────────────────────────────────────
 
 /// A mapped handle to the arena.
 ///
@@ -572,9 +567,7 @@ impl Drop for ShmRegion {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Platform paths
-// ---------------------------------------------------------------------------
+// ── Platform paths ──────────────────────────────────────────────────────────
 
 /// Zero a freshly created mapping and stamp the ABI header into it.
 ///
@@ -610,12 +603,12 @@ fn create_posix(name: &str) -> Result<ShmRegion, ShmError> {
         )
     };
     if fd < 0 {
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     // SAFETY: `fd` is a live descriptor for a shared-memory object.
     if unsafe { libc::ftruncate(fd, SHM_SIZE as libc::off_t) } != 0 {
-        let error = errno();
+        let error = last_error_code();
         unsafe {
             libc::close(fd);
             libc::shm_unlink(c_name.as_ptr());
@@ -638,7 +631,7 @@ fn create_posix(name: &str) -> Result<ShmRegion, ShmError> {
     unsafe { libc::close(fd) };
 
     if mapped == libc::MAP_FAILED {
-        let error = errno();
+        let error = last_error_code();
         // SAFETY: the name exists and creation failed after it was made.
         unsafe { libc::shm_unlink(c_name.as_ptr()) };
         return Err(ShmError::OsError(error));
@@ -663,13 +656,13 @@ fn open_posix(name: &str) -> Result<ShmRegion, ShmError> {
     // SAFETY: opens an object that must already exist; `c_name` is a C string.
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDWR, 0) };
     if fd < 0 {
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
     // SAFETY: `fd` is live and `status` points at writable storage.
     if unsafe { libc::fstat(fd, status.as_mut_ptr()) } != 0 {
-        let error = errno();
+        let error = last_error_code();
         unsafe { libc::close(fd) };
         return Err(ShmError::OsError(error));
     }
@@ -696,13 +689,13 @@ fn open_posix(name: &str) -> Result<ShmRegion, ShmError> {
     unsafe { libc::close(fd) };
 
     if mapped == libc::MAP_FAILED {
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     let ptr = mapped as *mut u8;
     // SAFETY: `ptr` is the base of the mapping; the creator wrote the header.
     let header = unsafe { &*(ptr as *const ShmHeader) };
-    if let Err(error) = validate_header(header) {
+    if let Err(error) = header_matches_build(header) {
         // SAFETY: `ptr` and `SHM_SIZE` describe the mapping created above.
         unsafe { libc::munmap(ptr as *mut libc::c_void, SHM_SIZE) };
         return Err(error);
@@ -718,7 +711,7 @@ fn open_posix(name: &str) -> Result<ShmRegion, ShmError> {
 
 #[cfg(windows)]
 fn create_windows(name: &str) -> Result<ShmRegion, ShmError> {
-    let c_name = mapping_name_wide(name)?;
+    let c_name = windows_object_name(name)?;
 
     // SAFETY: an unnamed (INVALID_HANDLE_VALUE) mapping of SHM_SIZE bytes backed
     // by the page file, published under `c_name`.
@@ -733,14 +726,14 @@ fn create_windows(name: &str) -> Result<ShmRegion, ShmError> {
         )
     };
     if handle.is_null() {
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     // SAFETY: the handle refers to a mapping of at least SHM_SIZE bytes.
     let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, SHM_SIZE) };
     if view.Value.is_null() {
         unsafe { CloseHandle(handle) };
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     let ptr = view.Value as *mut u8;
@@ -756,25 +749,25 @@ fn create_windows(name: &str) -> Result<ShmRegion, ShmError> {
 
 #[cfg(windows)]
 fn open_windows(name: &str) -> Result<ShmRegion, ShmError> {
-    let c_name = mapping_name_wide(name)?;
+    let c_name = windows_object_name(name)?;
 
     // SAFETY: opens a mapping that must already exist under `c_name`.
     let handle = unsafe { OpenFileMappingW(FILE_MAP_ALL_ACCESS, 0, c_name.as_ptr()) };
     if handle.is_null() {
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     // SAFETY: the handle refers to the creator's mapping.
     let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, SHM_SIZE) };
     if view.Value.is_null() {
         unsafe { CloseHandle(handle) };
-        return Err(ShmError::OsError(errno()));
+        return Err(ShmError::OsError(last_error_code()));
     }
 
     let ptr = view.Value as *mut u8;
     // SAFETY: `ptr` is the base of the mapping; the creator wrote the header.
     let header = unsafe { &*(ptr as *const ShmHeader) };
-    if let Err(error) = validate_header(header) {
+    if let Err(error) = header_matches_build(header) {
         unsafe {
             UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
                 Value: ptr as *mut core::ffi::c_void,
@@ -792,7 +785,7 @@ fn open_windows(name: &str) -> Result<ShmRegion, ShmError> {
 }
 
 /// Check that the header describes the region this build expects.
-fn validate_header(header: &ShmHeader) -> Result<(), ShmError> {
+fn header_matches_build(header: &ShmHeader) -> Result<(), ShmError> {
     if header.magic != SHM_MAGIC {
         return Err(ShmError::BadMagic);
     }
@@ -817,7 +810,7 @@ fn validate_header(header: &ShmHeader) -> Result<(), ShmError> {
 }
 
 /// The last OS error code, in the platform's own numbering.
-fn errno() -> i32 {
+fn last_error_code() -> i32 {
     #[cfg(windows)]
     {
         // SAFETY: `GetLastError` takes no arguments and reads thread state.
@@ -834,7 +827,7 @@ fn errno() -> i32 {
 /// POSIX names carry a leading `/` and may contain more separators; Windows
 /// object names use `\` or nothing, so every `/` collapses to `_`.
 #[cfg(windows)]
-fn mapping_name_wide(name: &str) -> Result<Vec<u16>, ShmError> {
+fn windows_object_name(name: &str) -> Result<Vec<u16>, ShmError> {
     let normalised = name.trim_start_matches('/').replace('/', "_");
     if normalised.is_empty() || normalised.contains('\0') {
         return Err(ShmError::OsError(ERROR_INVALID_PARAMETER));
@@ -858,9 +851,7 @@ fn now_ns() -> u64 {
         .unwrap_or(0)
 }
 
-// ---------------------------------------------------------------------------
-// Double-buffered layer access
-// ---------------------------------------------------------------------------
+// ── Double-buffered layer access ────────────────────────────────────────────
 
 /// Write side of a layer's double buffer.
 ///
