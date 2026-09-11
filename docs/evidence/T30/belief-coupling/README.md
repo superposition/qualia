@@ -63,8 +63,8 @@ Every one of the twelve captured launches is the belief tick's kernel:
 
 One launch (id 4) is the short outlier at 1.73 ms; the other eleven sit at 3.52–3.53 ms. The
 committed export says why: that launch's `SM Frequency` reading is 624.72 MHz where every other
-launch reads 305.97–305.98 MHz, and its `sm__cycles_elapsed.avg` (1,082,309) is in the same range as
-the other eleven (1,078,340–1,079,185) — the clock moved, not the work.
+launch reads 305.97–305.98 MHz, and its `sm__cycles_elapsed.avg` (1,082,309) is within 0.4 % of the
+other eleven's 1,078,177–1,079,185 — the clock moved, not the work.
 
 ## The number that changed against the previous capture
 
@@ -74,7 +74,7 @@ shape:
 
 | kernel (shape) | board, this capture | T16 4090 | baseline 4090 | board ÷ T16 | board ÷ baseline |
 | --- | --- | --- | --- | --- | --- |
-| `belief_update`, `1024×1`, grid `1×1` | **3.53 ms** (median of 12; first launch 1.73 ms) | **1573.013 µs** = 1.573 ms | **1547.834 µs** = 1.548 ms | **2.24×** | **2.28×** |
+| `belief_update`, `1024×1`, grid `1×1` | **3.53 ms** (median of 12; one short launch, id 4, at 1.73 ms) | **1573.013 µs** = 1.573 ms | **1547.834 µs** = 1.548 ms | **2.24×** | **2.28×** |
 
 Same kernel, same block and grid; the board's per-launch time is 2.24× the T16 reference. The two
 hosts run at different clocks and the board's is the one this capture measured (`SM Frequency`
