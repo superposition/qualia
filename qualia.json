@@ -1,0 +1,481 @@
+{
+  "project": "qualia_engine",
+  "version": "0.1.0",
+  "organization": "Superposition LLC",
+  "deployments": {
+    "robot": {
+      "name": "Mobile Autonomous Agent",
+      "hardware": "Jetson Orin Nano",
+      "compute_backend": "cuda",
+      "sm_count": 8,
+      "sensors": {
+        "stereo_camera": {
+          "device": "OAK-D Lite",
+          "interface": "USB3",
+          "topic": "/oak/stereo"
+        },
+        "lidar": {
+          "device": "Waveshare D500",
+          "interface": "USB",
+          "topic": "/scan"
+        },
+        "imu": {
+          "device": "9-axis on ESP32",
+          "interface": "UART",
+          "topic": "/imu/data"
+        },
+        "wheel_encoders": {
+          "device": "4x geared motors",
+          "interface": "ESP32 PID",
+          "topic": "/odom"
+        }
+      },
+      "action_space": [
+        "cmd_vel",
+        "pan_tilt",
+        "estop"
+      ],
+      "shm_path": "/dev/shm/qualia_robot"
+    },
+    "body_double": {
+      "name": "Body Double Agent",
+      "hardware": "Apple Silicon Laptop",
+      "compute_backend": "metal",
+      "sensors": {
+        "camera": {
+          "device": "built-in webcam",
+          "interface": "AVFoundation",
+          "topic": "video_frames"
+        },
+        "microphone": {
+          "device": "built-in mic",
+          "interface": "CoreAudio",
+          "topic": "audio_frames"
+        },
+        "keyboard": {
+          "device": "keyboard",
+          "interface": "stdin",
+          "topic": "keystrokes"
+        }
+      },
+      "action_space": [
+        "text_output",
+        "keyboard_relay",
+        "llm_query"
+      ],
+      "shm_path": "/dev/shm/qualia_body"
+    }
+  },
+  "shared_memory": {
+    "magic": "0xQUAL1AENG1NE00",
+    "total_size_mb": 64,
+    "header_bytes": 256,
+    "layer_slot_size_mb": 8,
+    "ledger_size_mb": 16,
+    "layout": {
+      "header_offset": "0x000000",
+      "layer_slots_offset": "0x000100",
+      "ledger_offset": "0x4000100"
+    }
+  },
+  "belief_slot": {
+    "repr": "C",
+    "align_bytes": 64,
+    "fields": {
+      "mean": {
+        "type": "f32",
+        "dim": 64,
+        "bytes": 256,
+        "description": "current belief mean"
+      },
+      "precision": {
+        "type": "f32",
+        "dim": 64,
+        "bytes": 256,
+        "description": "belief precision (inverse variance)"
+      },
+      "vfe": {
+        "type": "f32",
+        "dim": 1,
+        "description": "current variational free energy"
+      },
+      "prediction": {
+        "type": "f32",
+        "dim": 64,
+        "bytes": 256,
+        "description": "prediction sent down to the layer below"
+      },
+      "residual": {
+        "type": "f32",
+        "dim": 64,
+        "bytes": 256,
+        "description": "error received up from the layer below"
+      },
+      "challenge_vfe": {
+        "type": "f32",
+        "dim": 1,
+        "description": "precision-weighted residual magnitude"
+      },
+      "confirm_streak": {
+        "type": "u32",
+        "dim": 1,
+        "description": "consecutive confirmations"
+      },
+      "compression": {
+        "type": "u8",
+        "dim": 1,
+        "description": "0 = novel, 255 = deep habit"
+      },
+      "layer": {
+        "type": "u8",
+        "dim": 1
+      },
+      "timestamp_ns": {
+        "type": "u64",
+        "dim": 1
+      },
+      "cycle_us": {
+        "type": "u32",
+        "dim": 1,
+        "description": "actual compute time this cycle"
+      }
+    }
+  },
+  "layer_slot": {
+    "repr": "C",
+    "fields": {
+      "buffers": {
+        "type": "BeliefSlot",
+        "dim": 2,
+        "description": "double buffer"
+      },
+      "write_idx": {
+        "type": "AtomicUsize",
+        "description": "0 or 1, atomically swapped on publish"
+      },
+      "challenge_flag": {
+        "type": "AtomicBool"
+      },
+      "confirm_flag": {
+        "type": "AtomicBool"
+      },
+      "escalate_flag": {
+        "type": "AtomicBool"
+      },
+      "confirm_total": {
+        "type": "AtomicU64"
+      },
+      "challenge_total": {
+        "type": "AtomicU64"
+      }
+    }
+  },
+  "ledger_entry": {
+    "repr": "C",
+    "fields": {
+      "seq": {
+        "type": "u64"
+      },
+      "layer": {
+        "type": "u8"
+      },
+      "event": {
+        "type": "LedgerEvent",
+        "variants": [
+          "Challenge",
+          "Confirm",
+          "Habit",
+          "HabitDecay",
+          "Escalate"
+        ]
+      },
+      "compression": {
+        "type": "u8"
+      },
+      "vfe": {
+        "type": "f32"
+      },
+      "residual_norm": {
+        "type": "f32"
+      },
+      "belief_mean": {
+        "type": "f32",
+        "dim": 64
+      },
+      "timestamp_ns": {
+        "type": "u64"
+      }
+    }
+  },
+  "layers": [
+    {
+      "id": 0,
+      "name": "superposition",
+      "sm": 0,
+      "timescale_ms": 1,
+      "mode": "persistent",
+      "kernel": "kernels/l0_superposition.cu",
+      "runner": "runners/l0-superposition",
+      "predicts": "motor_torque",
+      "robot_sensors": [
+        "encoders",
+        "imu"
+      ],
+      "body_sensors": [
+        "audio_frames_raw",
+        "video_frames_raw",
+        "keystroke_timing"
+      ],
+      "freq_hz": 1000
+    },
+    {
+      "id": 1,
+      "name": "belief_motor",
+      "sm": 1,
+      "timescale_ms": 10,
+      "mode": "persistent",
+      "kernel": "kernels/l1_belief.cu",
+      "runner": "runners/l1-belief",
+      "predicts": "body_velocity",
+      "robot_sensors": [
+        "imu",
+        "wheel_odometry"
+      ],
+      "body_sensors": [
+        "speech_segments",
+        "facial_expression",
+        "typed_intent"
+      ],
+      "freq_hz": 100
+    },
+    {
+      "id": 2,
+      "name": "belief_local",
+      "sm": 2,
+      "timescale_ms": 100,
+      "mode": "persistent",
+      "kernel": "kernels/l2_belief.cu",
+      "runner": "runners/l2-belief",
+      "predicts": "obstacle_positions",
+      "robot_sensors": [
+        "lidar",
+        "oak_d_depth"
+      ],
+      "body_sensors": [
+        "utterance_meaning",
+        "conversational_context"
+      ],
+      "freq_hz": 100
+    },
+    {
+      "id": 3,
+      "name": "belief_visual",
+      "sm": 3,
+      "timescale_ms": 100,
+      "mode": "persistent",
+      "kernel": "kernels/l3_belief.cu",
+      "runner": "runners/l3-belief",
+      "predicts": "visual_features",
+      "robot_sensors": [
+        "stereo_camera",
+        "vslam"
+      ],
+      "body_sensors": [
+        "topic_identity",
+        "present_persons",
+        "current_discussion"
+      ],
+      "freq_hz": 100
+    },
+    {
+      "id": 4,
+      "name": "behavior_short",
+      "sm": 4,
+      "timescale_ms": 1000,
+      "mode": "event_driven",
+      "kernel": "kernels/l4_behavior.cu",
+      "runner": "runners/l4-behavior",
+      "predicts": "place_identity",
+      "robot_sensors": [
+        "pose_graph"
+      ],
+      "body_sensors": [
+        "session_state"
+      ],
+      "freq_hz": 1
+    },
+    {
+      "id": 5,
+      "name": "behavior_deep",
+      "sm": 5,
+      "timescale_ms": 10000,
+      "mode": "event_driven",
+      "kernel": "kernels/l5_behavior.cu",
+      "runner": "runners/l5-behavior",
+      "predicts": "map_regions",
+      "robot_sensors": [
+        "semantic_context"
+      ],
+      "body_sensors": [
+        "person_model"
+      ],
+      "freq_hz": 0.1
+    },
+    {
+      "id": 6,
+      "name": "semantic",
+      "sm": 6,
+      "timescale_ms": 60000,
+      "mode": "event_driven",
+      "kernel": "kernels/l6_semantic.cu",
+      "runner": "runners/l6-semantic",
+      "predicts": "goal_mission",
+      "robot_sensors": [
+        "agent_commands"
+      ],
+      "body_sensors": [
+        "novel_situation"
+      ],
+      "llm_escalation": {
+        "trigger": "escalate_flag == true && l6_cannot_resolve",
+        "input": [
+          "residual",
+          "belief_mean",
+          "belief_precision",
+          "mission_context"
+        ],
+        "output": "revised_prior"
+      },
+      "freq_hz": null
+    },
+    {
+      "id": 7,
+      "name": "hud_buffer",
+      "sm": 7,
+      "timescale_ms": 100,
+      "mode": "persistent",
+      "kernel": null,
+      "runner": "runners/health",
+      "predicts": "display_snapshot",
+      "robot_sensors": [],
+      "body_sensors": [],
+      "description": "double-buffered read of all layers, published to stdout at 10Hz",
+      "freq_hz": 10
+    }
+  ],
+  "ipc": {
+    "hot_path": {
+      "mechanism": "shared_memory",
+      "path": "/dev/shm/qualia_*",
+      "latency_ns": 100,
+      "pattern": "double_buffer_atomic_swap"
+    },
+    "control": {
+      "mechanism": "unix_domain_socket",
+      "latency_us": 1
+    },
+    "ledger": {
+      "mechanism": "mmap_append_only",
+      "latency_ns": 200
+    },
+    "sensor_ingestion": {
+      "mechanism": "io_uring",
+      "latency_ns": 500
+    },
+    "health_stream": {
+      "mechanism": "pipe_binary",
+      "latency_us": 1,
+      "sink": "stdout"
+    },
+    "agent_endpoint": {
+      "mechanism": "tcp_loopback",
+      "latency_us": 10,
+      "port": 8080
+    }
+  },
+  "agency_protocol": {
+    "per_cycle": [
+      "READ layer_below.belief via write_idx",
+      "PREDICT expected = generative_model(my_belief)",
+      "RESIDUAL = layer_below.mean - expected",
+      "WEIGH challenge_vfe = residual . precision . residual^T",
+      "IF challenge_vfe <= threshold: CONFIRM (compress, streak++, no upward signal)",
+      "ELSE: update belief via gradient on F",
+      "IF updated_vfe <= threshold: resolved locally",
+      "ELSE: ESCALATE (set escalate_flag, append LedgerEvent::Escalate)",
+      "PREDICT next cycle prediction downward",
+      "ATOMIC SWAP write buffer"
+    ],
+    "habit_threshold": {
+      "compression_floor": 200,
+      "confirm_streak_min": 100,
+      "note": "empirical calibration required against real sensor data"
+    },
+    "habit_decay": {
+      "trigger": "consecutive challenges after habit formed",
+      "function": "exponential",
+      "note": "time constant per layer to be measured"
+    }
+  },
+  "runners": {
+    "supervisor": {
+      "binary": "qualia-init",
+      "args": [
+        "--shm-size",
+        "64M",
+        "--layers",
+        "7",
+        "--deployment",
+        "[robot|body]"
+      ],
+      "responsibility": "allocate shm, spawn layer runners, watch estop"
+    },
+    "layer_runner_args": [
+      "--layer",
+      "<id>",
+      "--kernel",
+      "<path>.cubin",
+      "--freq",
+      "<hz>"
+    ],
+    "health": {
+      "binary": "qualia-health",
+      "args": [
+        "--all-layers",
+        "--rate",
+        "100"
+      ],
+      "output": "stdout binary HealthReport structs"
+    },
+    "watch": {
+      "binary": "qualia-watch",
+      "args": [
+        "--events",
+        "challenge,escalate,habit"
+      ]
+    }
+  },
+  "build": {
+    "workspace": "Cargo.toml",
+    "crates": {
+      "qualia-types": "BeliefSlot, LayerSlot, LedgerEntry, HealthReport \u2014 zero deps, #[repr(C)]",
+      "qualia-shm": "shared memory primitives, init, mapping",
+      "qualia-ipc": "Unix socket helpers, pipe utils",
+      "qualia-cuda": "cudarc wrapper, .cubin loading, stream management",
+      "qualia-metal": "metal-rs wrapper, compute pipeline"
+    },
+    "runners_dir": "runners/",
+    "kernels_dir": "kernels/",
+    "backends": {
+      "jetson": "cargo build --target aarch64-unknown-linux-gnu -p qualia-cuda --features cuda",
+      "macbook": "cargo build --target aarch64-apple-darwin -p qualia-metal"
+    }
+  },
+  "open_questions": [
+    "Precision initialisation values per layer \u2014 requires calibration on real sensor data",
+    "STATE_DIM per layer \u2014 64 chosen for cache alignment, may differ per deployment",
+    "Habit decay time constant per layer",
+    "Cross-layer non-adjacent belief sharing (L2 decay -> L4 prior update)",
+    "LLM revised prior format \u2014 structure for L6 integration without disturbing belief update mechanics"
+  ]
+}

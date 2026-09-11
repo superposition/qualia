@@ -1,0 +1,13 @@
+{
+  "schema_version": "qualia.stack.v1",
+  "stack_name": "qualia-zero-motion-fixture",
+  "shared_memory": {
+    "name": "/qualia_zero_motion_fixture"
+  },
+  "control": {
+    "socket": "/tmp/qualia_zero_motion_fixture.sock"
+  },
+  "runners": [
+    { "name": "qualia-health", "stdout": "null" }
+  ]
+}

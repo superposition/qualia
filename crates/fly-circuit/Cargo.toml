@@ -1,0 +1,15 @@
+[package]
+name = "qualia-fly-circuit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rate model over the connectome type graph, behind the `sim` feature; observe-only"
+
+[features]
+default = []
+sim = []
+
+[dev-dependencies]
+tempfile = "3"
+[dependencies]
+qualia-connectome-prior = { workspace = true }
