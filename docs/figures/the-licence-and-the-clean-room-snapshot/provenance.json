@@ -1,0 +1,25 @@
+{
+  "measured_at_utc": "2026-09-11T05:47:00Z",
+  "tool": "scripts/provenance_check.py",
+  "tool_introduced_at": "144bb6d",
+  "reference": "the private engine checkout, read-only (its path is deliberately not recorded here)",
+  "method": "every tracked file whose relative path also exists in the reference checkout is compared byte for byte",
+  "runs": [
+    {
+      "commit": "144bb6d",
+      "commit_subject": "ci: notice + mark reproducibility gates; add the clean-room provenance check",
+      "tracked_files": 157,
+      "compared": 104,
+      "identical": 0,
+      "exit_code": 0
+    },
+    {
+      "commit": "a59b836",
+      "commit_subject": "HEAD when the entry was written",
+      "tracked_files": 170,
+      "compared": 110,
+      "identical": 0,
+      "exit_code": 0
+    }
+  ]
+}
