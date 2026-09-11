@@ -6,8 +6,10 @@ encodes its subject, with a 60-frame rotation baked as an animation, so the
 entry embeds one asset with `<model-viewer … auto-rotate>` and no player. This
 module is the pipeline the per-entry `make_turntable.py` scripts stand on, the
 way they stand on `_house.py` for the flat figures; `assets/mark/build_mark.py`
-(steps 40) is the pipeline's precedent and `docs/figures/fly-brain/` (T51) its
-first use.
+(step 40) is the extrusion pipeline's precedent, and `docs/figures/fly-brain/`
+(T51) is the pattern's — its `make_turntable.py` is standalone and does not
+import this module. The per-entry scripts that import this module are its first
+uses.
 
 The mark is imported from `assets/mark/psi.glb` — the committed asset the entry
 and its hero render already stand on — not rebuilt here, so the mark a

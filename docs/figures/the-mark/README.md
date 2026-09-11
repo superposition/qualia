@@ -73,7 +73,8 @@ treat its binary payload as stable, so a rebuild may show up as a binary diff
 (`docs/figures/README.md` rule 6). Three consecutive runs on this workstation
 were in fact byte-identical; the guarantee this figure makes is the structure,
 not the bytes. Every input to it — `psi.json`, `psi.glb`, `psi.svg` — is
-reproducible. The file is committed so the figure has an asset to link either
+reproducible. `turntable.glb` is 73,376 bytes — the file's own count, not a
+fixed size. The file is committed so the figure has an asset to link either
 way.
 
 ## What this does not establish

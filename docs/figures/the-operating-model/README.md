@@ -1,6 +1,6 @@
 # Figures — the operating model
 
-Two figures for the journal entry
+Three figures for the journal entry
 [`the-operating-model`](https://superposition.github.io/journal/the-operating-model/).
 
 | File | Kind | What it encodes |
@@ -70,7 +70,8 @@ the mark mesh, one pillar per non-zero status, and the `turntable` empty; one
 treat its binary payload as stable, so a rebuild may show up as a binary diff
 (`docs/figures/README.md` rule 6). Three consecutive runs on this workstation
 were in fact byte-identical; the guarantee this figure makes is the structure,
-not the bytes. `status:blocked` is 0 in the snapshot and draws no pillar, so the
+not the bytes. `turntable.glb` is 73,324 bytes — the file's own count, not a
+fixed size. `status:blocked` is 0 in the snapshot and draws no pillar, so the
 element has four. The file is committed so the figure has an asset to link
 either way.
 
