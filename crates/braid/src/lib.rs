@@ -20,6 +20,7 @@
 //! #34 records both.
 
 pub mod drift;
+pub mod heal;
 pub mod rules;
 
 use serde::{Deserialize, Serialize};
