@@ -6,8 +6,15 @@
 //! drive. What is observable from outside the process is the exit status and
 //! the line it writes to stderr; that line carries this runner's identity, and
 //! it is what an operator reads when the supervisor keeps restarting a layer.
+//!
+//! That refusal is only the reachable path where the compiled-in backend cannot
+//! run the layer at all. On macOS the metal build blocks; with the `cuda`
+//! feature on a CUDA host the layer runs for real (`running at ... Hz`), so the
+//! check below would wait on a live belief loop rather than read a refusal, and
+//! `Command::output()` has no timeout. It therefore covers the metal-on-a-
+//! non-macOS-host configuration, where the refusal is structural.
 
-#![cfg(not(target_os = "macos"))]
+#![cfg(all(not(target_os = "macos"), not(feature = "cuda")))]
 
 use std::process::Command;
 
@@ -31,6 +38,8 @@ fn a_host_without_a_backend_fails_naming_its_layer() {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains(&format!("layer {LAYER}")), "{stderr}");
-    assert!(stderr.contains(NAME), "{stderr}");
+    assert!(
+        stderr.contains(&format!("layer {LAYER} ({NAME})")),
+        "the refusal must name this layer and runner, got: {stderr}"
+    );
 }
