@@ -95,7 +95,11 @@ account password is `jetson`.
 
 Development stays on the 4090 host; deployment is a cross-build (`docker/Dockerfile.cross-aarch64`,
 `Cross.toml`) or a native aarch64 build on the board itself. Kernels are developed and verified on the
-4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`).
+4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts measured by the T29 smoke
+(issue #45): the board has **no DNS** (ship a tarball; `git clone`/crates.io are unreachable), its clock
+is ~10 days behind the dev host (TLS to anything remote will complain), and a Windows-side clone writes
+CRLF into the working tree, which breaks shell scripts and the cross-build Dockerfile on Linux — ship
+`git archive` output, not a working copy.
 
 ## D-003 — Repository
 
