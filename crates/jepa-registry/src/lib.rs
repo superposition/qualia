@@ -638,8 +638,7 @@ fn verify_candidate(
     now_ms: u128,
     max_report_age_ms: u128,
 ) -> Result<EvidenceCandidate> {
-    let manifest_bytes = fs::read(checkpoint_dir.join("manifest.json"))
-        .with_context(|| format!("read checkpoint manifest in {}", checkpoint_dir.display()))?;
+    let manifest_bytes = fs::read(checkpoint_dir.join("manifest.json"))?;
     let manifest: CheckpointManifest = serde_json::from_slice(&manifest_bytes)?;
     if manifest.schema_version != CHECKPOINT_SCHEMA
         || manifest.architecture_id != ARCHITECTURE_ID
@@ -660,8 +659,7 @@ fn verify_candidate(
     }
     validate_checkpoint_weights(&weights, manifest.parameter_count)
         .map_err(|error| anyhow!(error.to_string()))?;
-    let report_bytes = fs::read(&manifest.training_report_path)
-        .with_context(|| format!("read training report {}", manifest.training_report_path))?;
+    let report_bytes = fs::read(&manifest.training_report_path)?;
     if sha256_hex(&report_bytes) != manifest.training_report_sha256 {
         bail!("training report digest mismatch");
     }
