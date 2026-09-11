@@ -14,3 +14,10 @@ qualia-sync-types.workspace = true
 qualia-types.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The tests stand up local stubs, one of them TLS-only; the binary itself stays
+# an HTTP client that shells out to curl. `rustls` is taken without its default
+# `aws-lc-rs` provider so only the ring backend is built.
+[dev-dependencies]
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

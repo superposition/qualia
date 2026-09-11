@@ -5,9 +5,14 @@
 //! suite fails whenever the operator surface changes its observable contract.
 
 use qualia_ipc::{ControlListener, ControlMsg};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// The binary under test, placed in the target directory by cargo.
 const BIN: &str = env!("CARGO_BIN_EXE_qualia");
@@ -47,19 +52,30 @@ fn write_manifest(dir: &Path, socket: &str, runners: &[&str]) -> PathBuf {
     path
 }
 
+/// A child with the endpoint environment cleared, so the suite never inherits
+/// an operator's agent.
+fn base_command(args: &[&str]) -> Command {
+    let mut command = Command::new(BIN);
+    command.args(args);
+    command.env_remove("QUALIA_AGENT_URL");
+    command.env_remove("QUALIA_WEB_PORT");
+    command
+}
+
 fn run(args: &[&str]) -> Output {
-    Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("spawn qualia")
+    base_command(args).output().expect("spawn qualia")
+}
+
+fn run_env(args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut command = base_command(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("spawn qualia")
 }
 
 fn run_with(args: &[&str], key: &str, value: &str) -> Output {
-    Command::new(BIN)
-        .args(args)
-        .env(key, value)
-        .output()
-        .expect("spawn qualia")
+    run_env(args, &[(key, value)])
 }
 
 fn stdout(output: &Output) -> String {
@@ -234,7 +250,9 @@ fn stop_without_a_listener_exits_nonzero() {
 
 #[test]
 fn health_reports_unavailable_when_no_agent_answers() {
+    let started = Instant::now();
     let output = run_with(&["health"], "QUALIA_WEB_PORT", "1");
+    let elapsed = started.elapsed();
     assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
     let text = stdout(&output);
     assert!(text.starts_with("agent_url: https://127.0.0.1:1\n"), "{text}");
@@ -242,6 +260,7 @@ fn health_reports_unavailable_when_no_agent_answers() {
     assert!(text.contains("status_type: stack_health\n"));
     assert!(text.contains("healthy: false\n"));
     assert!(text.contains("health_reason: "));
+    assert!(elapsed < BOUND, "a dead port held the CLI for {elapsed:?}");
 }
 
 #[test]
@@ -262,13 +281,16 @@ fn cuda_reports_unavailable_when_the_service_socket_is_dead() {
 
 #[test]
 fn planner_reports_unavailable_when_no_agent_answers() {
+    let started = Instant::now();
     let output = run_with(&["planner"], "QUALIA_WEB_PORT", "1");
+    let elapsed = started.elapsed();
     assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
     let text = stdout(&output);
     assert!(text.contains("status_type: planner_status\n"));
     assert!(text.contains("planner_ready: false\n"));
     assert!(text.contains("last_result: none\n"));
     assert!(text.contains("planner_reason: "));
+    assert!(elapsed < BOUND, "a dead port held the CLI for {elapsed:?}");
 }
 
 #[test]
@@ -328,4 +350,282 @@ fn verify_sync_rejects_an_unknown_argument() {
     let output = run(&["verify-sync", "--bogus"]);
     assert_eq!(code(&output), 2);
     assert!(stderr(&output).contains("qualia: unknown argument '--bogus'"));
+}
+
+// ---------------------------------------------------------------------------
+// Local stubs
+//
+// The timeout and scheme-fallback paths are exercised against servers this
+// process owns on ephemeral loopback ports. No test here reaches a network,
+// so the suite is deterministic and says nothing about any operator's host.
+// ---------------------------------------------------------------------------
+
+/// The health document `qualia health` reports, field for field.
+const HEALTH_BODY: &str = concat!(
+    r#"{"service_instance":"stub-agent","status_type":"stack_health","status":"ok","#,
+    r#""healthy":true,"ready":true,"#,
+    r#""integration":{"ros_connected":true,"planner_ready":true,"#,
+    r#""pose":{"fresh":true},"lidar":{"fresh":true}},"#,
+    r#""compute":{"healthy":true,"planner_algorithms":["astar"],"#,
+    r#""cuda":{"device_name":"stub-cuda","sm":8,"status":"ready","reason":null}}}"#,
+);
+
+/// The planner document `qualia planner` reports.
+const PLANNER_BODY: &str = concat!(
+    r#"{"service_instance":"stub-agent","status_type":"planner_status","status":"ok","#,
+    r#""planner_ready":true,"planner_algorithms":["astar"],"#,
+    r#""belief_features":null,"last_result":null}"#,
+);
+
+/// Run `handler` on a fresh thread for every connection accepted on an
+/// ephemeral loopback port, and return that port.
+fn serve<F>(handler: F) -> u16
+where
+    F: Fn(TcpStream) + Send + Sync + 'static,
+{
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind stub listener");
+    let port = listener.local_addr().expect("stub address").port();
+    let handler = Arc::new(handler);
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+            let handler = Arc::clone(&handler);
+            thread::spawn(move || handler(stream));
+        }
+    });
+    port
+}
+
+/// Read one HTTP request head. `None` when the peer spoke something that is
+/// not HTTP — a TLS ClientHello arriving on a cleartext port, say.
+fn read_head<S: Read>(stream: &mut S) -> Option<String> {
+    let mut text = String::new();
+    let mut buffer = [0u8; 1024];
+    while !text.contains("\r\n\r\n") {
+        let read = stream.read(&mut buffer).ok()?;
+        if read == 0 {
+            return None;
+        }
+        text.push_str(std::str::from_utf8(&buffer[..read]).ok()?);
+        if text.len() > 16 * 1024 {
+            return None;
+        }
+    }
+    Some(text)
+}
+
+/// Answer with `body` as `content-type: application/json`.
+fn write_json<S: Write>(stream: &mut S, body: &str) {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+         content-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.flush();
+}
+
+/// Turn the connection away and close it.
+fn refuse<S: Write>(stream: &mut S) {
+    let _ =
+        stream.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+    let _ = stream.flush();
+}
+
+/// A cleartext stub that answers HTTP requests with `body` and refuses
+/// anything else, the way a plain HTTP server meets a TLS handshake.
+fn http_stub(body: &'static str) -> u16 {
+    serve(move |mut stream| match read_head(&mut stream) {
+        Some(_) => write_json(&mut stream, body),
+        None => refuse(&mut stream),
+    })
+}
+
+/// A stub that accepts connections and then says nothing at all.
+fn hung_stub() -> u16 {
+    serve(|stream| {
+        thread::sleep(Duration::from_secs(30));
+        drop(stream);
+    })
+}
+
+/// A stub whose headers arrive and whose body never does.
+fn slow_body_stub() -> u16 {
+    serve(|mut stream| {
+        if read_head(&mut stream).is_none() {
+            refuse(&mut stream);
+            return;
+        }
+        let _ = stream.write_all(
+            b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 64\r\n\
+              connection: close\r\n\r\n{\"service_instance\":",
+        );
+        let _ = stream.flush();
+        thread::sleep(Duration::from_secs(30));
+    })
+}
+
+/// A TLS-only stub behind a self-signed loopback certificate.
+fn tls_stub(body: &'static str) -> u16 {
+    install_crypto_provider();
+    let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()])
+        .expect("generate stub certificate");
+    let certificate = rustls::pki_types::CertificateDer::from(certified.cert.der().to_vec());
+    let key = rustls::pki_types::PrivateKeyDer::from(
+        rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()),
+    );
+    let config = Arc::new(
+        rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], key)
+            .expect("stub TLS configuration"),
+    );
+
+    serve(move |stream| {
+        let Ok(connection) = rustls::ServerConnection::new(Arc::clone(&config)) else {
+            return;
+        };
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+        if read_head(&mut stream).is_some() {
+            write_json(&mut stream, body);
+        }
+    })
+}
+
+fn install_crypto_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
+/// The ceiling every bounded call must stay under. The real bound is the
+/// transport's own timeouts; this only fails a call that hangs.
+const BOUND: Duration = Duration::from_secs(30);
+
+#[test]
+fn health_bounds_a_hung_server() {
+    let port = hung_stub();
+    let url = format!("https://127.0.0.1:{port}");
+
+    let started = Instant::now();
+    let output = run_env(&["health"], &[("QUALIA_AGENT_URL", &url)]);
+    let elapsed = started.elapsed();
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("service_instance: unavailable\n"), "{text}");
+    assert!(text.contains("health_reason: "), "{text}");
+    assert!(elapsed < BOUND, "a hung server held the CLI for {elapsed:?}");
+}
+
+#[test]
+fn health_reaches_a_cleartext_server_on_the_configured_port() {
+    let port = http_stub(HEALTH_BODY);
+    let configured = format!("https://127.0.0.1:{port}");
+
+    let started = Instant::now();
+    let output = run_env(&["health"], &[("QUALIA_WEB_PORT", &port.to_string())]);
+    let elapsed = started.elapsed();
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.starts_with(&format!("agent_url: {configured}\n")), "{text}");
+    assert!(text.contains("service_instance: stub-agent\n"), "{text}");
+    assert!(text.contains("healthy: true\n"), "{text}");
+    assert!(
+        stderr(&output).contains(&format!(
+            "qualia: agent url http://127.0.0.1:{port} (fallback from {configured})"
+        )),
+        "the discovered endpoint must be announced: {}",
+        stderr(&output)
+    );
+    assert!(elapsed < BOUND, "the fallback took {elapsed:?}");
+}
+
+#[test]
+fn a_wrong_scheme_override_falls_back_to_cleartext() {
+    let port = http_stub(HEALTH_BODY);
+    let url = format!("https://127.0.0.1:{port}");
+
+    let output = run_env(&["health"], &[("QUALIA_AGENT_URL", &url)]);
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.starts_with(&format!("agent_url: {url}\n")), "{text}");
+    assert!(text.contains("service_instance: stub-agent\n"), "{text}");
+    assert!(
+        stderr(&output).contains(&format!("qualia: agent url http://127.0.0.1:{port}")),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn a_configured_agent_url_wins_over_the_web_port() {
+    let port = http_stub(HEALTH_BODY);
+    let url = format!("http://127.0.0.1:{port}");
+
+    let output = run_env(
+        &["health"],
+        &[("QUALIA_AGENT_URL", &url), ("QUALIA_WEB_PORT", "1")],
+    );
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.starts_with(&format!("agent_url: {url}\n")), "{text}");
+    assert!(text.contains("service_instance: stub-agent\n"), "{text}");
+    assert_eq!(stderr(&output), "", "the override answered first");
+}
+
+#[test]
+fn health_reaches_a_tls_only_server_over_https() {
+    let port = tls_stub(HEALTH_BODY);
+    let url = format!("https://127.0.0.1:{port}");
+
+    let output = run_env(&["health"], &[("QUALIA_AGENT_URL", &url)]);
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.starts_with(&format!("agent_url: {url}\n")), "{text}");
+    assert!(text.contains("service_instance: stub-agent\n"), "{text}");
+    assert!(text.contains("compute_healthy: true\n"), "{text}");
+    assert_eq!(stderr(&output), "", "https answered; nothing was discovered");
+}
+
+#[test]
+fn health_bounds_a_server_that_never_finishes_its_body() {
+    let port = slow_body_stub();
+    let url = format!("http://127.0.0.1:{port}");
+
+    let started = Instant::now();
+    let output = run_env(&["health"], &[("QUALIA_AGENT_URL", &url)]);
+    let elapsed = started.elapsed();
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("service_instance: unavailable\n"), "{text}");
+    assert!(text.contains("health_reason: "), "{text}");
+    assert!(elapsed < BOUND, "a slow body held the CLI for {elapsed:?}");
+}
+
+#[test]
+fn planner_reaches_a_cleartext_server_on_the_configured_port() {
+    let port = http_stub(PLANNER_BODY);
+    let configured = format!("https://127.0.0.1:{port}");
+
+    let output = run_env(&["planner"], &[("QUALIA_WEB_PORT", &port.to_string())]);
+
+    assert_eq!(code(&output), 0, "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.starts_with(&format!("agent_url: {configured}\n")), "{text}");
+    assert!(text.contains("status_type: planner_status\n"), "{text}");
+    assert!(text.contains("planner_ready: true\n"), "{text}");
+    assert!(text.contains("planner_algorithms: astar\n"), "{text}");
+    assert!(
+        stderr(&output).contains(&format!("qualia: agent url http://127.0.0.1:{port}")),
+        "{}",
+        stderr(&output)
+    );
 }
