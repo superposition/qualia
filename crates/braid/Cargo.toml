@@ -1,0 +1,15 @@
+[package]
+name = "qualia-braid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "One state machine every strand reports through: evidence seals, memory records, gated promotion, mission brokering, healing ladder"
+
+[dev-dependencies]
+tempfile = "3"
+[dependencies]
+qualia-mcap = { workspace = true }
+qualia-jepa-registry = { workspace = true }
+qualia-types = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,19 @@
+[package]
+name = "qualia-connectome-prior"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Builds the type-level Male CNS connectome prior consumed by the belief layers"
+
+[[bin]]
+name = "qualia-connectome-prior"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"
+[dependencies]
+arrow = { version = "53", features = ["ipc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+clap = { version = "4.5", features = ["derive"] }

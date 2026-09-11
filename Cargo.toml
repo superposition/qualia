@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/braid",
+    "crates/connectome-prior",
+    "crates/fly-circuit",
     "crates/cuda",
     "crates/ipc",
     "crates/jepa",
