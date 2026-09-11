@@ -9,8 +9,9 @@
 #![cfg(feature = "cuda")]
 
 use qualia_cuda::{
-    cpu, default_params, BeliefSlot, CostmapStatsContext, CudaCognitionStack, CudaContext,
-    SmokeContext, STATE_DIM, WEIGHT_COUNT,
+    cpu, default_params, ActionScoreContext, BeliefCoupleContext, BeliefSlot,
+    CostmapStatsContext, CudaCognitionStack, CudaContext, JEPA_OCCUPANCY_CELLS,
+    PerceptionVoxelContext, SmokeContext, STATE_DIM, VOXEL_TOTAL, WEIGHT_COUNT,
 };
 
 const DIM: usize = STATE_DIM;
@@ -364,4 +365,154 @@ fn cognition_weight_edits_are_observable() {
             assert_eq!(*a, *b, "fork weight {layer}[{index}]");
         }
     }
+}
+
+#[test]
+fn belief_couple_context_matches_the_host_reference() {
+    let context = match BeliefCoupleContext::new() {
+        Ok(context) => context,
+        Err(error) => {
+            eprintln!("skipping CUDA belief couple test: {error}");
+            return;
+        }
+    };
+
+    assert!(!context.device_name().is_empty());
+
+    let cols = [1u32, 1, 2, 0];
+    let weights = [3u32, 5, 2, 4];
+    let mut rng = Rng::new(0xb0115e);
+    let belief: Vec<f32> = (0..4).map(|_| rng.next_range(-4.0, 4.0)).collect();
+
+    // A mapped, an unmapped and a duplicated type all reach the device.
+    let slots = [(0u32, 0usize), (1, 2), (2, 3), (1, 0)];
+    let mut expected = belief.clone();
+    let applied = cpu::belief_couple(&mut expected, &cols, &weights, &slots);
+    let (actual, factors) = context.run(&belief, &cols, &weights, &slots).expect("couple runs");
+
+    assert!(applied > 0.0);
+    for (index, (device, host)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert_close(&format!("coupled belief[{index}]"), *device, *host);
+    }
+    let expected_factors = [0.5f32, 1.0, 0.25, 1.0];
+    for (index, factor) in factors.iter().enumerate() {
+        assert_close(&format!("slot factor[{index}]"), *factor, expected_factors[index]);
+    }
+
+    // No edges and no mapped slots both apply nothing and never launch.
+    let (unchanged, none) = context.run(&belief, &cols, &weights, &[]).expect("no slots");
+    assert_eq!(unchanged, belief);
+    assert!(none.is_empty());
+    let (unchanged, none) = context.run(&belief, &[], &[], &slots).expect("no edges");
+    assert_eq!(unchanged, belief);
+    assert!(none.iter().all(|factor| *factor == 0.0));
+}
+
+#[test]
+fn perception_voxel_context_matches_the_host_reference() {
+    let context = match PerceptionVoxelContext::new() {
+        Ok(context) => context,
+        Err(error) => {
+            eprintln!("skipping CUDA perception voxel test: {error}");
+            return;
+        }
+    };
+
+    assert!(!context.device_name().is_empty());
+
+    let mut rng = Rng::new(0x70b1e1);
+    let mut points = Vec::with_capacity(2 * 240);
+    for _ in 0..240 {
+        points.push(rng.next_range(-4.0, 4.0));
+        points.push(rng.next_range(0.0, 8.0));
+    }
+
+    let expected = cpu::perception_voxel(&points, 0.25, -3.0, 1.25).expect("oracle");
+    let actual = context
+        .run(&points, 0.25, -3.0, 1.25)
+        .expect("perception voxel runs");
+
+    assert_eq!(actual.len(), VOXEL_TOTAL);
+    for (index, (device, host)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert_close(&format!("voxel logit[{index}]"), *device, *host);
+    }
+
+    // An empty sweep is answered without a device copy and matches the prior.
+    let empty = context.run(&[], 0.25, -3.0, 1.25).expect("empty sweep");
+    assert_eq!(empty, expected_empty(0.25, -3.0, 1.25));
+}
+
+/// The oracle the empty-sweep case must equal: every cell at the prior logit.
+fn expected_empty(resolution_m: f32, prior_logit: f32, hit_log_odds: f32) -> Vec<f32> {
+    cpu::perception_voxel(&[], resolution_m, prior_logit, hit_log_odds).expect("oracle")
+}
+
+#[test]
+fn action_score_context_matches_the_host_reference() {
+    let context = match ActionScoreContext::new() {
+        Ok(context) => context,
+        Err(error) => {
+            eprintln!("skipping CUDA action score test: {error}");
+            return;
+        }
+    };
+
+    assert!(!context.device_name().is_empty());
+
+    let config = cpu::ActionScoreConfig {
+        max_wheel_speed_mps: 1.4,
+        track_width_m: 0.5,
+        resolution_m: 0.25,
+        collision_radius_m: 0.5,
+        goal_lateral_m: 0.2,
+        goal_forward_m: 1.5,
+        goal_tolerance_m: 0.1,
+    };
+
+    let mut rng = Rng::new(0xac7104);
+    let candidate_steps = [3usize, 5];
+    let steps: Vec<[f32; 4]> = (0..candidate_steps.iter().sum::<usize>())
+        .map(|_| {
+            [
+                rng.next_range(-1.0, 1.0),
+                rng.next_range(-1.0, 1.0),
+                rng.next_range(0.3, 1.0),
+                rng.next_range(0.05, 0.2),
+            ]
+        })
+        .collect();
+    let occupancy: Vec<f32> = (0..steps.len() * JEPA_OCCUPANCY_CELLS)
+        .map(|_| rng.next_range(-6.0, 6.0))
+        .collect();
+
+    let actual = context
+        .run(&steps, &candidate_steps, &occupancy, &config)
+        .expect("action score runs");
+    assert_eq!(actual.len(), candidate_steps.len());
+
+    let mut start = 0usize;
+    for (candidate, count) in candidate_steps.iter().enumerate() {
+        let end = start + count;
+        let flat: Vec<f32> = steps[start..end].iter().flatten().copied().collect();
+        let maps =
+            &occupancy[start * JEPA_OCCUPANCY_CELLS..end * JEPA_OCCUPANCY_CELLS];
+        let expected = cpu::action_score(&flat, maps, &config).expect("oracle");
+        assert_close(
+            &format!("candidate {candidate} terminal distance"),
+            actual[candidate].terminal_goal_distance_m,
+            expected.terminal_goal_distance_m,
+        );
+        assert_close(
+            &format!("candidate {candidate} max collision"),
+            actual[candidate].max_collision_probability,
+            expected.max_collision_probability,
+        );
+        start = end;
+    }
+
+    // Shape validation happens before any launch.
+    assert!(context.run(&steps, &[steps.len() + 1], &occupancy, &config).is_err());
+    assert!(context
+        .run(&steps, &candidate_steps, &occupancy[..occupancy.len() - 1], &config)
+        .is_err());
 }

@@ -14,8 +14,8 @@ use qualia_shm::{
     LayerReader, LayerWriter, ShmRegion, LAYER_SLOTS_OFFSET, LAYER_SLOT_SIZE,
 };
 use qualia_types::{
-    default_params, BeliefSlot, LayerParams, LayerSlot, MAX_QUESTION_TEXT, NUM_LAYERS, STATE_DIM,
-    WEIGHT_COUNT,
+    default_params, BeliefSlot, JEPA_OCCUPANCY_CELLS, LayerParams, LayerSlot, MAX_QUESTION_TEXT,
+    NUM_LAYERS, STATE_DIM, VOXEL_TOTAL, WEIGHT_COUNT,
 };
 
 use cudarc::driver::{
@@ -113,6 +113,15 @@ extern "C" __global__ void cognition_patch(float* weights, unsigned int index, f
     }
 }
 "#;
+
+/// The perception and action kernels live at the workspace root with the
+/// belief kernel (D-006), so the same source is embedded wherever the stack
+/// runs.
+const BELIEF_COUPLE_KERNEL: &str = include_str!("../../../kernels/belief_couple.cu");
+
+const PERCEPTION_VOXEL_KERNEL: &str = include_str!("../../../kernels/perception_voxel.cu");
+
+const ACTION_SCORE_KERNEL: &str = include_str!("../../../kernels/action_score.cu");
 
 // ── Belief thought kinds ─────────────────────────────────────────────────────
 
@@ -507,6 +516,407 @@ impl CostmapStatsContext {
             cost_sum: counters[2],
             blocked_count: counters[3],
         })
+    }
+}
+
+// ── BeliefCoupleContext: the prior-weighted slot update ──────────────────────
+
+/// The device side of the connectome prior's slot update.
+///
+/// The graph and the slot mapping are small and caller-owned, so this context
+/// allocates per call rather than holding a resize policy: each run copies the
+/// CSR sections in, launches one block of one thread per mapped slot, and
+/// returns the coupled belief and the factor each slot received.
+pub struct BeliefCoupleContext {
+    stream: Arc<CudaStream>,
+    _module: Arc<CudaModule>,
+    function: CudaFunction,
+}
+
+impl BeliefCoupleContext {
+    pub fn new() -> Result<Self, String> {
+        let (adapter, stream, _) = open_adapter()?;
+        let (module, _) = compile_for(&adapter, BELIEF_COUPLE_KERNEL)?;
+        let function = module
+            .load_function("belief_couple")
+            .map_err(|error| format!("belief_couple function missing: {error:?}"))?;
+        Ok(Self {
+            stream,
+            _module: module,
+            function,
+        })
+    }
+
+    pub fn device_name(&self) -> String {
+        self.stream
+            .context()
+            .name()
+            .unwrap_or_else(|_| "unknown CUDA device".to_string())
+    }
+
+    /// Applies the prior to `belief` on the device.
+    ///
+    /// Returns the coupled belief and the factor applied to each mapped slot,
+    /// in the order the slots were given. An empty graph or an empty slot list
+    /// applies nothing. The block is one thread per slot, so a slot list
+    /// longer than the hardware block limit is refused rather than truncated.
+    pub fn run(
+        &self,
+        belief: &[f32],
+        cols: &[u32],
+        weights: &[u32],
+        slots: &[(u32, usize)],
+    ) -> Result<(Vec<f32>, Vec<f32>), String> {
+        if cols.len() != weights.len() {
+            return Err("cols and weights differ in length".to_string());
+        }
+        if slots.len() > 1024 {
+            return Err("slot list exceeds one CUDA block".to_string());
+        }
+        if slots.is_empty() || cols.is_empty() {
+            return Ok((belief.to_vec(), vec![0.0f32; slots.len()]));
+        }
+
+        let type_count = cols.iter().copied().max().map_or(0usize, |type_index| {
+            type_index as usize + 1
+        });
+        let slot_types: Vec<u32> = slots.iter().map(|(type_index, _)| *type_index).collect();
+        let slot_indices: Vec<u32> = slots.iter().map(|(_, slot)| *slot as u32).collect();
+
+        let mut device_belief = self
+            .stream
+            .clone_htod(belief)
+            .map_err(|error| format!("H2D belief failed: {error:?}"))?;
+        let device_cols = self
+            .stream
+            .clone_htod(cols)
+            .map_err(|error| format!("H2D cols failed: {error:?}"))?;
+        let device_weights = self
+            .stream
+            .clone_htod(weights)
+            .map_err(|error| format!("H2D weights failed: {error:?}"))?;
+        let device_types = self
+            .stream
+            .clone_htod(&slot_types)
+            .map_err(|error| format!("H2D slot types failed: {error:?}"))?;
+        let device_indices = self
+            .stream
+            .clone_htod(&slot_indices)
+            .map_err(|error| format!("H2D slot indices failed: {error:?}"))?;
+        let mut device_factors = self
+            .stream
+            .alloc_zeros::<f32>(slots.len())
+            .map_err(|error| format!("couple factor allocation failed: {error:?}"))?;
+
+        let slot_count = slots.len() as u32;
+        let edge_count = cols.len() as u32;
+        let type_count = type_count as u32;
+        let belief_len = belief.len() as u32;
+        let config = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (slot_count, 1, 1),
+            shared_mem_bytes: type_count * size_of::<u32>() as u32,
+        };
+        // SAFETY: argument order and types match belief_couple.cu, the shared
+        // memory covers the in-strength table the kernel indexes by type, and
+        // every device buffer lives until after the synchronization below.
+        unsafe {
+            self.stream
+                .launch_builder(&self.function)
+                .arg(&mut device_belief)
+                .arg(&device_cols)
+                .arg(&device_weights)
+                .arg(&device_types)
+                .arg(&device_indices)
+                .arg(&mut device_factors)
+                .arg(&slot_count)
+                .arg(&edge_count)
+                .arg(&type_count)
+                .arg(&belief_len)
+                .launch(config)
+                .map_err(|error| format!("belief_couple launch failed: {error:?}"))?;
+        }
+        self.stream
+            .synchronize()
+            .map_err(|error| format!("belief couple synchronize failed: {error:?}"))?;
+
+        let belief_out = self
+            .stream
+            .clone_dtoh(&device_belief)
+            .map_err(|error| format!("D2H belief failed: {error:?}"))?;
+        let factors = self
+            .stream
+            .clone_dtoh(&device_factors)
+            .map_err(|error| format!("D2H factors failed: {error:?}"))?;
+        Ok((belief_out, factors))
+    }
+}
+
+// ── PerceptionVoxelContext: the LiDAR projection ─────────────────────────────
+
+/// The device side of the LiDAR-to-occupancy-logit projection.
+///
+/// A sweep is one flat coordinate array and one output volume, so the context
+/// copies both per call and sizes its grid to the fixed lattice.
+pub struct PerceptionVoxelContext {
+    stream: Arc<CudaStream>,
+    _module: Arc<CudaModule>,
+    function: CudaFunction,
+}
+
+impl PerceptionVoxelContext {
+    pub fn new() -> Result<Self, String> {
+        let (adapter, stream, _) = open_adapter()?;
+        let (module, _) = compile_for(&adapter, PERCEPTION_VOXEL_KERNEL)?;
+        let function = module
+            .load_function("perception_voxel")
+            .map_err(|error| format!("perception_voxel function missing: {error:?}"))?;
+        Ok(Self {
+            stream,
+            _module: module,
+            function,
+        })
+    }
+
+    pub fn device_name(&self) -> String {
+        self.stream
+            .context()
+            .name()
+            .unwrap_or_else(|_| "unknown CUDA device".to_string())
+    }
+
+    /// Projects `points` (interleaved `[x, y, ...]` metres) into voxel logits.
+    ///
+    /// An empty sweep is answered on the host, as the costmap reduction answers
+    /// its empty case, so no zero-length copy reaches the device.
+    pub fn run(
+        &self,
+        points: &[f32],
+        resolution_m: f32,
+        prior_logit: f32,
+        hit_log_odds: f32,
+    ) -> Result<Vec<f32>, String> {
+        if points.is_empty() {
+            return crate::cpu::perception_voxel(points, resolution_m, prior_logit, hit_log_odds);
+        }
+        if points.len() % 2 != 0 {
+            return Err("lidar points must be interleaved x, y coordinates".to_string());
+        }
+        if !resolution_m.is_finite() || resolution_m <= 0.0 {
+            return Err("voxel resolution must be positive and finite".to_string());
+        }
+        if points.iter().any(|value| !value.is_finite()) {
+            return Err("lidar points must be finite".to_string());
+        }
+        if !prior_logit.is_finite() || !hit_log_odds.is_finite() {
+            return Err("occupancy logit parameters must be finite".to_string());
+        }
+
+        let cells = VOXEL_TOTAL;
+        let point_count = (points.len() / 2) as u32;
+        let device_points = self
+            .stream
+            .clone_htod(points)
+            .map_err(|error| format!("H2D lidar points failed: {error:?}"))?;
+        let mut device_logits = self
+            .stream
+            .alloc_zeros::<f32>(cells)
+            .map_err(|error| format!("voxel logit allocation failed: {error:?}"))?;
+
+        let block = 256u32;
+        let config = LaunchConfig {
+            grid_dim: ((cells as u32).div_ceil(block), 1, 1),
+            block_dim: (block, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        // SAFETY: the kernel reads `point_count` interleaved pairs and writes
+        // one logit per lattice cell; both buffers cover that.
+        unsafe {
+            self.stream
+                .launch_builder(&self.function)
+                .arg(&device_points)
+                .arg(&point_count)
+                .arg(&resolution_m)
+                .arg(&prior_logit)
+                .arg(&hit_log_odds)
+                .arg(&mut device_logits)
+                .launch(config)
+                .map_err(|error| format!("perception_voxel launch failed: {error:?}"))?;
+        }
+        self.stream
+            .synchronize()
+            .map_err(|error| format!("perception voxel synchronize failed: {error:?}"))?;
+
+        self.stream
+            .clone_dtoh(&device_logits)
+            .map_err(|error| format!("D2H voxel logits failed: {error:?}"))
+    }
+}
+
+// ── ActionScoreContext: the rollout candidate score ──────────────────────────
+
+/// The device side of the rollout candidate score.
+///
+/// Candidates are scored one block each, so the grid is the candidate count.
+/// The steps are passed flat with a prefix-sum offset table and the grounding
+/// maps follow the steps in the same order, which is the ABI action_score.cu
+/// reads.
+pub struct ActionScoreContext {
+    stream: Arc<CudaStream>,
+    _module: Arc<CudaModule>,
+    function: CudaFunction,
+}
+
+impl ActionScoreContext {
+    pub fn new() -> Result<Self, String> {
+        let (adapter, stream, _) = open_adapter()?;
+        let (module, _) = compile_for(&adapter, ACTION_SCORE_KERNEL)?;
+        let function = module
+            .load_function("action_score")
+            .map_err(|error| format!("action_score function missing: {error:?}"))?;
+        Ok(Self {
+            stream,
+            _module: module,
+            function,
+        })
+    }
+
+    pub fn device_name(&self) -> String {
+        self.stream
+            .context()
+            .name()
+            .unwrap_or_else(|_| "unknown CUDA device".to_string())
+    }
+
+    /// Scores every candidate in one dispatch.
+    ///
+    /// `steps` is the concatenated `[left, right, speed_scale, dt]` sequence
+    /// and `candidate_steps` gives how many of those steps belong to each
+    /// candidate, so `candidate_steps.len()` is the grid width.
+    pub fn run(
+        &self,
+        steps: &[[f32; 4]],
+        candidate_steps: &[usize],
+        occupancy_logits: &[f32],
+        config: &crate::cpu::ActionScoreConfig,
+    ) -> Result<Vec<crate::cpu::CandidateScore>, String> {
+        if candidate_steps.iter().sum::<usize>() != steps.len() {
+            return Err("candidate step counts do not cover the step list".to_string());
+        }
+        if occupancy_logits.len() != steps.len() * JEPA_OCCUPANCY_CELLS {
+            return Err(format!(
+                "one grounding map per step needs {} logits",
+                steps.len() * JEPA_OCCUPANCY_CELLS
+            ));
+        }
+        if steps
+            .iter()
+            .flatten()
+            .any(|value| !value.is_finite())
+            || occupancy_logits.iter().any(|value| !value.is_finite())
+        {
+            return Err("rollout inputs must be finite".to_string());
+        }
+        if !config.max_wheel_speed_mps.is_finite() || config.track_width_m <= 0.0 {
+            return Err("drive geometry must be finite with a positive track".to_string());
+        }
+        crate::cpu::central_footprint_cells(config.resolution_m, config.collision_radius_m)?;
+        if candidate_steps.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let flat_steps: Vec<f32> = steps.iter().flatten().copied().collect();
+        let mut offsets = Vec::with_capacity(candidate_steps.len() + 1);
+        offsets.push(0u32);
+        for count in candidate_steps {
+            let next = offsets[offsets.len() - 1] + *count as u32;
+            offsets.push(next);
+        }
+
+        // A candidate with no steps never reads the step or map buffers, but an
+        // empty host slice is not a legal device copy, so each gets one dummy
+        // element.
+        let device_steps = if flat_steps.is_empty() {
+            self.stream
+                .alloc_zeros::<f32>(1)
+                .map_err(|error| format!("step allocation failed: {error:?}"))?
+        } else {
+            self.stream
+                .clone_htod(&flat_steps)
+                .map_err(|error| format!("H2D steps failed: {error:?}"))?
+        };
+        let device_offsets = self
+            .stream
+            .clone_htod(&offsets)
+            .map_err(|error| format!("H2D candidate offsets failed: {error:?}"))?;
+        let device_occupancy = if occupancy_logits.is_empty() {
+            self.stream
+                .alloc_zeros::<f32>(1)
+                .map_err(|error| format!("occupancy allocation failed: {error:?}"))?
+        } else {
+            self.stream
+                .clone_htod(occupancy_logits)
+                .map_err(|error| format!("H2D occupancy failed: {error:?}"))?
+        };
+        let mut device_distance = self
+            .stream
+            .alloc_zeros::<f32>(candidate_steps.len())
+            .map_err(|error| format!("distance allocation failed: {error:?}"))?;
+        let mut device_collision = self
+            .stream
+            .alloc_zeros::<f32>(candidate_steps.len())
+            .map_err(|error| format!("collision allocation failed: {error:?}"))?;
+
+        let candidate_count = candidate_steps.len() as u32;
+        let config_launch = LaunchConfig {
+            grid_dim: (candidate_count, 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        // SAFETY: argument order and types match action_score.cu; the kernel
+        // reads the offsets, steps and maps it is told about and writes one
+        // score per block. All buffers outlive the synchronization below.
+        unsafe {
+            self.stream
+                .launch_builder(&self.function)
+                .arg(&device_steps)
+                .arg(&device_offsets)
+                .arg(&device_occupancy)
+                .arg(&mut device_distance)
+                .arg(&mut device_collision)
+                .arg(&candidate_count)
+                .arg(&config.max_wheel_speed_mps)
+                .arg(&config.track_width_m)
+                .arg(&config.resolution_m)
+                .arg(&config.collision_radius_m)
+                .arg(&config.goal_lateral_m)
+                .arg(&config.goal_forward_m)
+                .arg(&config.goal_tolerance_m)
+                .launch(config_launch)
+                .map_err(|error| format!("action_score launch failed: {error:?}"))?;
+        }
+        self.stream
+            .synchronize()
+            .map_err(|error| format!("action score synchronize failed: {error:?}"))?;
+
+        let distances = self
+            .stream
+            .clone_dtoh(&device_distance)
+            .map_err(|error| format!("D2H distances failed: {error:?}"))?;
+        let collisions = self
+            .stream
+            .clone_dtoh(&device_collision)
+            .map_err(|error| format!("D2H collision failed: {error:?}"))?;
+        Ok(distances
+            .into_iter()
+            .zip(collisions)
+            .map(|(terminal_goal_distance_m, max_collision_probability)| {
+                crate::cpu::CandidateScore {
+                    terminal_goal_distance_m,
+                    max_collision_probability,
+                }
+            })
+            .collect())
     }
 }
 
@@ -1294,6 +1704,9 @@ mod tests {
         }
         for (label, source) in [
             ("belief_update.cu", BELIEF_KERNEL),
+            ("belief_couple.cu", BELIEF_COUPLE_KERNEL),
+            ("perception_voxel.cu", PERCEPTION_VOXEL_KERNEL),
+            ("action_score.cu", ACTION_SCORE_KERNEL),
             ("smoke kernel", SMOKE_KERNEL),
             ("costmap kernel", COSTMAP_KERNEL),
             ("cognition kernel", COGNITION_KERNEL),

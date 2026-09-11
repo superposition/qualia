@@ -11,7 +11,10 @@
 //! ordering of the belief, weight and precision updates. Any change to one
 //! side must be mirrored in the other.
 
-use qualia_types::{BeliefSlot, STATE_DIM, WEIGHT_COUNT};
+use qualia_types::{
+    BeliefSlot, JEPA_OCCUPANCY_CELLS, JEPA_OCCUPANCY_H, JEPA_OCCUPANCY_W, STATE_DIM, VOXEL_D,
+    VOXEL_H, VOXEL_TOTAL, VOXEL_W, WEIGHT_COUNT,
+};
 
 /// A `u8` cost at or above this value counts as high cost.
 pub const HIGH_COST_THRESHOLD: u8 = 200;
@@ -229,4 +232,273 @@ pub fn add_one(data: &mut [f32; 4]) {
     for value in data.iter_mut() {
         *value += 1.0;
     }
+}
+
+/// Scales each mapped belief slot by its type's normalised in-strength.
+///
+/// The device twin of `qualia_jepa::prior::CouplingPrior::couple`, and the
+/// oracle `belief_couple.cu` is checked against. A type's in-strength is the
+/// summed weight of the edges that end on it, normalised by the largest
+/// in-strength of any type, so the most strongly innervated type couples at
+/// unit weight and every other type scales down in proportion: coupling can
+/// attenuate a belief but never amplify it. `slots` pairs a type index with
+/// the belief slot it feeds; a pair naming a type outside the graph the edges
+/// describe or a slot outside `belief` is ignored. Returns the weight actually
+/// applied, which is zero when no slot is mapped or every edge weight is zero.
+pub fn belief_couple(
+    belief: &mut [f32],
+    cols: &[u32],
+    weights: &[u32],
+    slots: &[(u32, usize)],
+) -> f32 {
+    if cols.len() != weights.len() {
+        return 0.0;
+    }
+    // The graph's type count is the highest type any edge names plus one; a
+    // well-formed CSR names every type it declares, and a type no edge reaches
+    // has zero strength and would couple at zero either way.
+    let type_count = cols.iter().copied().max().map_or(0, |type_index| {
+        type_index as usize + 1
+    });
+    let mut in_strength = vec![0u64; type_count];
+    let mut peak = 0u64;
+    for (column, weight) in cols.iter().zip(weights.iter()) {
+        let strength = &mut in_strength[*column as usize];
+        *strength += u64::from(*weight);
+        peak = peak.max(*strength);
+    }
+    if peak == 0 {
+        return 0.0;
+    }
+
+    let mut applied = 0.0f32;
+    for &(type_index, slot) in slots {
+        let Some(strength) = in_strength.get(type_index as usize) else {
+            continue;
+        };
+        let Some(value) = belief.get_mut(slot) else {
+            continue;
+        };
+        let factor = *strength as f32 / peak as f32;
+        *value *= factor;
+        applied += factor;
+    }
+    applied
+}
+
+/// Projects flat ground-plane LiDAR returns into occupancy logits.
+///
+/// The device twin of `perception_voxel.cu`. `points` is the interleaved
+/// `points_xy_m` array of `LeashSpatialEvidenceV1`
+/// (`crates/sync-types/src/spatial.rs`): `points[2 * i]` and `points[2 * i + 1]`
+/// are one return's lateral and forward metres, so a sweep of n returns is a
+/// `2 * n` float array. That wire shape is not a kernel input — Leash's
+/// `project_occupancy` takes an int8 cell grid — but its extrusion is the same:
+/// a return marks its whole voxel column because the scanner is planar. Each
+/// cell's logit is `prior_logit` plus one hit's log-odds per return in the
+/// cell, clamped to `[-20, 20]`. That bound is this kernel's own choice, not an
+/// inherited one: ticket #31 names no band, and the reference — which clamps
+/// belief residuals, means and weights at ±10 and log-variance at
+/// `[-20, 20]` / `[-10, 5]` — has no occupancy-logit band. It suits this input
+/// domain (the oracle's -2 prior and +1.5 log-odds need ~15 hits in one cell to
+/// reach +20, more than a 0.25 m ground-plane cell collects) and keeps a stored
+/// logit finite if a dense or malformed sweep inflates the count. The lattice
+/// is the `qualia_types` world volume, indexed
+/// `vx * VOXEL_D * VOXEL_H + vz * VOXEL_H + vy`, with x centred on the room and
+/// z measured from the near wall.
+pub fn perception_voxel(
+    points: &[f32],
+    resolution_m: f32,
+    prior_logit: f32,
+    hit_log_odds: f32,
+) -> Result<Vec<f32>, String> {
+    if points.len() % 2 != 0 {
+        return Err("lidar points must be interleaved x, y coordinates".to_string());
+    }
+    if !resolution_m.is_finite() || resolution_m <= 0.0 {
+        return Err("voxel resolution must be positive and finite".to_string());
+    }
+    if points.iter().any(|value| !value.is_finite()) {
+        return Err("lidar points must be finite".to_string());
+    }
+    if !prior_logit.is_finite() || !hit_log_odds.is_finite() {
+        return Err("occupancy logit parameters must be finite".to_string());
+    }
+
+    let point_count = points.len() / 2;
+    let half = 0.5 * resolution_m;
+    let mut logits = vec![0.0f32; VOXEL_TOTAL];
+    for (index, logit) in logits.iter_mut().enumerate() {
+        let vx = index / (VOXEL_D * VOXEL_H);
+        let vz = (index % (VOXEL_D * VOXEL_H)) / VOXEL_H;
+        let centre_x = (vx as f32 + 0.5 - 0.5 * VOXEL_W as f32) * resolution_m;
+        let centre_y = (vz as f32 + 0.5) * resolution_m;
+
+        let mut hits = 0u32;
+        for point in 0..point_count {
+            let x = points[2 * point];
+            let y = points[2 * point + 1];
+            if (x - centre_x).abs() <= half && (y - centre_y).abs() <= half {
+                hits += 1;
+            }
+        }
+
+        *logit = (prior_logit + hit_log_odds * hits as f32).clamp(-20.0, 20.0);
+    }
+    Ok(logits)
+}
+
+/// The geometry one rollout candidate is scored against.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ActionScoreConfig {
+    /// Wheel speed at unit scale, m/s.
+    pub max_wheel_speed_mps: f32,
+    /// Distance between the wheels, m.
+    pub track_width_m: f32,
+    /// Grounding-map metres per cell.
+    pub resolution_m: f32,
+    /// Collision footprint radius around the grounding origin, m.
+    pub collision_radius_m: f32,
+    /// Goal lateral offset in the robot frame, m.
+    pub goal_lateral_m: f32,
+    /// Goal forward offset in the robot frame, m.
+    pub goal_forward_m: f32,
+    /// Goal tolerance already satisfied by the terminal pose, m.
+    pub goal_tolerance_m: f32,
+}
+
+/// The two rollout cost terms `action_score` produces for one candidate.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CandidateScore {
+    /// L2 goal error at the terminal pose, less the goal tolerance, floored at zero.
+    pub terminal_goal_distance_m: f32,
+    /// Worst probability any step's central footprint selects.
+    pub max_collision_probability: f32,
+}
+
+/// Counts the grounding cells a central footprint selects.
+///
+/// Shared by the oracle and the device context so both refuse a footprint that
+/// selects nothing before any work happens.
+pub fn central_footprint_cells(resolution_m: f32, radius_m: f32) -> Result<usize, String> {
+    if !resolution_m.is_finite()
+        || resolution_m <= 0.0
+        || !radius_m.is_finite()
+        || radius_m <= 0.0
+    {
+        return Err("collision footprint geometry is invalid".to_string());
+    }
+    let mut selected = 0usize;
+    for row in 0..JEPA_OCCUPANCY_H {
+        for column in 0..JEPA_OCCUPANCY_W {
+            let x_m = (column as f32 + 0.5 - JEPA_OCCUPANCY_W as f32 * 0.5) * resolution_m;
+            let z_m = (row as f32 + 0.5 - JEPA_OCCUPANCY_H as f32 * 0.5) * resolution_m;
+            if x_m.hypot(z_m) <= radius_m {
+                selected += 1;
+            }
+        }
+    }
+    if selected == 0 {
+        return Err("collision footprint selects no grounding cells".to_string());
+    }
+    Ok(selected)
+}
+
+/// The reference sigmoid: the sign branch keeps `exp` from overflowing.
+fn sigmoid(value: f32) -> f32 {
+    if value >= 0.0 {
+        1.0 / (1.0 + (-value).exp())
+    } else {
+        let exponent = value.exp();
+        exponent / (1.0 + exponent)
+    }
+}
+
+/// Wraps an angle into `[-PI, PI]`, the reference's exact loop.
+fn wrap_angle(mut angle: f32) -> f32 {
+    while angle > std::f32::consts::PI {
+        angle -= std::f32::consts::TAU;
+    }
+    while angle < -std::f32::consts::PI {
+        angle += std::f32::consts::TAU;
+    }
+    angle
+}
+
+/// Scores one rollout candidate's terminal goal distance and worst collision.
+///
+/// The device twin of `action_score.cu`, mirroring the reference planner's
+/// per-step midpoint integration and central-collision footprint. `steps` is
+/// the candidate's flat `[left, right, speed_scale, dt, ...]` sequence and
+/// `occupancy_logits` carries one `JEPA_OCCUPANCY_CELLS` grounding map per
+/// step.
+pub fn action_score(
+    steps: &[f32],
+    occupancy_logits: &[f32],
+    config: &ActionScoreConfig,
+) -> Result<CandidateScore, String> {
+    if steps.len() % 4 != 0 {
+        return Err("rollout steps must be left, right, speed_scale, dt tuples".to_string());
+    }
+    let step_count = steps.len() / 4;
+    if occupancy_logits.len() != step_count * JEPA_OCCUPANCY_CELLS {
+        return Err(format!(
+            "one grounding map per step needs {} logits",
+            step_count * JEPA_OCCUPANCY_CELLS
+        ));
+    }
+    if steps.iter().any(|value| !value.is_finite())
+        || occupancy_logits.iter().any(|value| !value.is_finite())
+    {
+        return Err("rollout inputs must be finite".to_string());
+    }
+    if !config.max_wheel_speed_mps.is_finite() || !config.track_width_m.is_finite() {
+        return Err("drive geometry must be finite".to_string());
+    }
+    if config.track_width_m <= 0.0 {
+        return Err("track width must be positive".to_string());
+    }
+    central_footprint_cells(config.resolution_m, config.collision_radius_m)?;
+
+    let mut lateral_m = 0.0f32;
+    let mut forward_m = 0.0f32;
+    let mut yaw_rad = 0.0f32;
+    let mut worst = 0.0f32;
+
+    for step in 0..step_count {
+        let map = &occupancy_logits[step * JEPA_OCCUPANCY_CELLS..(step + 1) * JEPA_OCCUPANCY_CELLS];
+        let mut local = 0.0f32;
+        for (cell, logit) in map.iter().enumerate() {
+            let row = cell / JEPA_OCCUPANCY_W;
+            let column = cell % JEPA_OCCUPANCY_W;
+            let x_m =
+                (column as f32 + 0.5 - JEPA_OCCUPANCY_W as f32 * 0.5) * config.resolution_m;
+            let z_m = (row as f32 + 0.5 - JEPA_OCCUPANCY_H as f32 * 0.5) * config.resolution_m;
+            if x_m.hypot(z_m) <= config.collision_radius_m {
+                local = local.max(sigmoid(*logit));
+            }
+        }
+        worst = worst.max(local);
+
+        let left = steps[4 * step];
+        let right = steps[4 * step + 1];
+        let speed_scale = steps[4 * step + 2];
+        let dt_seconds = steps[4 * step + 3];
+        let left_mps = left * speed_scale * config.max_wheel_speed_mps;
+        let right_mps = right * speed_scale * config.max_wheel_speed_mps;
+        let linear_mps = (left_mps + right_mps) * 0.5;
+        let angular_rps = (right_mps - left_mps) / config.track_width_m;
+        let midpoint_yaw = yaw_rad + angular_rps * dt_seconds * 0.5;
+        lateral_m += linear_mps * dt_seconds * midpoint_yaw.sin();
+        forward_m += linear_mps * dt_seconds * midpoint_yaw.cos();
+        yaw_rad = wrap_angle(yaw_rad + angular_rps * dt_seconds);
+    }
+
+    let distance =
+        (lateral_m - config.goal_lateral_m).hypot(forward_m - config.goal_forward_m)
+            - config.goal_tolerance_m;
+    Ok(CandidateScore {
+        terminal_goal_distance_m: distance.max(0.0),
+        max_collision_probability: worst,
+    })
 }
