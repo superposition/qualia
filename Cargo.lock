@@ -4858,10 +4858,13 @@ version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
  "libc",
+ "qualia-braid",
  "qualia-ipc",
  "qualia-shm",
  "qualia-types",
  "ratatui",
+ "reqwest",
+ "serde",
 ]
 
 [[package]]

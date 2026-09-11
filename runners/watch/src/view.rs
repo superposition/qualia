@@ -27,6 +27,8 @@ pub enum ViewMode {
     Weights,
     /// World model and the thought stream.
     World,
+    /// The braid the agent reports on `GET /braid`.
+    Mission,
 }
 
 /// The ordered panel table.
@@ -41,6 +43,7 @@ pub const VIEW_LABELS: &[(&str, ViewMode)] = &[
     ("5:Residual", ViewMode::Residuals),
     ("6:Weights", ViewMode::Weights),
     ("7:World", ViewMode::World),
+    ("8:Mission", ViewMode::Mission),
 ];
 
 /// Where `view` sits in [`VIEW_LABELS`].
@@ -173,4 +176,14 @@ fn clamp_scroll(current: u16, delta: i32) -> u16 {
 /// the panel. Content shorter than the panel always starts at row zero.
 pub fn first_visible_row(scroll: u16, total_rows: usize, visible_rows: usize) -> usize {
     (scroll as usize).min(total_rows.saturating_sub(visible_rows))
+}
+
+/// One engine timestamp as `HH:MM:SS.mmm` — the clock the ledger rows and the
+/// Mission panel's promotion and quarantine stamps are read with.
+pub fn format_clock(ns: u64) -> String {
+    let millis = (ns / 1_000_000) % 1000;
+    let secs = (ns / 1_000_000_000) % 60;
+    let mins = (ns / 60_000_000_000) % 60;
+    let hours = (ns / 3_600_000_000_000) % 24;
+    format!("{hours:02}:{mins:02}:{secs:02}.{millis:03}")
 }

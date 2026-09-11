@@ -8,6 +8,14 @@ license.workspace = true
 qualia-types.workspace = true
 qualia-shm.workspace = true
 qualia-ipc.workspace = true
+qualia-braid.workspace = true
 crossterm = "0.28"
 ratatui = "0.29"
 libc = "0.2"
+# The Mission panel is the one thing in this binary that talks to another
+# process: `GET /braid` from the agent. Blocking client on its own thread, so a
+# dead or slow agent degrades a line instead of stalling the render loop; the
+# `rustls-tls` feature is what lets the panel read the agent's self-signed
+# certificate (see `src/braid.rs`).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }

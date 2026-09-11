@@ -16,12 +16,14 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
+use qualia_braid::BeliefClock;
 use qualia_ipc::ControlListener;
 use qualia_shm::{LayerReader, ShmRegion, MAX_LEDGER_ENTRIES};
 use qualia_types::{
     parse_stack_manifest, BeliefSlot, LedgerEvent, RunnerStdout, StackManifest, MAX_OBJECTS,
     MAX_THOUGHTS, NUM_LAYERS, STATE_DIM,
 };
+use qualia_watch::braid::{self, BraidPoller, Mission, MissionStatus};
 use qualia_watch::ring::{
     self, LedgerRecord, LedgerSource, SeqCursor, ThoughtRecord, ThoughtSource,
 };
@@ -129,6 +131,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let belief: [BeliefSlot; NUM_LAYERS] =
         std::array::from_fn(|layer| *LayerReader::new(shm.layer_slot(layer)).read());
+    let braid_line = braid::braid_line(
+        &MissionStatus::Pending,
+        BeliefClock::new(&shm).decision_latency_ns(),
+    );
+    let agent_url =
+        std::env::var("QUALIA_AGENT_URL").unwrap_or_else(|_| braid::DEFAULT_AGENT_URL.to_string());
+    let mission = Mission::pending(agent_url.clone());
+    let mission_poller = BraidPoller::spawn(agent_url);
     let mut app = App {
         shm,
         shm_name,
@@ -147,6 +157,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hex_bytes: Vec::new(),
         hex_layer: usize::MAX,
         hex_stamp: u64::MAX,
+        mission,
+        mission_poller,
+        braid_line,
     };
 
     let guard = TerminalGuard::enter()?;
@@ -445,6 +458,12 @@ struct App {
     hex_bytes: Vec<u8>,
     hex_layer: usize,
     hex_stamp: u64,
+    /// What the agent last reported on `GET /braid`.
+    mission: Mission,
+    /// The worker that polls the agent; its answers land in `mission`.
+    mission_poller: BraidPoller,
+    /// The braid's clock, the value the Braid line renders.
+    braid_line: String,
 }
 
 /// Borrows the region as a change-detection source.
@@ -470,9 +489,14 @@ impl ThoughtSource for Region<'_> {
     }
 }
 
-/// Read every ring and snapshot, and report whether anything visible changed.
+/// Read every ring and snapshot, take the agent's newest braid answer, and
+/// report whether anything visible changed.
 fn refresh(app: &mut App) -> bool {
     let mut changed = false;
+    if let Some(status) = app.mission_poller.try_take() {
+        app.mission.set_status(status);
+        changed = true;
+    }
     for layer in 0..NUM_LAYERS {
         let belief = *LayerReader::new(app.shm.layer_slot(layer)).read();
         if belief.timestamp_ns != app.belief[layer].timestamp_ns
@@ -517,6 +541,15 @@ fn refresh(app: &mut App) -> bool {
             app.hex_layer = app.view.layer();
             app.hex_stamp = stamp;
         }
+    }
+
+    let line = braid::braid_line(
+        app.mission.status(),
+        BeliefClock::new(&app.shm).decision_latency_ns(),
+    );
+    if line != app.braid_line {
+        app.braid_line = line;
+        changed = true;
     }
 
     changed
@@ -599,6 +632,7 @@ fn ui(frame: &mut Frame, app: &App) {
         ViewMode::Residuals => render_residuals(frame, app, rows[1]),
         ViewMode::Weights => render_weights(frame, app, rows[1]),
         ViewMode::World => render_world(frame, app, rows[1]),
+        ViewMode::Mission => render_mission(frame, app, rows[1]),
     }
     render_status_bar(frame, app, rows[2]);
 }
@@ -657,6 +691,11 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(
             format!("layer {} {}", app.view.layer(), LAYER_NAMES[app.view.layer()]),
             Style::default().fg(Color::Yellow),
+        ),
+        Span::styled("│ ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            format!("{} ", app.braid_line),
+            Style::default().fg(Color::Cyan),
         ),
     ]);
     frame.render_widget(Paragraph::new(bar), area);
@@ -780,7 +819,7 @@ fn render_events(frame: &mut Frame, app: &App, area: Rect) {
         .map(|entry| {
             ListItem::new(Line::from(vec![
                 Span::styled(
-                    format!("  {}  ", format_clock(entry.timestamp_ns)),
+                    format!("  {}  ", view::format_clock(entry.timestamp_ns)),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
@@ -1502,6 +1541,41 @@ fn render_world(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+// ── Panel: mission ─────────────────────────────────────────────────────
+
+/// The braid the agent reports on `GET /braid`: one row per field, the agent's
+/// address, and — when the agent is not answering — the reason instead of the
+/// state. The panel draws [`Mission::lines`] and nothing else.
+fn render_mission(frame: &mut Frame, app: &App, area: Rect) {
+    let border = if app.mission.degraded() {
+        Color::Red
+    } else {
+        Color::DarkGray
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border))
+        .title(Span::styled(
+            " Mission · GET /braid ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows: Vec<Line> = app
+        .mission
+        .lines()
+        .into_iter()
+        .map(|(label, value)| {
+            Line::from(vec![
+                Span::styled(format!("  {label:<12}"), Style::default().fg(Color::Cyan)),
+                Span::styled(value, Style::default().fg(Color::White)),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(rows), inner);
+}
+
 fn embedding_cell(value: f32) -> (char, Color) {
     let magnitude = value.abs();
     let color = if value > 0.0 { Color::Green } else { Color::Red };
@@ -1635,12 +1709,4 @@ fn thought_kind_color(kind: u8) -> Color {
         Color::Magenta,
     ];
     COLORS.get(kind as usize).copied().unwrap_or(Color::DarkGray)
-}
-
-fn format_clock(ns: u64) -> String {
-    let millis = (ns / 1_000_000) % 1000;
-    let secs = (ns / 1_000_000_000) % 60;
-    let mins = (ns / 60_000_000_000) % 60;
-    let hours = (ns / 3_600_000_000_000) % 24;
-    format!("{hours:02}:{mins:02}:{secs:02}.{millis:03}")
 }

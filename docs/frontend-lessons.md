@@ -113,11 +113,12 @@ so a slow or dead service degrades the status chips instead of freezing the wind
 intervals are both 250 ms and each history series is capped at `HISTORY_CAPACITY = 180` samples. The
 client is a blocking `reqwest` client with a 700 ms connect timeout and a 1200 ms total timeout.
 
-The base URL comes from `QUALIA_OPS_URL`, defaulting to the literal `https://192.168.0.220:8080`. When
-polling fails, `auto_discover_base_url` derives the local `/24` (`discover_local_subnet_base` opens a
-UDP socket to `1.1.1.1:80` and masks its own address, `subnet_base`) or falls back to the configured
-host's network, then `scan_subnet_for_port` probes addresses `.1`–`.254` with 24 worker threads at
-120 ms each and accepts the first host whose `GET /integration/status` deserializes.
+The base URL came from the process environment, defaulting to the literal
+`https://192.168.0.220:8080`. When polling fails, `auto_discover_base_url` derives the local `/24`
+(`discover_local_subnet_base` opens a UDP socket to `1.1.1.1:80` and masks its own address,
+`subnet_base`) or falls back to the configured host's network, then `scan_subnet_for_port` probes
+addresses `.1`–`.254` with 24 worker threads at 120 ms each and accepts the first host whose
+`GET /integration/status` deserializes.
 `classify_error` turns transport failures into short human labels ("tcp connect refused", "tcp host
 unreachable", "tcp connect timeout"). Window position and size persist to
 `dirs::config_dir()/qualia/qualia-ops-window.json`, outside the repository.
@@ -160,7 +161,7 @@ unreachable", "tcp connect timeout"). Window position and size persist to
   machine.
 
 **Evidence.** `runners/ops/src/main.rs` (engine checkout) — `DEFAULT_BASE_URL` at 12, `main` and
-window state at 17–40, `QUALIA_OPS_URL` at 56, `OpsTab` at 809, `build_client` at 988,
+window state at 17–40, the base-URL environment variable at 56, `OpsTab` at 809, `build_client` at 988,
 `auto_discover_base_url` at 1641, `discover_local_subnet_base` at 1663, `subnet_base` at 1672,
 `scan_subnet_for_port` at 1677, `window_state_path` at 1710. 2,274 lines. Retired by Step 27; kept as
 a lesson.
