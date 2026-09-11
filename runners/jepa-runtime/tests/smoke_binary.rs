@@ -14,9 +14,15 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
+
+/// Every region this binary creates gets its own name: cargo runs the tests on
+/// parallel threads inside one process, so a name keyed only on the pid collides
+/// with whichever test is already holding it.
+static NEXT_REGION: AtomicU64 = AtomicU64::new(0);
 
 /// Writes one digest-checked observe-only checkpoint under `artifacts` and
 /// answers the generation pointer a runner accepts for it.
@@ -95,7 +101,11 @@ impl Runner {
     fn start(artifacts: &Path, pointer: &serde_json::Value, agent_url: Option<&str>) -> Self {
         let pointer_path = artifacts.join("current.json");
         install_pointer(&pointer_path, pointer);
-        let shm_name = format!("/qualia_jepa_smoke_{}", std::process::id());
+        let shm_name = format!(
+            "/qualia_jepa_smoke_{}_{}",
+            std::process::id(),
+            NEXT_REGION.fetch_add(1, Ordering::Relaxed)
+        );
         let region = ShmRegion::create(&shm_name).unwrap();
 
         let mut command = Command::new(env!("CARGO_BIN_EXE_qualia-jepa-runtime"));
