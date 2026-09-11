@@ -5747,6 +5747,7 @@ dependencies = [
  "qualia-sync-types",
  "qualia-types",
  "rcgen",
+ "reqwest",
  "rustls",
  "serde",
  "serde_json",

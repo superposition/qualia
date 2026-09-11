@@ -31,6 +31,7 @@ pub mod braid;
 pub mod compute;
 pub mod config;
 pub mod health;
+pub mod leash;
 pub mod mcp;
 pub mod media;
 pub mod mission_control;
@@ -284,6 +285,7 @@ pub fn app(state: AppState) -> Router {
             "/mission-control/missions/{mission_id}/authorize",
             post(mission_control::authorize_post),
         )
+        .merge(leash::routes())
         .route(
             "/sync/replicas",
             get(pending::replicas_get).post(pending::replicas_post),
