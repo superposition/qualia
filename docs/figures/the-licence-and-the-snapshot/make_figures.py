@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Figures for the journal entry `the-licence-and-the-clean-room-snapshot`.
+"""Figures for the journal entry `the-licence-and-the-snapshot`.
 
     provenance-check.svg   a chart: what this tree and the private reference
                            have in common, and how much of it is identical

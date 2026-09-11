@@ -25,7 +25,7 @@ docs/figures/
 ```
 
 `<entry-slug>` is the slug the entry publishes under, so the figure path and the entry URL agree:
-`the-licence-and-the-clean-room-snapshot`, `the-operating-model`. A figure set that belongs to a
+`the-licence-and-the-snapshot`, `the-operating-model`. A figure set that belongs to a
 ticket rather than to a published entry takes a short slug for that set — `fly-brain` is T51's.
 
 ## The rules
