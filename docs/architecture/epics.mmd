@@ -1,0 +1,136 @@
+flowchart LR
+
+  subgraph E1["Publish"]
+    T01
+    T02
+    T03
+  end
+  subgraph E2["Fixtures the tests stand on"]
+    T04
+    T05
+  end
+  subgraph E3["The connectome prior"]
+    T06
+    T07
+    T08
+    T09
+  end
+  subgraph E4["The belief matrices take the prior"]
+    T10
+    T11
+    T12
+    T13
+  end
+  subgraph E5["The circuit simulator, behind a flag"]
+    T14
+    T15
+  end
+  subgraph E6["Perception and action kernels on the 4090, then the Orin"]
+    T16
+    T17
+    T18
+  end
+  subgraph E7["Missions, memory and self-healing braided"]
+    T19
+    T20
+    T21
+    T22
+  end
+  subgraph E8["Exploration first, governed by the fly"]
+    T23
+    T24
+    T24b
+  end
+  subgraph E9["Self-improvement: the agent in the loop"]
+    T30
+    T31
+    T32
+  end
+  subgraph E10["The harness front end, rebuilt in the open"]
+    T25
+    T26
+    T27
+  end
+  subgraph E11["The neuro-symbolic seam and the healing ladder"]
+    T33
+    T34
+    T35
+    T36
+  end
+  subgraph E12["The public record"]
+    T37
+    T37b
+    T38
+  end
+  subgraph E13["The mark and the high-definition journal"]
+    T39
+    T40
+    T41
+    T42
+    T43
+  end
+  subgraph E14["The operating model: GitHub as state, mage as evidence, subagent swarms"]
+    T44
+    T45
+    T46
+    T47
+    T48
+  end
+  subgraph E15["Verify on the 4090, then the Nano"]
+    T28
+    T29
+  end
+
+  T01 --> T02
+  T01 --> T03
+  T01 --> T04
+  T04 --> T05
+  T05 --> T06
+  T06 --> T07
+  T07 --> T08
+  T08 --> T09
+  T05 --> T10
+  T10 --> T11
+  T11 --> T12
+  T12 --> T13
+  T09 --> T14
+  T14 --> T15
+  T05 --> T16
+  T16 --> T17
+  T17 --> T18
+  T05 --> T19
+  T19 --> T20
+  T19 --> T21
+  T20 --> T22
+  T19 --> T23
+  T23 --> T24
+  T24 --> T24b
+  T44 --> T25
+  T45 --> T25
+  T25 --> T26
+  T26 --> T27
+  T27 --> T28
+  T32 --> T28
+  T36 --> T28
+  T43 --> T28
+  T48 --> T28
+  T28 --> T29
+  T22 --> T30
+  T30 --> T31
+  T31 --> T32
+  T22 --> T33
+  T19 --> T34
+  T34 --> T35
+  T35 --> T36
+  T45 --> T37
+  T37 --> T37b
+  T37 --> T38
+  T39 --> T40
+  T40 --> T41
+  T40 --> T42
+  T42 --> T43
+  T01 --> T44
+  T44 --> T45
+  T44 --> T46
+  T45 --> T47
+  T44 --> T48

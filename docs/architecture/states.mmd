@@ -1,0 +1,13 @@
+stateDiagram-v2
+  [*] --> ready
+  ready --> claimed: claim (assignee + braid comment)
+  claimed --> working: first breadcrumb state: working
+  working --> review: PR opened
+  review --> done: merge + Closes #n
+  review --> claimed: review request-changes
+  working --> blocked: blocked_on filled
+  claimed --> blocked: blocked_on filled
+  blocked --> ready: unblock
+  claimed --> ready: claim stale > 4h (relabel resume)
+  working --> ready: claim stale > 4h (relabel resume)
+  done --> [*]

@@ -1,0 +1,15 @@
+flowchart TD
+  A[read epic issue] --> B[list status:ready tickets]
+  B --> C[claim: assignee + braid comment + status:claimed]
+  C --> D[work: tests first]
+  D --> E[open PR, description starts with braid block]
+  E --> F[comment breadcrumb: state review]
+  F --> G{review passes?}
+  G -- yes --> H[merge, close ticket, status:done]
+  G -- no --> D
+  C -. "agent dies" .-> X[label resume]
+  D -. "agent dies" .-> X
+  X --> Y[a later agent reads the last braid block]
+  Y --> D
+  B -. "blocked" .-> Z[status:blocked + blocked_on]
+  Z --> Y

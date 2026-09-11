@@ -1,0 +1,25 @@
+flowchart LR
+  subgraph strands[Strands]
+    SS[(session-store)]
+    MCAP[(mcap-log)]
+    REG[(jepa-registry)]
+    BR[braid\nobserve / BraidState]
+    AG[agent\nmission broker]
+    LEASH[[leash\nsafety authority]]
+    PRIOR[connectome prior]
+    SENSE[sensing runners]
+  end
+
+  SENSE -- "WorldModel / voxels" --> AG
+  PRIOR -- "CouplingPrior" --> AG
+  AG -- "BraidEvent::MissionOpened / MissionClosed" --> BR
+  SENSE -- "BraidEvent::EvidenceSealed" --> BR
+  REG -- "BraidEvent::PromotionAccepted / PromotionRolledBack" --> BR
+  MCAP -- "BraidEvent::Quarantined" --> BR
+  BR -- "mission row" --> SS
+  BR -- "quarantine_partials" --> MCAP
+  BR -- "rollback" --> REG
+  AG -- "SyncEnvelope / mission.rs" --> SS
+  AG -- "RolloutProposal / plan_path" --> LEASH
+  LEASH -- "qualia.applied-action.v1" --> AG
+  BR -- "BraidState JSON" --> AG

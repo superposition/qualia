@@ -1,0 +1,15 @@
+flowchart LR
+  SRC[sources: epic issue, ticket comments, braid breadcrumbs,\ndocs/evidence captures, git log] --> WR[writer agent\nprimary sources only]
+  WR --> DRAFT[draft PR\n<!-- ASK: --> for anything unsupported]
+  DRAFT --> ACC[accuracy editor]
+  DRAFT --> TEA[teaching editor]
+  DRAFT --> STY[style editor]
+  ACC -- "request-changes" --> WR
+  TEA -- "request-changes" --> WR
+  STY -- "request-changes" --> WR
+  ACC -- "approve" --> GATE{all three approve?}
+  TEA -- "approve" --> GATE
+  STY -- "approve" --> GATE
+  GATE -- yes --> MERGE[merge]
+  MERGE --> LIVE[live URL + figures return 200]
+  LIVE --> EPIC[epic ## Journal line filled]
