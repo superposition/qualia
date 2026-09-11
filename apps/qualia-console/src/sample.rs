@@ -7,6 +7,7 @@
 
 use crate::client::{BraidSnapshot, BraidState, DriftReport};
 use crate::views::belief::BeliefView;
+use crate::views::brain::BrainView;
 use crate::views::evidence::{EvidenceView, DEFAULT_EVIDENCE_ROOT};
 use crate::views::telemetry::TelemetryView;
 use crate::views::world::WorldView;
@@ -31,6 +32,7 @@ pub struct Sample {
     pub world: WorldView,
     pub evidence: EvidenceView,
     pub telemetry: TelemetryView,
+    pub brain: BrainView,
 }
 
 impl Sample {
@@ -38,6 +40,12 @@ impl Sample {
     /// reports why it has nothing live.
     pub fn degraded(fixture: &BraidSnapshot, reason: &str, observed_at_ns: u64) -> Self {
         let region = Some(FIXTURE_SHM_REGION.to_owned());
+        let mut brain = BrainView::unattached(
+            region.clone(),
+            format!("agent unreachable: {reason}"),
+        );
+        brain.record_braid(&fixture.braid);
+        brain.observe_coupling_scale(observed_at_ns);
         Self {
             observed_at_ns,
             connection: Connection::Unreachable {
@@ -53,6 +61,7 @@ impl Sample {
                 ..EvidenceView::default()
             },
             telemetry: TelemetryView::unattached(format!("agent unreachable: {reason}")),
+            brain,
         }
     }
 }

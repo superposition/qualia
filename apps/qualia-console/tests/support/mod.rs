@@ -7,6 +7,8 @@
 
 use qualia_console::sample::FIXTURE_SHM_REGION;
 use qualia_console::views::belief::{BeliefReading, BeliefView};
+use qualia_console::views::brain::matrices::{MatrixReading, MATRIX_CELLS};
+use qualia_console::views::brain::{BrainView, CloudReading, FiringReading, PlanPose, SceneToggles};
 use qualia_console::views::evidence::{
     EvidenceView, LedgerRow, SegmentReading, DEFAULT_EVIDENCE_ROOT,
 };
@@ -119,6 +121,68 @@ pub fn healthy(fixture: &BraidSnapshot, observed_at_ns: u64) -> Sample {
         error: None,
     };
 
+    let mut brain = BrainView {
+        region: Some(FIXTURE_SHM_REGION.to_owned()),
+        error: None,
+        firing: Some(FiringReading {
+            sim_id: "qualia.fly-circuit.rate.v1".to_owned(),
+            type_count: 5,
+            sim_step: 128,
+            producer_epoch: 3,
+            timestamp_ns: base_ns + 1_500_000,
+            flags: 0,
+            rates: vec![0.90, 0.55, 0.72, 0.20, 0.45],
+        }),
+        layers: (0..qualia_types::NUM_LAYERS)
+            .map(|layer| MatrixReading {
+                layer: layer as u8,
+                weight: (0..MATRIX_CELLS)
+                    .map(|cell| ((cell + layer) % 11) as f32 / 11.0)
+                    .collect(),
+                belief: (0..MATRIX_CELLS)
+                    .map(|cell| ((cell * 3 + layer) % 7) as f32 / 14.0 - 0.25)
+                    .collect(),
+                vfe: 0.08 + 0.02 * layer as f32,
+                residual_norm: 0.03 + 0.01 * layer as f32,
+                timestamp_ns: base_ns + layer as u64 * 1_000_000,
+            })
+            .collect(),
+        cloud: CloudReading {
+            points: (0..48)
+                .map(|index| {
+                    let angle = index as f32 * 0.13;
+                    [angle.cos() * 0.8, 0.0, angle.sin() * 0.8]
+                })
+                .collect(),
+            voxels: (0..96)
+                .map(|index| {
+                    [
+                        ((index % 12) as f32 - 6.0) * 0.08,
+                        ((index / 12) as f32 - 4.0) * 0.08,
+                        ((index % 7) as f32 - 3.0) * 0.08,
+                    ]
+                })
+                .collect(),
+            voxel_total: 128,
+            lidar_timestamp_ns: base_ns + 3_000_000,
+            voxel_seq: Some(56),
+            floor_seq: Some(12),
+            pose: Some(PlanPose {
+                x_m: 1.2,
+                z_m: 0.4,
+                yaw_rad: 0.05,
+            }),
+        },
+        markers: Vec::new(),
+        history: Vec::new(),
+        coupling_scale: Some(1.0),
+        camera: Default::default(),
+        toggles: SceneToggles::default(),
+        selected_layer: 0,
+        counts: Default::default(),
+    };
+    brain.record_braid(&braid);
+
     Sample {
         observed_at_ns,
         connection: Connection::Live,
@@ -128,5 +192,6 @@ pub fn healthy(fixture: &BraidSnapshot, observed_at_ns: u64) -> Sample {
         world,
         evidence,
         telemetry,
+        brain,
     }
 }

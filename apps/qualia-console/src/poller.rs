@@ -88,16 +88,22 @@ fn worker(
         let shm = shm_sample::sample(&region, &sensing);
 
         let sample = match source.fetch() {
-            Ok(snapshot) => Sample {
-                observed_at_ns,
-                connection: crate::Connection::Live,
-                braid: snapshot.braid,
-                drift: snapshot.drift,
-                belief: shm.belief,
-                world: shm.world,
-                telemetry: shm.telemetry,
-                evidence: evidence.refresh(&evidence_root, shm.ledger),
-            },
+            Ok(snapshot) => {
+                let mut brain = shm.brain;
+                brain.record_braid(&snapshot.braid);
+                brain.observe_coupling_scale(observed_at_ns);
+                Sample {
+                    observed_at_ns,
+                    connection: crate::Connection::Live,
+                    braid: snapshot.braid,
+                    drift: snapshot.drift,
+                    belief: shm.belief,
+                    world: shm.world,
+                    telemetry: shm.telemetry,
+                    evidence: evidence.refresh(&evidence_root, shm.ledger),
+                    brain,
+                }
+            }
             Err(reason) => {
                 // The fallback is the committed fixture source; if even that
                 // cannot answer, the compiled-in fixture still can.

@@ -1,0 +1,42 @@
+{
+  "algorithm": "spectral-laplacian-v1",
+  "nodes": [
+    [
+      0.70978,
+      -0.54502,
+      -0.73202
+    ],
+    [
+      -0.681922,
+      -0.478132,
+      -0.28396
+    ],
+    [
+      0.451019,
+      -0.256726,
+      0.981441
+    ],
+    [
+      0.34243,
+      1.0,
+      -0.290405
+    ],
+    [
+      -0.612666,
+      0.270696,
+      0.02819
+    ]
+  ],
+  "prior": {
+    "cols_sha256": "b80f432cdc9e7b2097ab4e420bf9117ed8c5b232bd1a2a07cce0af6eac2a4f4f",
+    "edge_count": 9,
+    "graph_sha256": "bbb291afb22e8a0648efd57476d2b8768c718168950e0a7c330566ed666a494c",
+    "rowptr_sha256": "09be209699f4060f7cac38226355851372682ae0104d627cf5d480b21e56945e",
+    "schema": "qualia.connectome-prior.v1",
+    "source_sha256": "bbb291afb22e8a0648efd57476d2b8768c718168950e0a7c330566ed666a494c",
+    "type_count": 5,
+    "weights_sha256": "e2ff98c16d73f161483f8e4a5765ea771c3f2692fa871d603d7718ffe7ed6ae9"
+  },
+  "schema": "qualia.brain-layout.v1",
+  "seed": 20260911
+}

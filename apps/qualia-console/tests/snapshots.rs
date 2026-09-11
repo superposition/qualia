@@ -20,7 +20,9 @@ use egui_kittest::{kittest::Queryable, Harness};
 use qualia_console::views::evidence::EvidenceView;
 use qualia_console::views::world::WorldView;
 use qualia_console::{fixture, ConsoleState, Sample, View, WindowSet};
+use qualia_console::views::brain::BrainView;
 use qualia_shm::ShmRegion;
+use qualia_types::{FlySimPayload, LidarScanSnapshot};
 use support::{healthy, ms_after_promotion};
 
 const VIEWPORT: [f32; 2] = [1280.0, 820.0];
@@ -167,19 +169,71 @@ fn world_fresh() {
 
 #[test]
 fn default_arrangement() {
-    // The console's opening picture: every panel open at its own cascade
-    // position, the whole stack readable at once.
+    // The console's opening picture: every panel open at its own grid place,
+    // the whole stack readable at once.
     let fixture = fixture();
     let now = ms_after_promotion(&fixture, 20);
     let state = ConsoleState::from_sample(healthy(&fixture, now), "http://127.0.0.1:8080");
-    assert_eq!(state.windows, WindowSet::default(), "all five show by default");
+    assert_eq!(state.windows, WindowSet::default(), "all six show by default");
     let mut harness = harness(state);
 
-    // One accessible label from each of the five panels.
+    // One accessible label from each of the six panels.
     harness.get_by_label("open missions");
     harness.get_by_label("compression");
     harness.get_by_label("pose confidence");
     harness.get_by_label("evidence root");
     harness.get_by_label("newest frame");
+    harness.get_by_label("belief matrices");
     harness.snapshot("default_arrangement");
+}
+
+#[test]
+fn brain_fresh() {
+    // A region with one published fly-model state and one lidar scan: the graph
+    // fires, the cloud draws, and the panels below carry the matrices.
+    let name = region_name("brain");
+    let region = ShmRegion::create(&name).expect("create region");
+    let mut payload = FlySimPayload {
+        type_count: 5,
+        sim_step: 7,
+        producer_epoch: 2,
+        timestamp_ns: 1_000,
+        ..FlySimPayload::default()
+    };
+    payload.state[..5].copy_from_slice(&[0.90, 0.40, 0.72, 0.20, 0.55]);
+    region.fly_sim().publish(payload).expect("publish fly sim");
+    let scan = LidarScanSnapshot {
+        scan_start_ns: 1_000,
+        scan_end_ns: 2_000,
+        point_count: 3,
+        ..LidarScanSnapshot::default()
+    };
+    region.lidar_scan_mut().publish(&scan).expect("publish scan");
+
+    let fixture = fixture();
+    let now = ms_after_promotion(&fixture, 20);
+    let mut sample = healthy(&fixture, now);
+    sample.brain = BrainView {
+        region: Some(name),
+        ..BrainView::sample(&region)
+    };
+    sample.brain.record_braid(&fixture.braid);
+    let mut harness = harness(state(View::Brain, sample));
+
+    harness.get_by_label("belief matrices");
+    harness.get_by_label("weight matrix");
+    harness.get_by_label("belief vector");
+    harness.get_by_label("time axis");
+    harness.get_by_label("connectome");
+    harness.get_by_label("point cloud");
+    harness.get_by_label("fly sim");
+    harness.get_by_label("prior graph");
+    harness.get_by_label("braid markers");
+    harness.get_by_label("PromotionAccepted g12");
+    assert!(
+        harness.query_all_by_label("fly sim: not published (QUALIA_FLY_MODE=sim needed)").count() == 0,
+        "a published fly state is not the absent arm"
+    );
+
+    harness.snapshot("brain_fresh");
 }

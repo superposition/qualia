@@ -1,9 +1,10 @@
 //! `qualia-console` — the braid's operator console.
 //!
-//! Five views over one state: the braid the agent reports on `GET /braid`, the
+//! Six views over one state: the braid the agent reports on `GET /braid`, the
 //! belief layers in the shared region, the world the runners have mapped, the
-//! evidence MCAP has sealed, and the newest frame each sensing runner published.
-//! One native binary, no webview, no JavaScript runtime.
+//! evidence MCAP has sealed, the newest frame each sensing runner published, and
+//! the fly brain — the connectome prior's firing model, the lidar cloud and the
+//! belief matrices. One native binary, no webview, no JavaScript runtime.
 //!
 //! Every design choice here traces to `docs/frontend-lessons.md`, which records
 //! what five existing front ends taught and what they got wrong. The short
@@ -31,7 +32,7 @@
 //!   session and generation behind every other panel's numbers — sources 1, 2
 //!   and 4;
 //! - presentation lives in [`theme`], one palette, one family and one 8 px
-//!   grid, so the five views cannot drift apart;
+//!   grid, so the six views cannot drift apart;
 //! - no `unsafe` in the console: the ABI pointer arithmetic stays in
 //!   `qualia-shm` — source 1.
 
@@ -50,7 +51,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use poller::Poller;
 
-/// The five operator screens, in cascade order.
+/// The six operator screens, in cascade order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     Mission,
@@ -58,16 +59,18 @@ pub enum View {
     World,
     Evidence,
     Telemetry,
+    Brain,
 }
 
 /// One label table drives the window titles, the `Console` menu's checkboxes
 /// and the cascade order (source 1's lesson: never write the binding twice).
-pub const VIEWS: [View; 5] = [
+pub const VIEWS: [View; 6] = [
     View::Mission,
     View::Belief,
     View::World,
     View::Evidence,
     View::Telemetry,
+    View::Brain,
 ];
 
 impl View {
@@ -78,6 +81,7 @@ impl View {
             View::World => "World",
             View::Evidence => "Evidence",
             View::Telemetry => "Telemetry",
+            View::Brain => "Brain",
         }
     }
 }
@@ -105,6 +109,7 @@ pub struct WindowSet {
     pub world: bool,
     pub evidence: bool,
     pub telemetry: bool,
+    pub brain: bool,
 }
 
 impl Default for WindowSet {
@@ -115,6 +120,7 @@ impl Default for WindowSet {
             world: true,
             evidence: true,
             telemetry: true,
+            brain: true,
         }
     }
 }
@@ -128,6 +134,7 @@ impl WindowSet {
             world: false,
             evidence: false,
             telemetry: false,
+            brain: false,
         };
         set.set(view, true);
         set
@@ -140,6 +147,7 @@ impl WindowSet {
             View::World => self.world,
             View::Evidence => self.evidence,
             View::Telemetry => self.telemetry,
+            View::Brain => self.brain,
         }
     }
 
@@ -150,6 +158,7 @@ impl WindowSet {
             View::World => self.world = open,
             View::Evidence => self.evidence = open,
             View::Telemetry => self.telemetry = open,
+            View::Brain => self.brain = open,
         }
     }
 }
@@ -169,6 +178,10 @@ pub struct ConsoleState {
     pub world: views::world::WorldView,
     pub evidence: views::evidence::EvidenceView,
     pub telemetry: views::telemetry::TelemetryView,
+    pub brain: views::brain::BrainView,
+    /// The prior and its layout, read once at start-up: a poll never re-reads a
+    /// graph file, and every frame shares the same owned copy.
+    pub brain_assets: std::sync::Arc<views::brain::BrainAssets>,
     pub windows: WindowSet,
 }
 
@@ -186,6 +199,8 @@ impl ConsoleState {
             world: sample.world,
             evidence: sample.evidence,
             telemetry: sample.telemetry,
+            brain: sample.brain,
+            brain_assets: std::sync::Arc::new(views::brain::BrainAssets::load()),
             windows: WindowSet::default(),
         }
     }
@@ -200,6 +215,9 @@ impl ConsoleState {
         self.world = sample.world;
         self.evidence = sample.evidence;
         self.telemetry = sample.telemetry;
+        // The brain view keeps the operator's camera, its short history and the
+        // markers earlier polls produced; only the readings are replaced.
+        self.brain.absorb(sample.brain);
     }
 }
 
@@ -211,7 +229,7 @@ pub fn now_ns() -> u64 {
         .unwrap_or(0)
 }
 
-/// Draw the console: the one strip, then the five floating panels.
+/// Draw the console: the one strip, then the six floating panels.
 ///
 /// This is the whole surface, so the snapshot tests drive the same code the
 /// window does; [`app_ui`] only wraps it in a panel.
@@ -236,6 +254,9 @@ pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
     });
     theme::panel(&ctx, View::Telemetry, &mut windows.telemetry, |ui| {
         views::telemetry::render(ui, state)
+    });
+    theme::panel(&ctx, View::Brain, &mut windows.brain, |ui| {
+        views::brain::render(ui, state)
     });
     state.windows = windows;
 }
