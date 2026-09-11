@@ -6,17 +6,22 @@
 // A type's in-strength is the summed weight of the edges that end on it; the
 // most strongly innervated type couples at unit weight and every other type
 // scales down in proportion, so the prior can attenuate a belief but never
-// amplify it. One thread per mapped slot applies the factor and records it, so
-// the host can sum the applied weights exactly as the CPU reference returns
-// them.
+// amplify it. One thread per mapped slot records its own factor, so the host
+// can sum the applied weights exactly as the CPU reference returns them.
 //
 // Launch shape: one block, one thread per mapped slot. The block first
 // accumulates every edge's weight into the shared in-strength table (a
 // cooperative stride over the edge list, the same edges the host loops over
 // once), then each thread reads its own type's strength and the block-wide
-// peak and multiplies its belief slot. The reduction is order-independent
-// because integer addition is associative and the peak is a max, so the
-// result does not depend on how the block is scheduled.
+// peak and records its factor. The reduction is order-independent because
+// integer addition is associative and the peak is a max, so the recorded
+// factors do not depend on how the block is scheduled.
+//
+// Two mapped slots may name one belief index, so the update is serialised by
+// slot: of the lanes that map an index, the last one applies every valid factor
+// for it in slot order — the reference's sequential loop, split by slot — and
+// the others write nothing. Applying the factors directly from every lane would
+// let concurrent read-modify-write pairs drop all but one of them.
 //
 // NVRTC compiles this at process start and supplies the device builtins, so
 // the file includes no CUDA header.
@@ -53,24 +58,37 @@ extern "C" __global__ void belief_couple(
     __syncthreads();
 
     const unsigned int lane = threadIdx.x;
-    if (lane >= slot_count) return;
 
     unsigned int peak = 0u;
     for (unsigned int type = 0; type < type_count; ++type) {
         peak = max(peak, in_strength[type]);
     }
 
-    const unsigned int type = slot_types[lane];
-    const unsigned int slot = slot_indices[lane];
-
-    // The reference ignores a pair that names a type outside the graph or a
-    // slot outside the belief, and an all-zero prior applies nothing.
-    if (peak == 0u || type >= type_count || slot >= belief_len) {
-        slot_factors[lane] = 0.0f;
-        return;
+    unsigned int type = 0u;
+    unsigned int slot = 0u;
+    if (lane < slot_count) {
+        type = slot_types[lane];
+        slot = slot_indices[lane];
+        // The reference ignores a pair that names a type outside the graph or a
+        // slot outside the belief, and an all-zero prior applies nothing.
+        const bool ignored = peak == 0u || type >= type_count || slot >= belief_len;
+        slot_factors[lane] = ignored ? 0.0f : (float)in_strength[type] / (float)peak;
     }
+    __syncthreads();
 
-    const float factor = (float)in_strength[type] / (float)peak;
-    belief[slot] *= factor;
-    slot_factors[lane] = factor;
+    if (lane >= slot_count) return;
+    if (peak == 0u || type >= type_count || slot >= belief_len) return;
+
+    // One lane per belief index writes it: a later valid lane mapping the same
+    // index owns the update, and it applies every valid factor for the index in
+    // slot order. A repeated index therefore sees all of its factors, as the
+    // reference's sequential loop gives it.
+    for (unsigned int other = lane + 1u; other < slot_count; ++other) {
+        if (slot_indices[other] == slot && slot_types[other] < type_count) return;
+    }
+    for (unsigned int other = 0u; other < slot_count; ++other) {
+        if (slot_indices[other] == slot && slot_types[other] < type_count) {
+            belief[slot] *= slot_factors[other];
+        }
+    }
 }
