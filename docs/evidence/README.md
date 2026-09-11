@@ -88,9 +88,34 @@ head -1` after the cross-build, or `target/debug/deps` after a native build on t
 
 Capture range: the ticket text in #64 writes `--capture-range cuda`. That range records only the
 window a target opens with `cudaProfilerStart`/`cudaProfilerStop`, and no binary in this repository
-calls either, so a `cuda` capture on today's runners records no kernels and mage fails with
-`captured no CUDA kernel launches`. Until a runner grows those calls, captures use
+calls either, so a `cuda` capture records no kernels. What mage reports then is backend-specific, and
+on `nsys` it is not the empty-capture message: `nsys` is invoked with
+`--capture-range=cudaProfilerApi --capture-range-end=stop`, writes no export for the window, and
+fails before parsing with
+
+```text
+Error during profiling: Nsight Systems SQLite export is missing:
+<output-dir>/mage-nsys-<random>/capture.sqlite
+```
+
+`captured no CUDA kernel launches` is the *kernel-less run* message instead: it comes from the
+empty-capture check, which fires only when a backend's export exists and parses to zero launches, and
+it names the backend — a kernel-less `nsys` run prints `nsys captured no CUDA kernel launches. Check
+the target and capture range. Reports: …`, and a kernel-less `ncu` run prints the same text with
+`ncu` in front. `ncu` runs the `cuda` range as `--profile-from-start off`, so a run with no
+`cudaProfilerStart` captures nothing there either. Until a runner grows those calls, captures use
 `--capture-range all`.
+
+## Manual capture
+
+Capture by hand when the target's own driver, not this repository, makes mage unavailable: Pinkie
+carries no `nsys` and no mage (`triton>=3.0` publishes no aarch64 wheel), so the board's captures are
+produced manually. State that reason and the exact command used in the directory README, and keep the
+manifest's field names — `argv`, `returncode`, `status`, `error`. Commit the raw backend export
+(`capture.ncu-rep` and `metrics.csv` for `ncu`) when it fits the size the tree carries; when it cannot
+be committed, the directory README says `kernels.json` and `kernels.csv` were hand-normalised from
+that export and records the export's hash and size. The kernel-less rule and the `nsys` SQLite rule
+above are unchanged.
 
 ## Host
 

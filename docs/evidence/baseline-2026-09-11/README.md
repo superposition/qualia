@@ -23,8 +23,11 @@ The suite ran once, single-threaded, so every launch below comes from a single p
 | `cognition_dispatch_matches_the_host_reference` | 2 × `cognition_update`, one per tick |
 | `cognition_weight_edits_are_observable` | 1 × `cognition_patch` |
 
-13 launches in total, over 5 distinct kernels. All 5 tests passed (`ok. 5 passed; 0 failed`,
-2.12 s of test time without the profiler attached).
+13 launches in total, over 5 distinct kernels. All 5 tests passed (`ok. 5 passed; 0 failed`),
+single-threaded and with no profiler attached. The suite NVRTC-compiles its kernels at run time
+(`compile_for` in `crates/cuda/src/cuda_impl.rs`), so a bare run's reported test time depends on the
+compiler warm-up and is not a fixed number; the pass count and the launch counts below are the
+stable part.
 
 Command sequence, WSL2 Ubuntu-22.04, `cargo 1.98.1`, `nsys 2025.3.2.474`:
 
