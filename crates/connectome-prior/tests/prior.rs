@@ -17,8 +17,8 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
 use qualia_connectome_prior::{
-    build_type_graph, build_type_graph_from_rows, write_prior, Attribution, BodyAnnotation,
-    PriorError, PriorSource, SegmentEdge, PRIOR_SCHEMA,
+    build_type_graph, build_type_graph_from_rows, build_type_graph_reporting, write_prior,
+    Attribution, BodyAnnotation, PriorError, PriorSource, SegmentEdge, PRIOR_SCHEMA,
 };
 use sha2::{Digest, Sha256};
 
@@ -394,6 +394,35 @@ fn rerun_is_idempotent() {
     let error = write_prior(&out, &graph, &Attribution::male_cns()).expect_err("second write refused");
     assert!(matches!(error, PriorError::AlreadyBuilt));
     assert_eq!(file_state(&out), before);
+}
+
+#[test]
+fn skips_unmapped_rows_and_warns() {
+    let fixture = fixture();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // Body 99999 is in no annotation, so its row cannot be mapped.
+    let source = synth_inputs(temp.path(), &fixture, &[(99999, 10001, 7)]);
+
+    let (graph, warning) = build_type_graph_reporting(&source).expect("unmapped rows are not fatal");
+    assert_eq!(graph.cols.len(), 9);
+    assert_eq!(
+        warning,
+        Some(PriorError::UnmappedRows {
+            skipped: 1,
+            total: 13
+        })
+    );
+    let text = warning.expect("warning present").to_string();
+    assert!(text.contains('1') && text.contains("13"), "{text}");
+
+    // The plain entry point is equally non-fatal.
+    let graph = build_type_graph(&source).expect("unmapped rows are not fatal");
+    assert_eq!(graph.cols.len(), 9);
+
+    // A fully mapped build carries no warning at all.
+    let clean = synth_inputs(temp.path(), &fixture, &[]);
+    let (_, warning) = build_type_graph_reporting(&clean).expect("mapped fixture builds");
+    assert_eq!(warning, None);
 }
 
 #[test]
