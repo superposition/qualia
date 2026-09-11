@@ -1,0 +1,46 @@
+{
+  "schema": "qualia.psi-mark.v1",
+  "viewbox": 100,
+  "inset": 8,
+  "stroke": 0.085,
+  "palette": {
+    "ink": "#edf0f5",
+    "accent": "#91dbba"
+  },
+  "parts": [
+    {
+      "name": "stem",
+      "colour": "ink",
+      "points": [
+        [0.5, 0.215],
+        [0.5, 0.735]
+      ]
+    },
+    {
+      "name": "left-arm",
+      "colour": "ink",
+      "points": [
+        [0.5, 0.36],
+        [0.15, 0.125],
+        [0.5, 0.43]
+      ]
+    },
+    {
+      "name": "right-arm",
+      "colour": "ink",
+      "points": [
+        [0.5, 0.36],
+        [0.85, 0.125],
+        [0.5, 0.43]
+      ]
+    },
+    {
+      "name": "descender",
+      "colour": "accent",
+      "points": [
+        [0.5, 0.735],
+        [0.5, 0.905]
+      ]
+    }
+  ]
+}
