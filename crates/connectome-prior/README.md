@@ -1,8 +1,9 @@
-# qualia-connectome-prior
+# `qualia-connectome-prior`
 
-Builds a type-level connectome prior from the Male CNS dataset (Berg et al. 2026,
-https://male-cns.janelia.org): it reads the dataset's segment-level weight and body-annotation
-Feather files, aggregates every edge to the neuron-type level through the annotation table, and
-emits the resulting graph as a CSR `graph.bin` plus a `manifest.json` and `attribution.json` whose
-SHA-256 fields let a consumer reject a truncated or edited artifact. The dataset is licensed CC-BY
-4.0; its attribution is carried in the repository `NOTICE` and in the emitted `attribution.json`.
+Builds a **type-level connectome prior** from the Male CNS dataset and writes it as a verified
+artifact. Segment-level edges are aggregated to type level through the body-annotation table and
+emitted as CSR with `u32` type indices, together with a manifest carrying SHA-256 digests and the
+CC-BY attribution required by `NOTICE`.
+
+This crate builds the artifact offline. It does not run in the motor path and it has no dynamics: it
+is a graph, and only a graph.
