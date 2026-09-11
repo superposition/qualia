@@ -44,8 +44,9 @@ every export's size and hash. The runs are labelled `base` and `none` in the `ru
 
 One pass of the five device tests, one test thread. Every device context is constructed once per
 test, so each kernel runs the number of launches below. The clock column is Nsight Compute's own
-`--clock-control` setting: `base` is its default and holds the GPC clock near 306 MHz, `none` leaves
-the clock alone. Both runs are on the same board, back to back. Their **totals** agree to 0.001 %
+`--clock-control` setting: `base` is its default and holds the GPC clock near 306 MHz (the reading is
+the exploratory pass's, not one of this capture's counters — §"The reports"), `none` leaves the clock
+alone. Both runs are on the same board, back to back. Their **totals** agree to 0.001 %
 (39 182 176 vs 39 181 760 ns) and `belief_update` to 0.14 %; per launch the spread runs to 3.42 %
 (`cognition_patch`), 2.69 % (`add_one`, one of its eight launches), 0.98 % (`costmap_stats`), 0.32 %
 and 0.18 % (`cognition_update`) — the totals agree, the individual launches do not all.
@@ -126,10 +127,10 @@ the CSV; the DRAM number is not, and is not claimed.
 ## Does the board reproduce the 4090's ranking?
 
 Yes for the ranking, no for the durations. On the 4090 the same file cost 4 784.75 µs with the same 13
-launches and the same shapes; here it costs 39 182.18 µs at 306 MHz, and the board's `belief_update`
-took 3 973 383 SM cycles. [INFERENCE] The 4090's 1547.8 µs at its ~2.5 GHz clock is about 3.9 M
-cycles, so the two machines appear to spend the *same* number of cycles on the same loop and to
-differ mainly in clock — which is the shape D-011 predicts for a naive, latency-bound kernel: a
+launches and the same shapes; here it costs 39 182.18 µs at ~306 MHz (§Shape), and the board's
+`belief_update` took 3 973 383 SM cycles. [INFERENCE] The 4090's 1547.8 µs at its ~2.5 GHz clock is
+about 3.9 M cycles, so the two machines appear to spend the *same* number of cycles on the same loop
+and to differ mainly in clock — which is the shape D-011 predicts for a naive, latency-bound kernel: a
 slower clock multiplies the wall time, and the board is where the naive shape is worst. This capture
 did not measure the 4090's clock, so the cycle count on that side is inferred, not measured.
 
@@ -327,14 +328,15 @@ named by configuration:
 | `none-capture.ncu-rep` | `none` — the `--clock-control none` repeat | 594 223 B | `d39ec28a6d519cbc2304b331cb48d08bf6147322b01260b2ee7b1ca15390ce55` |
 
 The re-run reproduced the committed workload — `belief_update` 12 997 632 ns against the committed
-12 976 128 ns, and 39 137 ms of kernel time against 39 182 ms — so the reports belong to these two
-configurations, though they are not the same process's bytes as the committed CSVs, which came from
-the hand runs above. The same runs wrote raw-page CSVs (`base-metrics.csv` 37 054 B,
-`none-metrics.csv` 37 166 B); those are not committed. The exploratory `capture-basic.ncu-rep`
-(832 246 B, SHA-256 `cbb08639fa4ad36f4d19eb44e18d5e3cb89df77a3389421910c69d5808a81c66`) is a
+12 976 128 ns, and 39.137 ms of kernel time against the committed 39.182 ms (39 182 176 ns) — so the
+reports belong to these two configurations, though they are not the same process's bytes as the
+committed CSVs, which came from the hand runs above. The same runs wrote raw-page CSVs
+(`base-metrics.csv` 37 054 B, `none-metrics.csv` 37 166 B); those are not committed. The exploratory
+`capture-basic.ncu-rep` (832 246 B, SHA-256 `cbb08639fa4ad36f4d19eb44e18d5e3cb89df77a3389421910c69d5808a81c66`) is a
 different pass — its `--section` metric set is not this capture's `--metrics` list and it profiled a
 different `belief_update` replay (3 973 027 cycles against the committed 3 973 383) — and is not
-committed.
+committed; on the development host it sits at `C:/tmp/wp-ev/capture-basic.ncu-rep`. That pass's
+`SM Frequency` reading (305.98 MHz on `belief_update`) is where §Shape's 306 MHz comes from.
 
 ## What this does not establish
 
@@ -363,11 +365,15 @@ committed.
   `capture.json` — nothing in the committed bytes checks its `returncode`), the board facts in
   §"Board" (driver 540.4, `NV Power Mode: 10W`, toolkit 12.9.41, cargo/rustc/gcc versions, 161 GiB
   free, "GPU idle at the start"), the five-capture 0.21 % spread for `belief_update` (only two runs
-  are committed), and the 4090's clock in the `[INFERENCE]` paragraph. The 8.19× also divides an ncu
-  isolated-replay duration (ncu's default clock *and* cache control) by an nsys wall-clock duration
-  from a different profiler, host and commit; the shapes and launch counts are the comparable part.
-- **The 306 MHz is the board's 10 W power mode**, not a profiler artefact: the unlocked repeat, which
-  runs with `--clock-control none`, reports the same total kernel time to 0.001 %.
+  are committed), the 306 MHz GPC clock in §Shape (an `SM Frequency` reading from the exploratory
+  pass, §"The reports" — this capture's `--metrics` list names no frequency counter and neither
+  committed export carries one), and the 4090's clock in the `[INFERENCE]` paragraph. The 8.19× also
+  divides an ncu isolated-replay duration (ncu's default clock *and* cache control) by an nsys
+  wall-clock duration from a different profiler, host and commit; the shapes and launch counts are the
+  comparable part.
+- **The ~306 MHz is the board's 10 W power mode** (the reading is the exploratory pass's, above), not
+  a profiler artefact: the unlocked repeat, which runs with `--clock-control none`, reports the same
+  total kernel time to 0.001 %.
 
 ## Board
 
