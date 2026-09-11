@@ -73,11 +73,11 @@ impl std::error::Error for CudaError {}
 /// the total weight it applies.
 ///
 /// `slots` pairs a connectome type with the belief slot it feeds; the type's
-/// in-strength, normalised by the graph's strongest type, is the scale that
-/// slot receives, so coupling attenuates a belief but never amplifies it. The
-/// total is the value [`CouplingPrior::couple`] applies to a belief spanning
-/// the mapped slots, read back from a scratch belief so the arithmetic has a
-/// single home. `slots` is empty when no prior is loaded, which returns zero.
+/// in-strength, normalised by the graph's strongest type, times the agent's
+/// `scale` dial, is the weight that slot receives. The total is the value
+/// [`CouplingPrior::couple`] applies to a belief spanning the mapped slots, read
+/// back from a scratch belief so the arithmetic has a single home. `slots` is
+/// empty when no prior is loaded, which returns zero.
 ///
 /// The prior is data, not a kernel (D-001): the coupling is host-side, so `ctx`
 /// is the layer's identity and nothing is launched for it.
@@ -86,6 +86,7 @@ pub fn couple_prior(
     ctx: &CudaContext,
     prior: &CouplingPrior,
     slots: &[(u32, usize)],
+    scale: f32,
 ) -> Result<f32, CudaError> {
     // The total belongs to the layer this context drives; the coupling itself
     // is host-side data, so the context is the layer's identity and no part of
@@ -107,7 +108,7 @@ pub fn couple_prior(
         .max()
         .map_or(0, |slot| slot + 1);
     let mut scratch = vec![0.0f32; span];
-    Ok(prior.couple(&mut scratch, slots))
+    Ok(prior.couple(&mut scratch, slots, scale))
 }
 
 /// Without the `fly-prior` feature the coupling is not compiled in: the belief
@@ -117,6 +118,7 @@ pub fn couple_prior(
     _ctx: &CudaContext,
     _prior: &CouplingPrior,
     _slots: &[(u32, usize)],
+    _scale: f32,
 ) -> Result<f32, CudaError> {
     Ok(0.0)
 }

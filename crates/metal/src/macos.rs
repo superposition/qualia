@@ -12,6 +12,7 @@ use crate::gpu::{download, upload};
 
 #[cfg(feature = "fly-prior")]
 use qualia_jepa::prior::CouplingPrior;
+use qualia_jepa::prior::COUPLING_SCALE_DEFAULT;
 
 const BELIEF_KERNEL_SRC: &str = include_str!("../../../kernels/belief_update.metal");
 
@@ -154,21 +155,27 @@ impl MetalContext {
 /// buffer it reads is the layer below (wrapping to the sensor plane for L0).
 pub fn run_layer(layer_id: u8, name: &str) {
     #[cfg(feature = "fly-prior")]
-    run_layer_inner(layer_id, name, None);
+    run_layer_inner(layer_id, name, None, COUPLING_SCALE_DEFAULT);
 
     #[cfg(not(feature = "fly-prior"))]
-    run_layer_inner(layer_id, name, ());
+    run_layer_inner(layer_id, name, (), COUPLING_SCALE_DEFAULT);
 }
 
 /// Run the belief loop with a verified connectome prior coupled in.
 ///
 /// The prior travels as an argument rather than being read from the
-/// environment here: the layer runner owns `QUALIA_FLY_MODE` and
-/// `QUALIA_FLY_PRIOR_PATH`, verifies the artifact before the layer starts, and
-/// hands over the graph it already loaded, so a layer never loads it twice.
+/// environment here: the layer runner owns `QUALIA_FLY_MODE`,
+/// `QUALIA_FLY_PRIOR_PATH` and `QUALIA_FLY_COUPLING_SCALE`, verifies the
+/// artifact before the layer starts, and hands over the graph it already loaded
+/// together with the bounded dial reading, so a layer never reads either twice.
 #[cfg(feature = "fly-prior")]
-pub fn run_layer_with_prior(layer_id: u8, name: &str, prior: Option<CouplingPrior>) {
-    run_layer_inner(layer_id, name, prior);
+pub fn run_layer_with_prior(
+    layer_id: u8,
+    name: &str,
+    prior: Option<CouplingPrior>,
+    scale: f32,
+) {
+    run_layer_inner(layer_id, name, prior, scale);
 }
 
 /// The prior a layer was started with.
@@ -193,10 +200,11 @@ fn coupling_slots(prior: &CouplingPrior) -> Vec<(u32, usize)> {
         .collect()
 }
 
-fn run_layer_inner(layer_id: u8, name: &str, prior: FlyPrior) {
-    // With the coupling compiled out there is no prior to apply.
+fn run_layer_inner(layer_id: u8, name: &str, prior: FlyPrior, scale: f32) {
+    // With the coupling compiled out there is no prior to apply and nothing
+    // for the dial to scale.
     #[cfg(not(feature = "fly-prior"))]
-    let _ = prior;
+    let _ = (prior, scale);
 
     use qualia_shm::{LayerReader, LayerWriter, ShmRegion};
     use std::sync::atomic::Ordering;
@@ -325,13 +333,13 @@ fn run_layer_inner(layer_id: u8, name: &str, prior: FlyPrior) {
         // log because no ledger field in the layer slot carries it.
         #[cfg(feature = "fly-prior")]
         if let (Some(prior), Some(slots)) = (prior.as_ref(), slots.as_ref()) {
-            match crate::couple_prior(prior, slots) {
+            match crate::couple_prior(prior, slots, scale) {
                 Ok(total) => {
                     // The crate call reports the contract's total; the belief
                     // this tick is about to publish is scaled by the same
                     // contract on the host copy, which is the only copy the
                     // loop holds here.
-                    prior.couple(&mut buffer.mean, slots);
+                    prior.couple(&mut buffer.mean, slots, scale);
                     eprintln!("fly prior: applied {total}");
                 }
                 Err(error) => eprintln!("fly prior: disabled ({error})"),

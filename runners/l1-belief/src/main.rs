@@ -14,11 +14,14 @@
 //! truncated or edited graph is reported at the front door and the layer runs
 //! uncoupled instead of refusing to start — the prior is optional
 //! infrastructure and must never take a belief layer down with it. The
-//! supervisor's stack manifest spawns every belief layer with both keys.
+//! supervisor's stack manifest spawns every belief layer with both keys, and
+//! `QUALIA_FLY_COUPLING_SCALE` bounds the weight the prior is applied at.
 
 use std::path::Path;
 
 use qualia_jepa::prior::CouplingPrior;
+#[cfg(feature = "fly-prior")]
+use qualia_jepa::prior::{clamp_coupling_scale, COUPLING_SCALE_DEFAULT};
 
 /// Arena slot this layer owns.
 ///
@@ -40,6 +43,17 @@ const FLY_MODE_KEY: &str = "QUALIA_FLY_MODE";
 
 /// Environment key naming the verified prior artifact directory.
 const FLY_PRIOR_PATH_KEY: &str = "QUALIA_FLY_PRIOR_PATH";
+
+/// Environment key bounding how hard the prior is applied.
+///
+/// The agent steps this dial from mission outcomes and writes it into the
+/// stack manifest the supervisor hands down, so a layer couples at the
+/// bounded weight the agent last chose. An unset key, or one that is not a
+/// number, is the identity — the prior's own normalised weight, unchanged. A
+/// reading outside the coupling's bounds is applied at the bound, so a
+/// hand-edited manifest cannot drive the coupling to zero or to infinity.
+#[cfg(feature = "fly-prior")]
+const FLY_COUPLING_SCALE_KEY: &str = "QUALIA_FLY_COUPLING_SCALE";
 
 /// Which fly coupling the process was asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +107,16 @@ fn load_fly_prior() -> Option<CouplingPrior> {
     }
 }
 
+/// Reads `QUALIA_FLY_COUPLING_SCALE`, bounded to the range a coupling may be
+/// applied at.
+#[cfg(feature = "fly-prior")]
+fn fly_coupling_scale_from_env() -> f32 {
+    std::env::var(FLY_COUPLING_SCALE_KEY)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<f32>().ok())
+        .map_or(COUPLING_SCALE_DEFAULT, clamp_coupling_scale)
+}
+
 fn main() {
     let mode = fly_mode_from_env(LAYER_NAME);
     let prior = if mode == FlyMode::Prior {
@@ -103,11 +127,13 @@ fn main() {
 
     #[cfg(feature = "fly-prior")]
     {
+        let scale = fly_coupling_scale_from_env();
+
         #[cfg(all(feature = "cuda", not(feature = "metal")))]
-        qualia_cuda::run_layer_with_prior(LAYER_ID, LAYER_NAME, prior);
+        qualia_cuda::run_layer_with_prior(LAYER_ID, LAYER_NAME, prior, scale);
 
         #[cfg(all(feature = "metal", not(feature = "cuda")))]
-        qualia_metal::run_layer_with_prior(LAYER_ID, LAYER_NAME, prior);
+        qualia_metal::run_layer_with_prior(LAYER_ID, LAYER_NAME, prior, scale);
     }
 
     // A verified prior with no coupling compiled in is reported rather than

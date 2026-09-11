@@ -87,6 +87,7 @@ impl std::error::Error for MetalError {}
 pub fn couple_prior(
     prior: &CouplingPrior,
     slots: &[(u32, usize)],
+    scale: f32,
 ) -> Result<f32, MetalError> {
     for &(_, slot) in slots {
         if slot >= STATE_DIM {
@@ -104,7 +105,7 @@ pub fn couple_prior(
         .max()
         .map_or(0, |slot| slot + 1);
     let mut scratch = vec![0.0f32; span];
-    Ok(prior.couple(&mut scratch, slots))
+    Ok(prior.couple(&mut scratch, slots, scale))
 }
 
 /// Without the `fly-prior` feature the coupling is not compiled in: the belief
@@ -113,6 +114,7 @@ pub fn couple_prior(
 pub fn couple_prior(
     _prior: &CouplingPrior,
     _slots: &[(u32, usize)],
+    _scale: f32,
 ) -> Result<f32, MetalError> {
     Ok(0.0)
 }
@@ -140,6 +142,7 @@ pub fn run_layer_with_prior(
     layer_id: u8,
     name: &str,
     _prior: Option<qualia_jepa::prior::CouplingPrior>,
+    _scale: f32,
 ) -> ! {
     run_layer(layer_id, name)
 }

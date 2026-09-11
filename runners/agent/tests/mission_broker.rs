@@ -77,6 +77,52 @@ async fn accepted_mission_opens_the_braid_and_cancel_closes_it() {
     );
 }
 
+/// A closed mission steps the dial, and the step is what the supervisor's next
+/// start of a belief layer reads.
+#[tokio::test]
+async fn a_closed_mission_steps_the_coupling_dial() {
+    let harness = Harness::new();
+    let manifest = harness.stack_manifest.clone();
+    assert_eq!(
+        dial(&manifest),
+        None,
+        "no mission has closed, so the manifest declares no dial"
+    );
+
+    // The mission starts, parks at the evidence wait, and is cancelled: a
+    // cancel is not a success, so it carries the coupling down one step.
+    for (key, command, sequence) in [
+        ("idem-dial-start", "start", 1u64),
+        ("idem-dial-cancel", "cancel", 2),
+    ] {
+        let accepted = harness
+            .post_json(
+                "/mission-control/envelopes",
+                Some(BROKER_TOKEN),
+                envelope(MISSION, key, sequence, command),
+            )
+            .await;
+        assert_eq!(accepted.status, StatusCode::ACCEPTED);
+        qualia_agent::mission_control::supervise_once(&harness.state).await;
+    }
+
+    let stepped = dial(&manifest).expect("the dial the supervisor reads is written");
+    assert!(
+        (stepped - 0.90).abs() < 1e-6,
+        "one step down from the default reads 0.90, not {stepped}"
+    );
+}
+
+/// The coupling dial the stack manifest declares, or `None` when it declares
+/// none.
+fn dial(path: &std::path::Path) -> Option<f32> {
+    let text = std::fs::read_to_string(path).expect("the stack manifest is readable");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("the manifest is JSON");
+    value["env"]["QUALIA_FLY_COUPLING_SCALE"]
+        .as_str()
+        .map(|raw| raw.parse::<f32>().expect("the dial is a number"))
+}
+
 #[tokio::test]
 async fn replayed_envelope_is_idempotent() {
     let harness = Harness::new();

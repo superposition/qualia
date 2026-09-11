@@ -10,6 +10,7 @@
 //! request reaches exactly the same handler code path as one arriving over TLS.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -28,8 +29,11 @@ pub const ADMIN_TOKEN: &str = "admin-test-token";
 pub struct Harness {
     pub router: Router,
     pub state: AppState,
-        /// Kept alive so the scratch files outlive the router.
-        pub _dir: tempfile::TempDir,
+    /// The scratch stack manifest the coupling dial is written to, so a test
+    /// never rewrites the repository's own `config/stack-manifest.default.json`.
+    pub stack_manifest: PathBuf,
+    /// Kept alive so the scratch files outlive the router.
+    pub _dir: tempfile::TempDir,
 }
 
 impl Harness {
@@ -55,6 +59,13 @@ impl Harness {
             .join("mission-control.jsonl")
             .to_string_lossy()
             .into_owned();
+        let stack_manifest = dir.path().join("stack-manifest.json");
+        config.stack_manifest = stack_manifest.to_string_lossy().into_owned();
+        std::fs::write(
+            &stack_manifest,
+            r#"{"schema_version":"qualia.stack.v1","env":{"QUALIA_FLY_MODE":"off"}}"#,
+        )
+        .expect("stack manifest");
         config.auth = AuthConfig {
             read_token: None,
             peer_token: None,
@@ -74,6 +85,7 @@ impl Harness {
         Self {
             router: app(state.clone()),
             state,
+            stack_manifest,
             _dir: dir,
         }
     }
