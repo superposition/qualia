@@ -10,8 +10,8 @@ editors work from [`journal-review.md`](journal-review.md), which is their sourc
 checklist is copied verbatim from it, so a checklist item changes in exactly one file.
 
 The pipeline is the three-reviewer rule of [`agents.md`](agents.md) §Review applied to an entry rather
-than to code — three reviewers, three different jobs, each verdict one comment, and no merge until all
-three read `approve`.
+than to code — three reviewers, three different jobs, each role's last comment its verdict, and no
+merge until all three read `approve`.
 
 ## The writer
 
@@ -41,7 +41,7 @@ journal site is a handoff, and the work here ends at the *Publish* steps below.
 
 ## Three editors, three different jobs
 
-Each editor posts **exactly one comment** on the entry's PR. Its first line is the fenced block that
+Each editor posts a comment on the entry's PR. Its first line is the fenced block that
 [`journal-review.md`](journal-review.md) fixes:
 
 ````text
@@ -53,7 +53,8 @@ notes: <count>
 ````
 
 `notes:` is the number of notes the editor raises in the comment. The block is followed by the
-completed checklist, copied verbatim from [`journal-review.md`](journal-review.md). The three jobs are:
+completed checklist, copied verbatim from [`journal-review.md`](journal-review.md). A comment carries
+exactly one role; a fence that names two roles at once is refused. The three jobs are:
 
 1. **accuracy** — every number traced to a source in the entry itself; units on every quantity; any
    value measured in a different session or on different hardware labelled as such; every figure's
@@ -69,7 +70,10 @@ completed checklist, copied verbatim from [`journal-review.md`](journal-review.m
 ## The review loop
 
 An editor who returns `request-changes` is answered by a revision and **a re-read from that same
-editor**. The other two verdicts stand unless the revision touched their concern. Resolving an
+editor**: the editor posts again, and **the last comment per role is that role's verdict**. An earlier
+comment from the same role is not fatal — the gate reports it as *superseded* and uses the later one —
+so an `approve` after a revision opens the gate on the re-read, and a later `request-changes` closes
+it. The other two verdicts stand unless the revision touched their concern. Resolving an
 `<!-- ASK: -->` is a revision like any other.
 
 ## Publish
@@ -77,24 +81,41 @@ editor**. The other two verdicts stand unless the revision touched their concern
 The author agent merges the entry PR only when all three verdicts are `approve`, then:
 
 1. merges (the merge names the ticket, [`agents.md`](agents.md) §Review);
-2. verifies the live URL and every figure returns 200;
+2. verifies the live URL and every figure returns 200 — each figure by **absolute** URL, because the
+   gate refuses a relative reference (style item 4) instead of resolving it;
 3. fills the epic's `## Journal` line with that URL.
 
 The gate is machine-checked:
 
 ```bash
-python scripts/journal_gate.py
 python scripts/journal_gate.py --pr <n> --repo superposition/superposition.github.io --url <live-url>
+python scripts/journal_gate.py --pr <n> --repo OWNER/NAME --comments comments.json --diff entry.diff
+python scripts/journal_gate.py --entry _posts/2026-09-11-the-public-record.md
 ```
 
-The script counts the `braid-review` blocks — one per role — checks the three distinct checklists, and
-prints `journal-gate: OK` with exit 0 only when the checklists hold, the roles hold, no
-`<!-- ASK: -->` survives in the entry, and the gate is open. The ticket's Command is
-`gh pr view <n> --comments` and count the `role:` blocks; that display form aborts in this repository
-on the deprecated `projectCards` GraphQL field, so the script reads the same comment stream as JSON.
-It exits non-zero whenever it cannot open the gate.
+The script counts the `braid-review` blocks — the last one per role — checks the three distinct
+checklists, and prints `journal-gate: OK` with exit 0 **only when the roles leg was actually
+evaluated**: the checklists hold, the roles hold, no `<!-- ASK: -->` survives in the entry, the gate is
+open, and, under `--url`, the live entry and every figure URL return 200. It exits non-zero whenever it
+cannot open the gate:
+
+- a bare `python scripts/journal_gate.py` and an `--entry`-only run check the checklists (and the
+  entry's form) but not the roles, so they print
+  `journal-gate: entry OK (roles not checked: pass --pr <n>)` — a bare run says `checklists` where the
+  entry run says `entry` — and exit 1; they never print `journal-gate: OK`;
+- `--comments` is the PR's comment stream and needs its `--pr <n>`; without it the run is a usage
+  error, exit 2, because the JSON would otherwise be silently dropped;
+- in a `--url` run a figure referenced by a relative URL is a **style failure**, not a silent skip:
+  the gate names the reference and closes.
+
+`--self-test` runs the built-in fixtures — the parsers, the fail-closed exit codes and the re-read
+fixtures — with no network and no `gh`. Exit codes are 0 (gate open), 1 (gate not open, the failing leg
+named on stderr) and 2 (usage). The ticket's Command is `gh pr view <n> --comments` and count the
+`role:` blocks; that display form aborts in this repository on the deprecated `projectCards` GraphQL
+field, so the script reads the same comment stream as JSON.
 
 ## Resuming
 
 A recovering agent reads the entry PR: the writer's draft and its `<!-- ASK: -->` questions, then one
-`braid-review` comment per role. The comments are the state.
+`braid-review` comment per role — the last one where an editor posted again. The comments are the
+state.

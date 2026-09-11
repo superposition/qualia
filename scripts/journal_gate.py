@@ -9,43 +9,53 @@ the process, not an agent's memory. It checks three legs:
               `## accuracy`, `## teaching`, `## style` section each. This is the
               ticket's test written first: "docs/journal-review.md holds three
               distinct checklists".
-  roles       the entry PR carries exactly one editorial comment per role, each
-              beginning with the `braid-review` fenced block that
-              `docs/journal-review.md` fixes (`role:`, `verdict:`, `notes:`), and
-              no `<!-- ASK: -->` question survives in the entry. The ticket's
-              Command counts the `role:` blocks with `gh pr view <n> --comments`;
-              that display form aborts in this repository on the deprecated
-              `projectCards` GraphQL field, so the same comment stream is read as
-              JSON here.
+  roles       the entry PR carries an editorial comment per role, each beginning
+              with the `braid-review` fenced block that `docs/journal-review.md`
+              fixes (`role:`, `verdict:`, `notes:`), and no `<!-- ASK: -->`
+              question survives in the entry. The last comment per role wins, so
+              the re-read after a revision is the verdict that counts and an
+              earlier one is reported as superseded, not fatal; a fence that
+              names two roles at once is refused. The ticket's Command counts the
+              `role:` blocks with `gh pr view <n> --comments`; that display form
+              aborts in this repository on the deprecated `projectCards` GraphQL
+              field, so the same comment stream is read as JSON here.
   gate        publish happens only when all three verdicts are `approve`: a
               `request-changes` closes the gate and names the role. With `--url`,
               the live entry and every absolute figure URL in the entry must
-              return 200.
+              return 200, and a relative figure reference is refused as the
+              `docs/journal-review.md` style 4 failure it is (absolute URL).
 
 Usage:
 
-    python scripts/journal_gate.py                          # the checklists alone
+    python scripts/journal_gate.py --self-test
     python scripts/journal_gate.py --pr <n> --repo superposition/superposition.github.io
     python scripts/journal_gate.py --pr <n> --repo OWNER/NAME --url <live-url>
     python scripts/journal_gate.py --pr <n> --repo OWNER/NAME --comments comments.json --diff entry.diff
     python scripts/journal_gate.py --entry _posts/2026-09-11-the-public-record.md
 
 `--comments` is the JSON array `gh pr view <n> --repo R --json comments --jq
-'[.comments[].body]'` prints, and `--diff` is `gh pr diff <n> --repo R`; both
-replace the network calls for a dry run or a test. `--entry` checks one local
-markdown file instead of a PR. `--self-test` runs the built-in fixtures and needs
-no network.
+'[.comments[].body]'` prints and needs `--pr <n>` to say which PR it came from;
+`--diff` is `gh pr diff <n> --repo R`. Both replace the network calls for a dry
+run or a test. `--entry` checks one local markdown file instead of a PR's diff.
+`--self-test` runs the built-in fixtures and needs no network.
 
-Exit code 0 and a final `journal-gate: OK` when every leg holds and the gate is
-open; 1 with the failing leg named otherwise.
+The checklists are checked by every run. The roles leg needs a PR context: a bare
+run, or `--entry` alone, checks less than the publish rule asks, so it prints
+`journal-gate: <entry|checklists> OK (roles not checked: pass --pr <n>)` and
+exits 1 — `journal-gate: OK`, exit 0, is printed only when the roles leg was
+evaluated and every leg holds. `--comments` without `--pr` is a usage error,
+exit 2. Any other failure exits 1 with the failing leg named on stderr.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -153,15 +163,18 @@ def first_fenced_block(text):
 
 
 def parse_editorial(bodies):
-    """Return (roles, problems): the editorial verdicts among the PR comments.
+    """Return (roles, problems, superseded): the editorial verdicts among the comments.
 
     A comment whose opening fenced block is a `braid` breadcrumb or a code-review
     block carries no editorial role and is ignored. A comment whose block names
-    an editorial role must be the `braid-review` form, well formed, and the only
-    comment for that role.
+    an editorial role must be the `braid-review` form, well formed, and carry one
+    role. The ticket's loop lets an editor post again after a revision, so the
+    last valid comment per role wins and each earlier one is reported as
+    superseded; a single fence naming two roles is a collision and a problem.
     """
     roles = {}
     problems = []
+    superseded = []
     for index, body in enumerate(bodies):
         block = first_fenced_block(body)
         if block is None:
@@ -172,18 +185,22 @@ def parse_editorial(bodies):
             match = FIELD_RE.match(line.strip())
             if match:
                 fields[match.group(1).lower()] = match.group(2).strip()
-        role = fields.get("role", "").split("|")[0].strip().lower()
-        if role not in ROLES:
-            continue
+        named = [role for role in ROLES if role in fields.get("role", "").lower()]
         label = "comment %d" % (index + 1)
+        if len(named) > 1:
+            problems.append(
+                "%s: names two roles (%s); one comment carries one role"
+                % (label, ", ".join(named))
+            )
+            continue
+        if not named:
+            continue
+        role = named[0]
         if tag != EDITORIAL_FENCE:
             problems.append(
                 "%s: role %s is fenced `%s`, not `%s`"
                 % (label, role, tag or "(bare)", EDITORIAL_FENCE)
             )
-            continue
-        if role in roles:
-            problems.append("%s: a second %s comment; exactly one per role" % (label, role))
             continue
         verdict = fields.get("verdict", "").strip().lower()
         notes = fields.get("notes", "").strip()
@@ -199,8 +216,13 @@ def parse_editorial(bodies):
                 % (label, role, fields.get("notes", ""))
             )
             continue
-        roles[role] = {"verdict": verdict, "notes": int(notes)}
-    return roles, problems
+        if role in roles:
+            superseded.append(
+                "comment %d: %s %s superseded by %s (the last comment per role wins)"
+                % (roles[role]["index"], role, roles[role]["verdict"], label)
+            )
+        roles[role] = {"verdict": verdict, "notes": int(notes), "index": index + 1}
+    return roles, problems, superseded
 
 
 def gate_state(roles):
@@ -238,18 +260,37 @@ def added_lines(diff_text):
     return "\n".join(lines)
 
 
-def figure_urls(text):
-    """Absolute figure URLs: `src="…"` attributes and markdown images."""
-    seen = []
+def figure_refs(text):
+    """Every `src="…"` / markdown image reference, in order, without duplicates."""
+    refs = []
     for match in SRC_RE.finditer(text):
-        seen.append(match.group(1))
+        refs.append(match.group(1))
     for match in MARKDOWN_IMAGE_RE.finditer(text):
-        seen.append(match.group(1))
-    urls = []
-    for url in seen:
-        if url.startswith(("http://", "https://")) and url not in urls:
-            urls.append(url)
-    return urls
+        refs.append(match.group(1))
+    unique = []
+    for ref in refs:
+        if ref not in unique:
+            unique.append(ref)
+    return unique
+
+
+def figure_urls(text):
+    """The absolute figure URLs among them."""
+    return [ref for ref in figure_refs(text) if ref.startswith(("http://", "https://"))]
+
+
+def relative_figure_problems(text):
+    """Relative figure references, refused in a `--url` run as the style failure they are.
+
+    `docs/journal-review.md` style 4 wants figures and the band referenced by
+    absolute URL, so a relative `src` or markdown image never reaches the live
+    check: it closes the gate instead of being silently skipped.
+    """
+    return [
+        "figure URL is relative; `docs/journal-review.md` style 4 requires an absolute URL: %s" % ref
+        for ref in figure_refs(text)
+        if not ref.startswith(("http://", "https://"))
+    ]
 
 
 def run_gh(args):
@@ -326,36 +367,62 @@ def self_test():
         if not condition:
             failures.append(name)
 
-    roles, problems = parse_editorial([editorial_comment(role, "approve", 0) for role in ROLES])
+    def run_gate(*argv):
+        """Drive main() on fixtures, capturing stdout/stderr and the exit code."""
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["journal_gate.py"] + list(argv))
+        except SystemExit as exit_error:  # argparse usage error (exit 2)
+            code = exit_error.code
+        return code, out.getvalue(), err.getvalue()
+
+    roles, problems, _ = parse_editorial([editorial_comment(role, "approve", 0) for role in ROLES])
     check("three approvals parse", not problems and set(roles) == set(ROLES))
     check("three approvals open the gate", gate_state(roles) == ([], []))
 
-    roles, problems = parse_editorial([editorial_comment(role, "approve", 0) for role in ROLES])
+    roles, problems, _ = parse_editorial([editorial_comment(role, "approve", 0) for role in ROLES])
     roles["teaching"]["verdict"] = "request-changes"
     check("a request-changes closes the gate", gate_state(roles) == ([], ["teaching"]))
 
-    roles, problems = parse_editorial(
+    roles, problems, _ = parse_editorial(
         [editorial_comment("accuracy", "approve", 0), editorial_comment("style", "approve", 0)]
     )
     check("a missing role is missing", gate_state(roles)[0] == ["teaching"])
 
-    _, problems = parse_editorial(
-        [editorial_comment(role, "approve", 0) for role in ROLES]
-        + [editorial_comment("accuracy", "approve", 0)]
+    roles, problems, superseded = parse_editorial(
+        [
+            editorial_comment("accuracy", "request-changes", 2),
+            editorial_comment("accuracy", "approve", 0),
+        ]
     )
-    check("a duplicate role is a problem", any("second accuracy" in p for p in problems))
+    check(
+        "the last comment per role wins",
+        not problems and roles["accuracy"]["verdict"] == "approve",
+    )
+    check(
+        "an earlier comment is reported superseded",
+        not problems and len(superseded) == 1 and "superseded" in superseded[0],
+    )
 
-    _, problems = parse_editorial(["```braid-review\nrole: accuracy\nnotes: 0\n```\n"])
+    _, problems, _ = parse_editorial(
+        ["```braid-review\nrole: accuracy|teaching\nverdict: approve\nnotes: 0\n```\n"]
+    )
+    check("a fence naming two roles is a problem", any("two roles" in p for p in problems))
+
+    _, problems, _ = parse_editorial(["```braid-review\nrole: accuracy\nnotes: 0\n```\n"])
     check("a missing verdict is a problem", any("verdict" in p for p in problems))
 
-    _, problems = parse_editorial(["```braid-review\nrole: style\nverdict: approve\nnotes: many\n```\n"])
+    _, problems, _ = parse_editorial(
+        ["```braid-review\nrole: style\nverdict: approve\nnotes: many\n```\n"]
+    )
     check("a non-integer notes is a problem", any("notes" in p for p in problems))
 
     braid = "```braid\nagent: X\nbranch: b\nstate: review\nnext: n\nblocked_on: none\nevidence: none\n```\n"
-    roles, problems = parse_editorial([braid])
+    roles, problems, _ = parse_editorial([braid])
     check("a breadcrumb is ignored, not an error", not problems and not roles)
 
-    _, problems = parse_editorial(["```text\nrole: accuracy\nverdict: approve\nnotes: 0\n```\n"])
+    _, problems, _ = parse_editorial(["```text\nrole: accuracy\nverdict: approve\nnotes: 0\n```\n"])
     check("the wrong fence tag is a problem", any("braid-review" in p for p in problems))
 
     check("a good entry passes", check_entry(GOOD_ENTRY, "entry") == [])
@@ -377,6 +444,14 @@ def self_test():
         "figure_urls finds absolute figures",
         figure_urls('<img src="/rel.png">\n![a](https://e/f.svg)\n') == ["https://e/f.svg"],
     )
+    check(
+        "a relative figure is a style failure",
+        any("absolute URL" in p for p in relative_figure_problems('<img src="figs/a.svg">\n')),
+    )
+    check(
+        "an absolute figure passes the style item",
+        not relative_figure_problems('<img src="https://e/f.svg">\n'),
+    )
 
     problems, summary = _checklists_of(GOOD_CHECKLISTS)
     check("three distinct checklists pass", not problems)
@@ -389,12 +464,105 @@ def self_test():
     problems, _ = _checklists_of("# x\n\n## accuracy\n\n1. one\n")
     check("a missing section is a problem", any("teaching" in p for p in problems))
 
+    # F1: the OK contract, driven end to end on temp fixtures. No network, no `gh`.
+    with tempfile.TemporaryDirectory() as scratch:
+
+        def fixture(name, text):
+            path = os.path.join(scratch, name)
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            return path
+
+        entry = fixture("entry.md", GOOD_ENTRY)
+        entry_diff = fixture(
+            "entry.diff", "".join("+" + line + "\n" for line in GOOD_ENTRY.splitlines())
+        )
+        ok_comments = fixture(
+            "comments-ok.json",
+            json.dumps([editorial_comment(role, "approve", 0) for role in ROLES]),
+        )
+        reread_open = fixture(
+            "comments-reread-open.json",
+            json.dumps(
+                [
+                    editorial_comment("accuracy", "approve", 0),
+                    editorial_comment("teaching", "request-changes", 2),
+                    editorial_comment("style", "approve", 0),
+                    editorial_comment("teaching", "approve", 0),
+                ]
+            ),
+        )
+        reread_closed = fixture(
+            "comments-reread-closed.json",
+            json.dumps(
+                [
+                    editorial_comment("accuracy", "approve", 0),
+                    editorial_comment("teaching", "approve", 0),
+                    editorial_comment("style", "approve", 0),
+                    editorial_comment("teaching", "request-changes", 3),
+                ]
+            ),
+        )
+
+        code, out, _ = run_gate()
+        check(
+            "a bare run does not open the gate",
+            code == 1 and "roles not checked" in out and "\njournal-gate: OK\n" not in out,
+        )
+
+        code, out, _ = run_gate("--entry", entry)
+        check(
+            "an entry-only run does not open the gate",
+            code == 1 and "entry OK (roles not checked" in out and "\njournal-gate: OK\n" not in out,
+        )
+
+        code, _, _ = run_gate("--comments", ok_comments)
+        check("--comments without --pr is a usage error", code == 2)
+
+        code, out, _ = run_gate("--pr", "37", "--comments", ok_comments, "--diff", entry_diff)
+        check("roles and entry open the gate", code == 0 and "journal-gate: OK" in out)
+
+        code, out, _ = run_gate("--pr", "37", "--comments", reread_open, "--diff", entry_diff)
+        check(
+            "a later approve opens the gate on the re-read",
+            code == 0 and "superseded by comment 4" in out,
+        )
+
+        code, _, err = run_gate("--pr", "37", "--comments", reread_closed, "--diff", entry_diff)
+        check(
+            "a later request-changes closes the gate",
+            code == 1 and "gate closed by teaching" in err,
+        )
+
     if failures:
         for name in failures:
             print("journal-gate: self-test FAIL - %s" % name, file=sys.stderr)
         print("journal-gate: self-test FAIL - %d check(s)" % len(failures))
         return 1
     print("journal-gate: self-test OK - %d checks" % len(ran))
+    return 0
+
+
+def finish(problems, roles_checked, entry_checked):
+    """Print the closing lines and return the exit code.
+
+    `journal-gate: OK`, exit 0, is only reachable when the roles leg was actually
+    evaluated; a run that could not check the roles says so and exits 1.
+    """
+    if problems:
+        for problem in problems:
+            print("journal-gate: %s" % problem, file=sys.stderr)
+        print("journal-gate: FAIL - %d problem(s); the gate is not open" % len(problems))
+        return 1
+    if not roles_checked:
+        subject = "entry" if entry_checked else "checklists"
+        print("journal-gate: %s OK (roles not checked: pass --pr <n>)" % subject)
+        print(
+            "journal-gate: FAIL - the roles leg was not checked; `journal-gate: OK` "
+            "needs an entry PR (--pr <n>, or --comments FILE with --pr <n>)"
+        )
+        return 1
+    print("journal-gate: OK")
     return 0
 
 
@@ -414,9 +582,16 @@ def main(argv):
     if args.self_test:
         return self_test()
 
+    if args.comments is not None and args.pr is None:
+        parser.error(
+            "--comments needs --pr <n>: the JSON is that entry PR's comment stream, "
+            "and without it the roles leg cannot be checked"
+        )
+
     problems = []
     entry_text = None
     entry_label = "entry"
+    roles_checked = False
     repo = args.repo
 
     # The checklists are static and cheap: every run checks them.
@@ -446,10 +621,13 @@ def main(argv):
                     problems.append("roles: %s" % error)
                     bodies = None
 
-        roles, role_problems = parse_editorial(bodies or [])
+        roles, role_problems, superseded = parse_editorial(bodies or [])
         problems += role_problems
+        for note in superseded:
+            print("journal-gate: %s" % note)
+        roles_checked = bodies is not None
         missing, closed = gate_state(roles)
-        if bodies is not None and not role_problems:
+        if roles_checked and not role_problems:
             if missing:
                 problems.append("roles: no %s comment on the entry PR" % "/".join(missing))
             elif closed:
@@ -492,6 +670,7 @@ def main(argv):
         else:
             print("journal-gate: live URL 200 - %s" % args.url)
         if entry_text is not None:
+            problems += relative_figure_problems(entry_text)
             for url in figure_urls(entry_text):
                 status = fetch_status(url)
                 if status != 200:
@@ -499,13 +678,7 @@ def main(argv):
                 else:
                     print("journal-gate: figure 200 - %s" % url)
 
-    if problems:
-        for problem in problems:
-            print("journal-gate: %s" % problem, file=sys.stderr)
-        print("journal-gate: FAIL - %d problem(s); the gate is not open" % len(problems))
-        return 1
-    print("journal-gate: OK")
-    return 0
+    return finish(problems, roles_checked, entry_text is not None)
 
 
 if __name__ == "__main__":
