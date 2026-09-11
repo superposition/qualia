@@ -269,11 +269,13 @@ pub fn validate_dataset_manifest_integrity(manifest: &DatasetManifest) -> Datase
     Ok(())
 }
 
-/// Enforce the evidence boundary required before offline JEPA training.
+/// Apply the evidence boundary that gates offline training.
 ///
-/// Conditions describe capture variation, while environments define the
-/// leakage boundary. A large recording in one room is therefore not eligible
-/// even when it has enough transitions, sessions and condition labels.
+/// The two axes are not interchangeable: conditions measure how the capture
+/// varied, environments measure where it happened. A long recording inside one
+/// room therefore still fails, however many transitions, sessions and
+/// condition labels it carries, because it cannot demonstrate a leakage
+/// boundary.
 pub fn validate_dataset_promotion_gate(manifest: &DatasetManifest) -> DatasetResult<()> {
     validate_dataset_manifest_integrity(manifest)?;
     if manifest.audit.sessions != manifest.sources.len() as u64 {

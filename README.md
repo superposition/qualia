@@ -1,59 +1,27 @@
 # Qualia
 
-A **golden braid**: a fly-governed, self-healing mission harness. Evidence seals, memory records,
-gated promotion, a mission broker and a bounded healing ladder — each strand reporting through one
-state machine. Qualia is its first instance, not its only one: the pattern is the reusable part, so a
-second braid is a copy of the pattern rather than a fork of this repository.
+A Rust library for embodied agents: typed shared-memory arenas, crash-safe evidence logs, session
+storage, a JEPA model runtime with evidence-gated promotion, and the CUDA/Metal compute backends the
+kernels run on. The layered sensing, belief and action programs in `runners/` are built on it.
 
-Development and verification run on an RTX 4090; the deployment target is the Jetson Orin Nano with
-8 GB of VRAM (`sm_87`).
+The workspace builds on Windows, macOS and Linux. Kernels are developed and verified on an RTX 4090,
+with the Jetson Orin Nano (8 GB of VRAM, `sm_87`) as the deployment target.
 
-## What the harness delivers
+## What the library provides
 
-Missions. Self-healing is an explicit ladder rather than an accident of rollback, and every mission
-is brokered, evidenced and promoted through the same state machine.
-
-| Strand | Crate / runner | What it contributes |
+| Module | Crates | What it provides |
 | --- | --- | --- |
-| Evidence seals | `crates/mcap-log` | Crash-safe MCAP segments; partials quarantine, never lost. |
-| Memory records | `crates/session-store` | SQLite sessions, epochs, missions, coupling scale. |
-| Gated promotion | `crates/jepa-registry` | Candidate generation, evidence gates, atomic pointer swap. |
-| Mission broker | `runners/agent` | Missions open, close, and reach Leash through `QUALIA_LEASH_BASE_URL`. |
-| Healing ladder | `crates/braid` | Drift measurement, rules, and the ladder. |
-| The fly | `crates/connectome-prior`, `crates/fly-circuit` | Male CNS connectome as a prior on the belief matrices; circuit simulation behind a flag. |
-| Neuro-symbolic seam | `crates/braid` | The measured distance between latent and prediction is the join. |
+| Foundations | `types`, `shm`, `ipc` | Shared types, the typed shared-memory arena, and process-to-process transport. |
+| State sync | `sync-types` | Versioned sync envelopes and the CRDT merges that fold them. |
+| Evidence | `mcap-log` | Crash-safe MCAP segments; partial writes quarantine instead of being lost. |
+| Sessions | `session-store` | SQLite-backed sessions, epochs, missions and their parameters. |
+| Models | `jepa`, `jepa-dataset`, `jepa-model` | The JEPA runtime: dataset manifests and integrity gates, evaluation, planning. |
+| Promotion | `jepa-registry` | Candidate generation, evidence gates, and the atomic pointer swap. |
+| Compute | `cuda`, `metal` | Kernels behind feature flags, each with a CPU fallback that runs anywhere. |
+| Streaming | `rerun-bridge` | Rerun streams for recorded sessions. |
+| Runners | `runners/*` | The sensing, belief, action and operations programs built on the library. |
 
 ## Architecture
-
-`braid.mmd` — the strands, each edge labelled with the type that crosses it.
-
-```mermaid
-flowchart LR
-  subgraph strands[Strands]
-    SS[(session-store)]
-    MCAP[(mcap-log)]
-    REG[(jepa-registry)]
-    BR[braid\nobserve / BraidState]
-    AG[agent\nmission broker]
-    LEASH[[leash\nsafety authority]]
-    PRIOR[connectome prior]
-    SENSE[sensing runners]
-  end
-
-  SENSE -- "WorldModel / voxels" --> AG
-  PRIOR -- "CouplingPrior" --> AG
-  AG -- "BraidEvent::MissionOpened / MissionClosed" --> BR
-  SENSE -- "BraidEvent::EvidenceSealed" --> BR
-  REG -- "BraidEvent::PromotionAccepted / PromotionRolledBack" --> BR
-  MCAP -- "BraidEvent::Quarantined" --> BR
-  BR -- "mission row" --> SS
-  BR -- "quarantine_partials" --> MCAP
-  BR -- "rollback" --> REG
-  AG -- "SyncEnvelope / mission.rs" --> SS
-  AG -- "RolloutProposal / plan_path" --> LEASH
-  LEASH -- "qualia.applied-action.v1" --> AG
-  BR -- "BraidState JSON" --> AG
-```
 
 `epics.mmd` — the ticket dependency graph. Arrows point from blocker to blocked.
 
@@ -259,8 +227,8 @@ copies of them.
 
 ## Working in this repository
 
-GitHub is the state. An epic is an issue, a ticket is an issue, a claim is an assignee plus a `braid`
-comment, and a handoff is a comment any later agent can parse. See
+GitHub is the state. An epic is an issue, a ticket is an issue, a claim is an assignee plus a
+handoff comment, and any later agent can parse the breadcrumb. See
 [`docs/agents.md`](docs/agents.md), [`docs/waves.md`](docs/waves.md), and
 [`docs/decisions.md`](docs/decisions.md).
 

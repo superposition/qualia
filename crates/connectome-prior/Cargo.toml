@@ -10,9 +10,15 @@ name = "qualia-connectome-prior"
 path = "src/main.rs"
 
 [dev-dependencies]
+csv = "1"
 tempfile = "3"
 [dependencies]
-arrow = { version = "53", features = ["ipc"] }
+# The plan names arrow 53, but arrow-arith 53.4.0 declares an internal
+# `ChronoDateExt::quarter()` that collides with `chrono::Datelike::quarter`
+# (added in chrono 0.4.44), so arrow 53 cannot compile against the chrono this
+# workspace resolves. arrow 56 is already the workspace's arrow (via rerun),
+# removed those redundant methods, and carries the same IPC reader.
+arrow = { version = "56", features = ["ipc"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

@@ -1,0 +1,32 @@
+{
+  "measured_at_utc": "2026-09-11T05:43:11Z",
+  "repo": "superposition/qualia",
+  "head_commit": "e2d27ca",
+  "source": "gh issue list --repo superposition/qualia --label ticket --state all --limit 300 --json number,labels",
+  "ticket_issues": 95,
+  "epic_issues": 16,
+  "labels": 19,
+  "status": {
+    "status:ready": 56,
+    "status:claimed": 19,
+    "status:review": 8,
+    "status:done": 12,
+    "status:blocked": 0
+  },
+  "closed_but_not_status_done": 12,
+  "note": "Counts are one reading of a live tracker; agents were claiming and closing tickets while it was taken.",
+  "diagram_coverage": {
+    "file": "docs/architecture/epics.mmd",
+    "last_commit": "01df4e2",
+    "ids_in_ticket_issues": 95,
+    "ids_in_diagram": 92,
+    "missing_from_diagram": ["C43", "C44", "C45"],
+    "check": "comm -23 <(issue ids) <(grep -oE '[TC][0-9]+b?' docs/architecture/epics.mmd | sort -u)"
+  },
+  "waves": {
+    "file": "docs/waves.md",
+    "count": 7,
+    "wave_0": "C01-C43 (engine rewrite)",
+    "last": "wave 6: T28-T29, the end-to-end runs, alone at the end"
+  }
+}

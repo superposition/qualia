@@ -12,3 +12,7 @@
 **/*.env
 !**/*.env.example
 deploy/**/camera-stream.env
+
+# Python bytecode from the figure scripts
+__pycache__/
+*.pyc
