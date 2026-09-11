@@ -464,17 +464,24 @@ summary() {
     say "mission: PASS"
     return 0
   fi
-  say "mission: FAIL (assert exit $ASSERT_STATUS)"
-  return 1
+  if [ "$ASSERT_STATUS" -eq 2 ]; then
+    say "mission: CANNOT-ASSERT (a leg the board could not judge; assert exit 2)"
+  else
+    say "mission: FAIL (assert exit $ASSERT_STATUS)"
+  fi
+  return "$ASSERT_STATUS"
 }
 
 # --------------------------------------------------------------------------
 
 main() {
   cd "$REPO"
-  mkdir -p "$RUN_DIR"
-  : >"$RUN_DIR/evidence.txt"
-  exec > >(tee -a "$RUN_DIR/evidence.txt") 2>&1
+  # `--plan` and `--check` inspect and print; they create nothing and write nothing.
+  if [ "$MODE" = "run" ]; then
+    mkdir -p "$RUN_DIR"
+    : >"$RUN_DIR/evidence.txt"
+    exec > >(tee -a "$RUN_DIR/evidence.txt") 2>&1
+  fi
   say "== T29 board mission run (EPIC-10 step 29) =="
   say "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)  host: $(uname -n) $(uname -m)  tree: $(pwd)"
 

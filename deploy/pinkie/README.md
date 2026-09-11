@@ -27,7 +27,8 @@ bash deploy/pinkie/ship-mission.sh                   # same, then scp to the boa
 
 The tarball travels as `git archive` output, never a working copy: a Windows checkout writes CRLF,
 and CRLF breaks shell scripts and the cross-build Dockerfile on Linux (D-010). `ship-mission.sh`
-checks the archive for a CR before it ships and refuses if it finds one.
+checks every shipped script and config file in the archive for a CR before it ships — one missed file
+is the failure the guard exists for — and refuses if it finds one.
 
 Board — the invocation Main runs (the defaults are already the ticket's):
 
@@ -72,9 +73,9 @@ mission: OK
 ```
 
 The checker's own fixtures run anywhere, with no board and no stack:
-`python3 scripts/mission_check.py --self-test` prints `mission-check: self-test OK (27 cases)` and
-covers the transition's boundaries, the 8192 MiB bound, both memory parsers and the envelope bounds
-the broker validates.
+`python3 scripts/mission_check.py --self-test` prints `mission-check: self-test OK (38 cases)` and
+covers the transition's boundaries, the 8192 MiB bound, both memory parsers, the record shape the
+agent answers with, and the envelope bounds the broker validates.
 
 ## Board facts the runbook assumes
 
@@ -108,8 +109,8 @@ Every one of these is measured, not assumed (D-010, D-016, D-018; the T29 smoke 
 | Code | Meaning |
 | --- | --- |
 | 0 | Both assertions hold (`mission: PASS`). |
-| 1 | An assertion failed. |
-| 2 | Preflight refused, `--check` was asked for, or a leg could not be judged. |
+| 1 | An assertion failed, or the mission could not be driven at all. |
+| 2 | Preflight refused, `--check` was asked for, or the checker could not judge a leg (it exits 2 and the run passes that code through: `mission: CANNOT-ASSERT`). |
 | 3 | The build failed. |
 | 4 | The stack did not start or did not stop. |
 

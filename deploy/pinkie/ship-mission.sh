@@ -82,11 +82,37 @@ if ! git -C "$REPO" archive --format=tar --prefix=qualia/ "$SHA" | gzip -9 >"$TA
 fi
 
 # LF, not CRLF: the reason the archive travels instead of a working copy (D-010).
-if ! tar xOzf "$TARBALL" qualia/scripts/provenance-check.sh | grep -q $'\r'; then
-  echo "check:    no CR in scripts/provenance-check.sh (the archive is LF)"
-else
-  echo "ship-mission: the archive carries CRLF; do not ship it" >&2
+# What Linux executes or parses with make is refused outright — a CRLF shell
+# script or Makefile is broken on the board, and D-010 records exactly that. The
+# rest of the shipped text is reported, not refused: a committed CRLF Markdown or
+# Mermaid source changes nothing the board runs or parses.
+EXEC_MEMBERS="$(tar tzf "$TARBALL" | grep -E '\.(sh|py)$|(^|/)(Dockerfile|Makefile)[^/]*$')"
+TEXT_MEMBERS="$(tar tzf "$TARBALL" | grep -E '\.(toml|mmd|ts|mjs|html|css|ya?ml|json)$')"
+
+members_with_cr() {
+  local member
+  while IFS= read -r member; do
+    [ -n "$member" ] || continue
+    if tar xOzf "$TARBALL" "$member" | grep -q $'\r'; then
+      printf '%s\n' "$member"
+    fi
+  done <<<"$1"
+}
+
+CR_EXEC="$(members_with_cr "$EXEC_MEMBERS")"
+if [ -n "$CR_EXEC" ]; then
+  echo "ship-mission: the archive carries CRLF in a file Linux runs; do not ship it:" >&2
+  printf '%s\n' "$CR_EXEC" >&2
   exit 1
+fi
+EXEC_COUNT="$(printf '%s\n' "$EXEC_MEMBERS" | grep -c .)"
+echo "check:    no CR in $EXEC_COUNT shipped script, Makefile and Dockerfile(s) (the archive is LF)"
+
+CR_TEXT="$(members_with_cr "$TEXT_MEMBERS")"
+if [ -n "$CR_TEXT" ]; then
+  TEXT_COUNT="$(printf '%s\n' "$CR_TEXT" | grep -c .)"
+  echo "note:     $TEXT_COUNT shipped source file(s) the board does not execute carry CRLF:"
+  printf '%s\n' "$CR_TEXT" | sed 's/^/          /'
 fi
 
 SIZE="$(wc -c <"$TARBALL")"

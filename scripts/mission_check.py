@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import ssl
@@ -72,6 +73,22 @@ MAX_REPLANS = 8
 MIN_EVIDENCE_MAX_AGE_MS = 100
 MAX_EVIDENCE_MAX_AGE_MS = 5_000
 MAX_AREA_SPAN_M = 20.0
+
+JSON_SAFE_INTEGER_MAX = (1 << 53) - 1
+IDENTIFIER_EXTRA = "-_.:"
+ENVELOPE_KEYS = (
+    "schema_version", "broker_id", "producer_epoch", "sequence", "mission_id",
+    "idempotency_key", "command", "issued_at_ms", "deadline_ms", "objective",
+    "constraints", "evidence_refs", "fly_governed",
+)
+OBJECTIVE_KEYS = ("kind", "summary", "target_x_m", "target_y_m", "tolerance_m")
+CONSTRAINT_KEYS = (
+    "operating_area", "speed_ceiling_mps", "max_distance_m", "max_runtime_ms",
+    "max_replans", "evidence_max_age_ms",
+)
+AREA_KEYS = ("frame_id", "min_x_m", "min_y_m", "max_x_m", "max_y_m")
+COMMANDS = ("start", "pause", "resume", "cancel")
+POINT_KINDS = ("observe_point", "navigate_to")
 
 # Step 29's bound: "under 8 GB used".
 DEFAULT_BUDGET_MIB = 8_192
@@ -212,44 +229,128 @@ def build_cancel_envelope(mission_id, issued_at_ms, deadline_s):
 
 
 def envelope_bounds_errors(envelope):
-    """The broker's `validate()` bounds, re-stated as a list of violations.
+    """The broker's `validate()` bounds, restated as a list of violations.
 
-    This is the checker's own reading of `crates/sync-types/src/mission.rs`; the
-    self-test runs it over the generated envelope, so a drift here or a change to
-    the generator fails on the host, before a board run does.
+    A field-for-field mirror of `MissionEnvelopeV1::validate()` in
+    `crates/sync-types/src/mission.rs`, including the `deny_unknown_fields` key
+    sets and `validate_identifier`'s alphabet: the broker refuses an envelope
+    that trips any of these with a `400`, so the self-test runs this over the
+    generated pair and a drift either side fails on the host, before a board run.
     """
     errors = []
-    issued, deadline = envelope["issued_at_ms"], envelope["deadline_ms"]
-    if deadline <= issued or deadline - issued > MAX_DEADLINE_MS:
+
+    def identifier(field, value):
+        if (
+            not value
+            or len(value) > 160
+            or not all(
+                character.isascii() and (character.isalnum() or character in IDENTIFIER_EXTRA)
+                for character in value
+            )
+        ):
+            errors.append("%s must contain 1..=160 URL-safe characters" % field)
+
+    errors.extend(
+        "unexpected envelope field %r" % key for key in sorted(set(envelope) - set(ENVELOPE_KEYS))
+    )
+    if envelope.get("schema_version") != MISSION_ENVELOPE_SCHEMA:
+        errors.append("unsupported envelope schema")
+    for field in ("broker_id", "mission_id", "idempotency_key"):
+        identifier(field, envelope.get(field, ""))
+    epoch = envelope.get("producer_epoch", 0)
+    sequence = envelope.get("sequence", 0)
+    if not 0 < epoch <= JSON_SAFE_INTEGER_MAX or not 0 < sequence <= JSON_SAFE_INTEGER_MAX:
+        errors.append("producer epoch and sequence must be non-zero JSON-safe integers")
+    issued = envelope.get("issued_at_ms", 0)
+    deadline = envelope.get("deadline_ms", 0)
+    if (
+        issued == 0
+        or issued > JSON_SAFE_INTEGER_MAX
+        or deadline > JSON_SAFE_INTEGER_MAX
+        or deadline <= issued
+        or deadline - issued > MAX_DEADLINE_MS
+    ):
         errors.append("deadline must be within %d ms of issue" % MAX_DEADLINE_MS)
-    objective = envelope["objective"]
-    if not objective["summary"].strip() or len(objective["summary"]) > 512:
-        errors.append("objective summary must be 1..=512 characters")
-    area = envelope["constraints"]["operating_area"]
-    if area["frame_id"] != "odom":
-        errors.append("operating area frame must be odom")
-    if area["max_x_m"] - area["min_x_m"] > MAX_AREA_SPAN_M:
-        errors.append("operating area is wider than %.0f m" % MAX_AREA_SPAN_M)
-    if area["max_y_m"] - area["min_y_m"] > MAX_AREA_SPAN_M:
-        errors.append("operating area is deeper than %.0f m" % MAX_AREA_SPAN_M)
-    constraints = envelope["constraints"]
-    if not MIN_SPEED_MPS <= constraints["speed_ceiling_mps"] <= MAX_SPEED_MPS:
-        errors.append("speed ceiling is outside the bounded low-speed limits")
-    if not MIN_DISTANCE_M <= constraints["max_distance_m"] <= MAX_DISTANCE_M:
-        errors.append("max distance is outside the bounded limits")
-    if not MIN_RUNTIME_MS <= constraints["max_runtime_ms"] <= MAX_RUNTIME_MS:
-        errors.append("max runtime is outside the bounded limits")
-    if constraints["max_replans"] > MAX_REPLANS:
-        errors.append("replan allowance exceeds %d" % MAX_REPLANS)
-    if not MIN_EVIDENCE_MAX_AGE_MS <= constraints["evidence_max_age_ms"] <= MAX_EVIDENCE_MAX_AGE_MS:
-        errors.append("evidence max age is outside the bounded limits")
-    if envelope["command"] == "start" and not envelope["evidence_refs"]:
-        errors.append("a start requires at least one evidence reference")
-    if envelope["schema_version"] != MISSION_ENVELOPE_SCHEMA:
-        errors.append("unexpected envelope schema")
-    if int(envelope["producer_epoch"]) <= 0 or int(envelope["sequence"]) <= 0:
-        errors.append("producer epoch and sequence must be non-zero")
+    if envelope.get("command") not in COMMANDS:
+        errors.append("command must be one of %s" % ", ".join(COMMANDS))
+
+    objective = envelope.get("objective", {})
+    errors.extend(
+        "unexpected objective field %r" % key for key in sorted(set(objective) - set(OBJECTIVE_KEYS))
+    )
+    summary = objective.get("summary", "")
+    if not summary.strip() or len(summary) > 512:
+        errors.append("objective summary must contain 1..=512 characters")
+    x, y = objective.get("target_x_m"), objective.get("target_y_m")
+    if objective.get("kind") in POINT_KINDS and (x is None or y is None):
+        errors.append("point objectives require target_x_m and target_y_m")
+    if (x is None) != (y is None):
+        errors.append("mission target coordinates must be supplied together")
+    for value in (x, y):
+        if value is not None and not math.isfinite(value):
+            errors.append("mission target coordinates must be finite")
+    tolerance = objective.get("tolerance_m")
+    if tolerance is not None and (not math.isfinite(tolerance) or not 0.05 <= tolerance <= 1.0):
+        errors.append("mission tolerance_m must be in 0.05..=1.0")
+
+    constraints = envelope.get("constraints", {})
+    errors.extend(
+        "unexpected constraint field %r" % key
+        for key in sorted(set(constraints) - set(CONSTRAINT_KEYS))
+    )
+    area = constraints.get("operating_area", {})
+    errors.extend(
+        "unexpected operating-area field %r" % key for key in sorted(set(area) - set(AREA_KEYS))
+    )
+    corners = [area.get(key) for key in ("min_x_m", "min_y_m", "max_x_m", "max_y_m")]
+    if (
+        area.get("frame_id") != "odom"
+        or any(corner is None or not math.isfinite(corner) for corner in corners)
+        or area.get("min_x_m", 0) >= area.get("max_x_m", 0)
+        or area.get("min_y_m", 0) >= area.get("max_y_m", 0)
+        or area.get("max_x_m", 0) - area.get("min_x_m", 0) > MAX_AREA_SPAN_M
+        or area.get("max_y_m", 0) - area.get("min_y_m", 0) > MAX_AREA_SPAN_M
+    ):
+        errors.append("operating area must be a finite odom rectangle no larger than %.0f m" % MAX_AREA_SPAN_M)
+    if x is not None and y is not None and not (
+        area.get("min_x_m", 0) <= x <= area.get("max_x_m", 0)
+        and area.get("min_y_m", 0) <= y <= area.get("max_y_m", 0)
+    ):
+        errors.append("mission target is outside the bounded operating area")
+    speed = constraints.get("speed_ceiling_mps")
+    distance = constraints.get("max_distance_m")
+    runtime = constraints.get("max_runtime_ms")
+    replans = constraints.get("max_replans")
+    age = constraints.get("evidence_max_age_ms")
+    if (
+        speed is None or not math.isfinite(speed) or not MIN_SPEED_MPS <= speed <= MAX_SPEED_MPS
+        or distance is None or not math.isfinite(distance) or not MIN_DISTANCE_M <= distance <= MAX_DISTANCE_M
+        or runtime is None or not MIN_RUNTIME_MS <= runtime <= MAX_RUNTIME_MS
+        or replans is None or replans > MAX_REPLANS
+        or age is None or not MIN_EVIDENCE_MAX_AGE_MS <= age <= MAX_EVIDENCE_MAX_AGE_MS
+    ):
+        errors.append("mission constraints exceed the bounded low-speed limits")
+
+    refs = envelope.get("evidence_refs")
+    if refs is None or len(refs) > 64 or any(not ref.strip() or len(ref) > 256 for ref in refs):
+        errors.append("mission evidence_refs are invalid")
+    elif envelope.get("command") == "start" and not refs:
+        errors.append("a mission start requires at least one evidence reference")
     return errors
+
+
+def record_mission_id(record):
+    """The mission id of one `/mission-control/missions` record.
+
+    `MissionRecordV1` (`runners/agent/src/mission_control.rs`) nests the accepted
+    envelope, so the id lives at `record["envelope"]["mission_id"]`; a flat
+    `mission_id` is accepted too, because an operator tool speaking the same wire
+    contract may report the record flattened.
+    """
+    envelope = record.get("envelope")
+    if isinstance(envelope, dict) and envelope.get("mission_id"):
+        return envelope["mission_id"]
+    return record.get("mission_id")
 
 
 # --------------------------------------------------------------------------
@@ -554,7 +655,7 @@ def _terminal_record(base_url, token, mission_id):
         print("mission-check: could not read %s: %s" % (MISSIONS_PATH, error), file=sys.stderr)
         return None
     for mission in missions:
-        if mission.get("mission_id") == mission_id:
+        if record_mission_id(mission) == mission_id:
             return mission
     return None
 
@@ -574,6 +675,9 @@ def finish(args, record, verdicts):
 def _outcome(args, record, verdicts):
     record["verdict"] = verdicts
     if args.json_out:
+        parent = os.path.dirname(os.path.abspath(args.json_out))
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent, exist_ok=True)
         with open(args.json_out, "w", encoding="utf-8") as handle:
             json.dump(record, handle, indent=2, sort_keys=True)
             handle.write("\n")
@@ -636,25 +740,32 @@ def self_test():
     )
     case("a tegrastats line with no RAM does not parse", parse_tegrastats_used_mib("GR3D_FREQ 0%") is None)
 
-    # The envelope must satisfy the bounds the broker validates.
-    envelope = build_envelope("t29-board-selftest", 1_700_000_000_000, DEFAULT_DEADLINE_S)
+    # The envelope must satisfy the bounds the broker validates. Each mutation
+    # asserts the violation it should raise, so a check that stops working fails
+    # here rather than passing on some other complaint.
+    issued = 1_700_000_000_000
+    envelope = build_envelope("t29-board-selftest", issued, DEFAULT_DEADLINE_S)
     case("the generated envelope satisfies the broker's bounds",
          not envelope_bounds_errors(envelope), "; ".join(envelope_bounds_errors(envelope)))
     case("the generated envelope opens a frontier mission", envelope["objective"]["kind"] == "explore_frontier")
     case("the generated envelope is a start with evidence",
          envelope["command"] == "start" and bool(envelope["evidence_refs"]))
-    case("an over-long deadline is clamped", envelope_bounds_errors(build_envelope("m", 0, 9_999)) == [])
-    unclamped = build_envelope("m", 0, 1)
+    case("an over-long deadline is clamped",
+         not envelope_bounds_errors(build_envelope("m", issued, 9_999)))
+    unclamped = build_envelope("m", issued, 1)
     unclamped["deadline_ms"] = unclamped["issued_at_ms"] + MAX_DEADLINE_MS + 1
-    case("the bounds check catches an over-long deadline", bool(envelope_bounds_errors(unclamped)))
-    no_evidence = build_envelope("m", 0, 1)
+    case("the bounds check catches an over-long deadline",
+         any("deadline" in error for error in envelope_bounds_errors(unclamped)))
+    no_evidence = build_envelope("m", issued, 1)
     no_evidence["evidence_refs"] = []
-    case("the bounds check catches a start with no evidence", bool(envelope_bounds_errors(no_evidence)))
-    wide_area = build_envelope("m", 0, 1)
+    case("the bounds check catches a start with no evidence",
+         any("evidence reference" in error for error in envelope_bounds_errors(no_evidence)))
+    wide_area = build_envelope("m", issued, 1)
     wide_area["constraints"]["operating_area"]["max_x_m"] = 100.0
-    case("the bounds check catches an over-wide area", bool(envelope_bounds_errors(wide_area)))
+    case("the bounds check catches an over-wide area",
+         any("operating area" in error for error in envelope_bounds_errors(wide_area)))
 
-    cancel = build_cancel_envelope("t29-board-selftest", 1_700_000_000_000, DEFAULT_DEADLINE_S)
+    cancel = build_cancel_envelope("t29-board-selftest", issued, DEFAULT_DEADLINE_S)
     case("the cancel envelope satisfies the broker's bounds",
          not envelope_bounds_errors(cancel), "; ".join(envelope_bounds_errors(cancel)))
     case("the cancel envelope is sequence 2 of the same mission",
@@ -663,6 +774,55 @@ def self_test():
          and cancel["producer_epoch"] == envelope["producer_epoch"])
     case("the cancel envelope carries its own idempotency key",
          cancel["idempotency_key"] != envelope["idempotency_key"])
+
+    # Bounds the broker enforces beyond the ranges: the key sets it decodes with
+    # `deny_unknown_fields`, the identifier alphabet and the point-objective rules.
+    extra = build_envelope("m", issued, 1)
+    extra["surprise"] = 1
+    case("the bounds check catches an unknown envelope field",
+         any("unexpected envelope field" in error for error in envelope_bounds_errors(extra)))
+    bad_id = build_envelope("m", issued, 1)
+    bad_id["mission_id"] = "not url safe/at all"
+    case("the bounds check catches a non-URL-safe identifier",
+         any("URL-safe" in error for error in envelope_bounds_errors(bad_id)))
+    point = build_envelope("m", issued, 1)
+    point["objective"]["kind"] = "navigate_to"
+    case("the bounds check catches a point objective with no target",
+         any("point objective" in error for error in envelope_bounds_errors(point)))
+    outside = build_envelope("m", issued, 1)
+    outside["objective"]["target_x_m"], outside["objective"]["target_y_m"] = 40.0, 0.0
+    case("the bounds check catches a target outside the area",
+         any("outside the bounded operating area" in error for error in envelope_bounds_errors(outside)))
+    inside = build_envelope("m", issued, 1)
+    inside["objective"]["kind"] = "navigate_to"
+    inside["objective"]["target_x_m"], inside["objective"]["target_y_m"] = 1.0, -2.0
+    case("a target inside the area is legal", not envelope_bounds_errors(inside),
+         "; ".join(envelope_bounds_errors(inside)))
+    no_command = build_envelope("m", issued, 1)
+    no_command["command"] = "teleport"
+    case("the bounds check catches an unknown command",
+         any("command must be one of" in error for error in envelope_bounds_errors(no_command)))
+
+    # The record shape: MissionRecordV1 nests the envelope, which is the shape the
+    # live agent answers with (`/mission-control/missions`).
+    nested = {"envelope": {"mission_id": "m-nested"}, "status": "cancelled", "stage": "terminal",
+              "last_code": "cancelled", "last_detail": "broker cancelled the mission"}
+    flat = {"mission_id": "m-flat", "status": "failed", "stage": "terminal",
+            "last_code": "deadline_exceeded"}
+    case("a nested record reports its envelope's mission id", record_mission_id(nested) == "m-nested")
+    case("a flat record reports its own mission id", record_mission_id(flat) == "m-flat")
+    case("a record with no id reports none", record_mission_id({"status": "cancelled"}) is None)
+    case("the terminal record shapes are the statuses the checker accepts",
+         nested["status"] in TERMINAL_STATUSES and flat["status"] in TERMINAL_STATUSES)
+
+    # The terminal-record lookup must find a nested record, which is what the live
+    # agent answers: the regression that a flat-only match hides.
+    found = next(
+        (mission for mission in [{"envelope": {"mission_id": "keep"}}, nested]
+         if record_mission_id(mission) == "m-nested"),
+        None,
+    )
+    case("the lookup finds a nested record among others", found is nested)
 
     if failures:
         for failure in failures:
