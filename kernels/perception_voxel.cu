@@ -3,17 +3,26 @@
 // Projects a planar LiDAR sweep into the world voxel lattice as occupancy
 // logits: one thread per voxel, one logit per cell.
 //
-// The input shape mirrors the flat coordinate array the Leash voxel kernel
-// takes: coordinates are interleaved, `points[2 * i]` and `points[2 * i + 1]`
-// are one return's lateral and forward metres, so a sweep of n returns is a
-// `2 * n` float array. LiDAR is planar (Pinkie's scanner measures no obstacle
-// height), so a return marks its whole voxel column: every height at that
-// (x, z) cell shares the count, which is the extruded projection the
+// The input is the interleaved point array of `LeashSpatialEvidenceV1`'s
+// `points_xy_m` in `crates/sync-types/src/spatial.rs`: `points[2 * i]` and
+// `points[2 * i + 1]` are one return's lateral and forward metres, so a sweep
+// of n returns is a `2 * n` float array with `points_xy_m.len()` equal to
+// `point_count * 2`. It is a wire shape, not a kernel input: Leash's
+// `project_occupancy` takes an int8 cell grid and its lidar kernel writes
+// separate x_m[] / y_m[] arrays. LiDAR is planar (Pinkie's scanner measures no
+// obstacle height), so a return marks its whole voxel column: every height at
+// that (x, z) cell shares the count, the same extrusion `project_occupancy`
+// performs when it repeats one cell across its depth axis, which the
 // localization contract calls `projected-occupancy`.
 //
 // Each cell's logit is the prior logit plus one hit's log-odds per return in
-// the cell, clamped to the same [-20, 20] band the belief kernels use so a
-// dense column cannot saturate the downstream sigmoid.
+// the cell, clamped to [-20, 20]. The bound is this kernel's own choice: ticket
+// #31 names no band, the reference clamps belief residuals, means and weights
+// at ±10 and the planner's log-variance at [-20, 20] / [-10, 5], and it has no
+// occupancy-logit band at all. It suits this input domain — with the oracle's
+// -2 prior and +1.5 log-odds a cell needs ~15 returns to reach +20, more than
+// a 0.25 m ground-plane cell collects — and it keeps a stored logit finite if
+// a dense or malformed sweep inflates the count.
 //
 // The lattice is qualia_types' `WorldVoxels`: a 32 x 32 x 12 volume spanning
 // roughly 8 m x 8 m x 3 m, with `index = vx * VOXEL_D * VOXEL_H + vz *

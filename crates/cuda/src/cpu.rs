@@ -289,10 +289,21 @@ pub fn belief_couple(
 /// Projects flat ground-plane LiDAR returns into occupancy logits.
 ///
 /// The device twin of `perception_voxel.cu`. `points` is the interleaved
-/// `[x, y, ...]` metres the Leash voxel kernel takes; a return marks its whole
-/// voxel column because the scanner is planar. Each cell's logit is
-/// `prior_logit` plus one hit's log-odds per return in the cell, clamped to
-/// `[-20, 20]`. The lattice is the `qualia_types` world volume, indexed
+/// `points_xy_m` array of `LeashSpatialEvidenceV1`
+/// (`crates/sync-types/src/spatial.rs`): `points[2 * i]` and `points[2 * i + 1]`
+/// are one return's lateral and forward metres, so a sweep of n returns is a
+/// `2 * n` float array. That wire shape is not a kernel input — Leash's
+/// `project_occupancy` takes an int8 cell grid — but its extrusion is the same:
+/// a return marks its whole voxel column because the scanner is planar. Each
+/// cell's logit is `prior_logit` plus one hit's log-odds per return in the
+/// cell, clamped to `[-20, 20]`. That bound is this kernel's own choice, not an
+/// inherited one: ticket #31 names no band, and the reference — which clamps
+/// belief residuals, means and weights at ±10 and log-variance at
+/// `[-20, 20]` / `[-10, 5]` — has no occupancy-logit band. It suits this input
+/// domain (the oracle's -2 prior and +1.5 log-odds need ~15 hits in one cell to
+/// reach +20, more than a 0.25 m ground-plane cell collects) and keeps a stored
+/// logit finite if a dense or malformed sweep inflates the count. The lattice
+/// is the `qualia_types` world volume, indexed
 /// `vx * VOXEL_D * VOXEL_H + vz * VOXEL_H + vy`, with x centred on the room and
 /// z measured from the near wall.
 pub fn perception_voxel(
