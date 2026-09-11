@@ -1,0 +1,13 @@
+pre_type,post_type,weight
+EPG,PEN_a,10
+EPG,PEN_a,15
+EPG,KCg-m,8
+PEN_a,KCg-m,5
+PEN_a,KCg-m,7
+PEN_a,OA-VPM3,12
+KCg-m,DNp01,9
+KCg-m,DNp01,4
+OA-VPM3,DNp01,6
+DNp01,EPG,3
+OA-VPM3,KCg-m,11
+DNp01,KCg-m,2

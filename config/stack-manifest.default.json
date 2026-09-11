@@ -8,15 +8,35 @@
     "socket": "/tmp/qualia_body.sock"
   },
   "runners": [
-    { "name": "qualia-l0-superposition" },
-    { "name": "qualia-l1-belief" },
-    { "name": "qualia-l2-belief" },
-    { "name": "qualia-l3-belief" },
-    { "name": "qualia-l4-behavior" },
-    { "name": "qualia-l5-behavior" },
-    { "name": "qualia-l6-semantic" },
-    { "name": "qualia-health", "stdout": "null" },
-    { "name": "qualia-vision", "stdout": "null" },
+    {
+      "name": "qualia-l0-superposition"
+    },
+    {
+      "name": "qualia-l1-belief"
+    },
+    {
+      "name": "qualia-l2-belief"
+    },
+    {
+      "name": "qualia-l3-belief"
+    },
+    {
+      "name": "qualia-l4-behavior"
+    },
+    {
+      "name": "qualia-l5-behavior"
+    },
+    {
+      "name": "qualia-l6-semantic"
+    },
+    {
+      "name": "qualia-health",
+      "stdout": "null"
+    },
+    {
+      "name": "qualia-vision",
+      "stdout": "null"
+    },
     {
       "name": "qualia-agent",
       "stdout": "null",
@@ -32,5 +52,9 @@
         "QUALIA_SYNC_ACCEPT_INVALID_CERTS"
       ]
     }
-  ]
+  ],
+  "env": {
+    "QUALIA_FLY_MODE": "off",
+    "QUALIA_FLY_PRIOR_PATH": ""
+  }
 }
