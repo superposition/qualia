@@ -5,12 +5,20 @@
 //! planner over the compute socket for a path, and publishes the first accepted
 //! goal into the nav-goal slot. It never actuates anything: the goal it writes
 //! is a proposal that `runners/drive` may chase and leash may refuse.
+//!
+//! Its mission is a frontier sweep, opened at stack start: it reports
+//! `MissionOpened { mission_id: "explore-frontier" }` to the braid, and every
+//! plan request carries the fly prior's type-level in-strength in the
+//! `compute.v1` request's `belief_risk` field.
 
+use qualia_braid::{observe, BraidError, BraidEvent, BraidState};
+use qualia_jepa::prior::CouplingPrior;
 use qualia_shm::ShmRegion;
 use qualia_types::{BinaryMapGrid, NavGoal};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
+use std::path::Path;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
@@ -41,6 +49,8 @@ const GOAL_HOLD_NS: u64 = 7_000_000_000;
 const GOAL_SEARCH_RADIUS_CELLS: i32 = 4;
 /// A plan shorter than this is treated as a refusal.
 const MIN_PATH_LEN: usize = 4;
+/// The mission opened at stack start: a sweep of the reachable frontier.
+const DEFAULT_MISSION_ID: &str = "explore-frontier";
 
 /// Cell values shared with `runners/map`.
 const UNKNOWN: u8 = 0;
@@ -99,6 +109,67 @@ impl RunnerConfig {
     }
 }
 
+/// The fly prior, loaded once at start-up from the environment the supervisor
+/// hands down.
+///
+/// `QUALIA_FLY_MODE` is `off` by default and `QUALIA_FLY_PRIOR_PATH` names the
+/// artifact directory; only `prior` loads it. Any other mode, an unset path, or
+/// an artifact [`CouplingPrior::load`] rejects disables the prior with a log
+/// line and an `off` runner — the runner must never fail to start because of
+/// the prior.
+struct FlyPrior {
+    prior: CouplingPrior,
+}
+
+impl FlyPrior {
+    fn from_env() -> Option<Self> {
+        Self::from_settings(
+            std::env::var("QUALIA_FLY_MODE").ok(),
+            std::env::var("QUALIA_FLY_PRIOR_PATH").ok(),
+        )
+    }
+
+    /// The prior the two settings select; `None` disables it.
+    ///
+    /// Split from the environment so every disabled path is a pure function of
+    /// its inputs and can be tested without touching the process environment.
+    fn from_settings(mode: Option<String>, path: Option<String>) -> Option<Self> {
+        let mode = mode.unwrap_or_else(|| "off".to_string());
+        if mode != "prior" {
+            if mode != "off" {
+                println!("fly prior: disabled (mode {mode})");
+            }
+            return None;
+        }
+        let path = path.unwrap_or_default();
+        if path.is_empty() {
+            println!("fly prior: disabled (QUALIA_FLY_PRIOR_PATH is unset)");
+            return None;
+        }
+        match CouplingPrior::load(Path::new(&path)) {
+            Ok(prior) => Some(Self { prior }),
+            Err(error) => {
+                println!("fly prior: disabled ({error})");
+                None
+            }
+        }
+    }
+}
+
+/// The braid event that opens the runner's default mission.
+fn default_mission_event() -> BraidEvent {
+    BraidEvent::MissionOpened {
+        mission_id: DEFAULT_MISSION_ID.to_string(),
+    }
+}
+
+/// Report the runner's default mission to the braid. The first mission at
+/// stack start is a frontier sweep; the event is the report, and
+/// [`observe`] folds it into the view the strand holds.
+fn open_default_mission(braid: &mut BraidState) -> Result<(), BraidError> {
+    observe(braid, &default_mission_event())
+}
+
 #[tokio::main]
 async fn main() {
     let config = RunnerConfig::from_env();
@@ -120,8 +191,32 @@ async fn main() {
         config.shm_name
     );
 
+    // The strand's view of the braid, opened with the runner's own mission.
+    let mut braid = BraidState::default();
+    match open_default_mission(&mut braid) {
+        Ok(()) => println!("qualia-explore: mission opened id={DEFAULT_MISSION_ID}"),
+        Err(error) => eprintln!("qualia-explore: braid mission open failed: {error}"),
+    }
+
+    let prior = FlyPrior::from_env();
+    let belief_risk = PlannerBeliefRiskContext::from_prior(prior.as_ref().map(|fly| &fly.prior));
+    if let Some(risk) = belief_risk {
+        println!(
+            "fly prior: risk uncertainty_weight={} semantic_novelty={}",
+            risk.uncertainty_weight, risk.semantic_novelty
+        );
+    }
+
     loop {
-        match explore_once(&shm, &config.compute_addr, config.plan_timeout_ms, tuning).await {
+        match explore_once(
+            &shm,
+            &config.compute_addr,
+            config.plan_timeout_ms,
+            tuning,
+            belief_risk,
+        )
+        .await
+        {
             Some(outcome) => println!(
                 "qualia-explore: selected frontier goal=({}, {}) world=({:.2}, {:.2}) path_len={} frontier_size={}",
                 outcome.goal_cell_x,
@@ -154,6 +249,7 @@ async fn explore_once(
     compute_addr: &str,
     timeout_ms: u64,
     tuning: ExploreTuning,
+    belief_risk: Option<PlannerBeliefRiskContext>,
 ) -> Option<GoalOutcome> {
     let pose = shm.world_model().robot_pose;
     if pose.timestamp_ns == 0 || pose.confidence <= 0.0 {
@@ -189,7 +285,12 @@ async fn explore_once(
     let mut rejected = 0usize;
     let mut reasons = BTreeMap::<String, usize>::new();
     for candidate in candidates {
-        let request = plan_request(&coarse, start, (candidate.cell_x, candidate.cell_z));
+        let request = plan_request(
+            &coarse,
+            start,
+            (candidate.cell_x, candidate.cell_z),
+            belief_risk,
+        );
         let reply = match ask_planner(compute_addr, timeout_ms, &request).await {
             Ok(reply) => reply,
             Err(err) => {
@@ -578,6 +679,56 @@ struct PlanRequest {
     grid: PlannerGridRequest,
     constraints: PlannerConstraints,
     world_context: WorldContext,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    belief_risk: Option<PlannerBeliefRiskContext>,
+}
+
+/// The fly prior's coupling as the planner's risk context.
+///
+/// Both fields are clamped to `0.0..=1.0` by the sender: `runners/cuda-service`
+/// scales `uncertainty_weight` by 12 and `semantic_novelty` by 4 and multiplies
+/// by the grid resolution, so an out-of-range value would distort the cost map
+/// instead of being rejected.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq)]
+struct PlannerBeliefRiskContext {
+    uncertainty_weight: f32,
+    semantic_novelty: f32,
+}
+
+impl PlannerBeliefRiskContext {
+    /// The risk the loaded prior covers, or `None` when it is off.
+    ///
+    /// `uncertainty_weight` is the mean weight the prior applies per coupled
+    /// type: [`CouplingPrior::couple`] returns the summed peak-normalised
+    /// in-strength over the slots it is handed, and dividing that total by the
+    /// type count keeps the value inside the unit range the planner contract
+    /// fixes instead of saturating at the strongest type's unit weight — a
+    /// uniformly innervated graph reads `1.0`, one whose in-strength is
+    /// concentrated in a few types reads lower. `semantic_novelty` is `0.0`
+    /// because no runtime artifact carries per-type `dimorphism`; the dated
+    /// resolution on issue #38 records that gap. With the prior off — or
+    /// coupling nothing — the whole context is absent, so the request leaves
+    /// `belief_risk` unset exactly as an ungoverned runner does.
+    fn from_prior(prior: Option<&CouplingPrior>) -> Option<Self> {
+        let prior = prior?;
+        let type_count = prior.type_count as usize;
+        if type_count == 0 {
+            return None;
+        }
+        let mut belief = vec![1.0f32; type_count];
+        let slots: Vec<(u32, usize)> = (0..prior.type_count)
+            .map(|index| (index, index as usize))
+            .collect();
+        let total_applied = prior.couple(&mut belief, &slots);
+        let uncertainty_weight = (total_applied / type_count as f32).clamp(0.0, 1.0);
+        if uncertainty_weight <= 0.0 {
+            return None;
+        }
+        Some(Self {
+            uncertainty_weight,
+            semantic_novelty: 0.0,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -638,7 +789,12 @@ struct PlanError {
 }
 
 /// Build the `compute.v1` `plan_path` envelope the planner service expects.
-fn plan_request(grid: &PlanGrid, start: (i32, i32), goal: (i32, i32)) -> PlanRequest {
+fn plan_request(
+    grid: &PlanGrid,
+    start: (i32, i32),
+    goal: (i32, i32),
+    belief_risk: Option<PlannerBeliefRiskContext>,
+) -> PlanRequest {
     let occupied = grid
         .cells
         .iter()
@@ -692,6 +848,7 @@ fn plan_request(grid: &PlanGrid, start: (i32, i32), goal: (i32, i32)) -> PlanReq
             voxel_seq: 0,
             footprint_seq: 0,
         },
+        belief_risk,
     }
 }
 
@@ -775,9 +932,16 @@ mod tests {
     use super::*;
     use qualia_types::{NavPose, MAP_GRID_H, MAP_GRID_W};
     use serde_json::Value;
+    #[cfg(not(windows))]
+    use std::path::PathBuf;
+    #[cfg(not(windows))]
+    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
+    #[cfg(windows)]
     use tokio::net::TcpListener;
+    #[cfg(not(windows))]
+    use tokio::net::UnixListener;
 
     const FINE_RES: f32 = 0.1;
     const FINE_ORIGIN: f32 = -12.8;
@@ -845,15 +1009,62 @@ mod tests {
         }
     }
 
-    struct FakePlanner {
+    /// The listener transport the runner dials. Selected by the same predicate
+    /// as the runner's `PlannerStream`, so the fixture and the product speak
+    /// the same protocol on every target.
+    #[cfg(windows)]
+    type PlannerListener = TcpListener;
+    #[cfg(not(windows))]
+    type PlannerListener = UnixListener;
+
+    /// A bound fake-planner endpoint: the address the runner must dial, plus
+    /// the Unix socket file to unlink when the test ends.
+    struct PlannerSocket {
         addr: String,
+        #[cfg(not(windows))]
+        path: PathBuf,
+    }
+
+    #[cfg(not(windows))]
+    impl Drop for PlannerSocket {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    /// Bind the platform's planner transport and report the endpoint the runner
+    /// must dial.
+    #[cfg(windows)]
+    async fn bind_planner(_tag: &str) -> (PlannerListener, PlannerSocket) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake planner");
+        let addr = listener.local_addr().expect("local addr").to_string();
+        (listener, PlannerSocket { addr })
+    }
+
+    #[cfg(not(windows))]
+    async fn bind_planner(tag: &str) -> (PlannerListener, PlannerSocket) {
+        static SEQ: AtomicUsize = AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, AtomicOrdering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "qualia-explore-{}-{tag}-{seq}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("bind fake planner");
+        let addr = path.to_string_lossy().into_owned();
+        (listener, PlannerSocket { addr, path })
+    }
+
+    struct FakePlanner {
+        socket: PlannerSocket,
         lines: Arc<Mutex<Vec<String>>>,
         _task: tokio::task::JoinHandle<()>,
     }
 
     async fn fake_planner(reply: impl Fn(usize) -> String + Send + 'static) -> FakePlanner {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake planner");
-        let addr = listener.local_addr().expect("local addr").to_string();
+        let (listener, socket) = bind_planner("planner").await;
         let lines = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&lines);
         let task = tokio::spawn(async move {
@@ -882,16 +1093,15 @@ mod tests {
             }
         });
         FakePlanner {
-            addr,
+            socket,
             lines,
             _task: task,
         }
     }
 
     /// Accepts and reads the request, then never answers.
-    async fn silent_planner() -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind silent planner");
-        let addr = listener.local_addr().expect("local addr").to_string();
+    async fn silent_planner() -> PlannerSocket {
+        let (listener, socket) = bind_planner("silent").await;
         tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
                 tokio::spawn(async move {
@@ -904,7 +1114,7 @@ mod tests {
                 });
             }
         });
-        addr
+        socket
     }
 
     fn ok_reply(points: usize) -> String {
@@ -925,7 +1135,123 @@ mod tests {
             cells: vec![UNKNOWN; PLAN_W * PLAN_H],
             resolution_m: 0.8,
         };
-        plan_request(&grid, (16, 16), (10, 10))
+        plan_request(&grid, (16, 16), (10, 10), None)
+    }
+
+    #[test]
+    fn frontier_mission_is_opened_at_start() {
+        let mut braid = BraidState::default();
+        open_default_mission(&mut braid).expect("the default mission folds into the braid");
+
+        assert_eq!(
+            braid.open_missions, 1,
+            "the runner opens exactly one mission at stack start"
+        );
+        let wire = serde_json::to_value(default_mission_event()).expect("the event serialises");
+        assert_eq!(wire["event"], "mission_opened");
+        assert_eq!(wire["mission_id"], "explore-frontier");
+    }
+
+    #[test]
+    fn prior_coupling_sets_a_mean_applied_weight_inside_the_unit_range() {
+        // Two types coupled both ways with unequal weights: the peak type
+        // couples at unit weight and the other at 1/7, so the mean applied
+        // weight per type is (1 + 1/7) / 2 — inside the range, not the
+        // saturated 1.0 a raw total would give.
+        let skewed = CouplingPrior {
+            type_count: 2,
+            rowptr: vec![0, 1, 2],
+            cols: vec![1, 0],
+            weights: vec![1, 7],
+        };
+        let risk = PlannerBeliefRiskContext::from_prior(Some(&skewed))
+            .expect("a loaded prior reports risk");
+        assert!(
+            risk.uncertainty_weight > 0.0 && risk.uncertainty_weight < 1.0,
+            "a skewed prior reads strictly inside the unit range: {}",
+            risk.uncertainty_weight
+        );
+        assert_eq!(risk.semantic_novelty, 0.0);
+
+        // A uniformly innervated graph is the ceiling: every type couples at
+        // unit weight, so the mean is 1.0 and the contract's clamp holds it.
+        let uniform = CouplingPrior {
+            type_count: 2,
+            rowptr: vec![0, 2, 4],
+            cols: vec![1, 0, 0, 1],
+            weights: vec![5, 5, 5, 5],
+        };
+        let risk = PlannerBeliefRiskContext::from_prior(Some(&uniform))
+            .expect("a loaded prior reports risk");
+        assert!(
+            (risk.uncertainty_weight - 1.0).abs() < 1e-6,
+            "a uniform prior reads the unit ceiling: {}",
+            risk.uncertainty_weight
+        );
+    }
+
+    #[test]
+    fn a_disabled_prior_never_stops_the_runner() {
+        // Off by default, and every path that cannot load an artifact answers
+        // `None` rather than failing: another mode, a missing path, a path
+        // whose artifact does not exist.
+        assert!(FlyPrior::from_settings(None, None).is_none(), "off by default");
+        assert!(
+            FlyPrior::from_settings(Some("sim".to_string()), Some("C:/tmp".to_string())).is_none(),
+            "an unknown mode does not load a prior"
+        );
+        assert!(
+            FlyPrior::from_settings(Some("prior".to_string()), None).is_none(),
+            "prior mode without a path stays off"
+        );
+        assert!(
+            FlyPrior::from_settings(
+                Some("prior".to_string()),
+                Some("C:/tmp/qualia-explore-no-such-prior".to_string())
+            )
+            .is_none(),
+            "a rejected artifact stays off"
+        );
+    }
+
+    #[test]
+    fn belief_risk_is_written_only_with_a_prior() {
+        let grid = PlanGrid {
+            cells: vec![UNKNOWN; PLAN_W * PLAN_H],
+            resolution_m: 0.8,
+        };
+
+        let ungoverned = serde_json::to_value(plan_request(&grid, (16, 16), (10, 10), None))
+            .expect("request serialises");
+        assert!(
+            ungoverned.get("belief_risk").is_none(),
+            "no prior leaves the field unset"
+        );
+
+        let governed = serde_json::to_value(plan_request(
+            &grid,
+            (16, 16),
+            (10, 10),
+            Some(PlannerBeliefRiskContext {
+                uncertainty_weight: 0.25,
+                semantic_novelty: 0.0,
+            }),
+        ))
+        .expect("request serialises");
+        assert_eq!(governed["belief_risk"]["uncertainty_weight"], 0.25);
+        assert_eq!(governed["belief_risk"]["semantic_novelty"], 0.0);
+    }
+
+    #[test]
+    fn no_prior_and_an_empty_prior_leave_the_context_absent() {
+        assert_eq!(PlannerBeliefRiskContext::from_prior(None), None);
+        let empty = CouplingPrior {
+            type_count: 0,
+            rowptr: vec![0],
+            cols: Vec::new(),
+            weights: Vec::new(),
+        };
+        assert_eq!(PlannerBeliefRiskContext::from_prior(Some(&empty)), None);
     }
 
     #[tokio::test]
@@ -935,9 +1261,18 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        let outcome = explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
-            .await
-            .expect("the frontier is plannable");
+        let outcome = explore_once(
+            &shm,
+            &planner.socket.addr,
+            300,
+            ExploreTuning::from_env(),
+            Some(PlannerBeliefRiskContext {
+                uncertainty_weight: 0.5,
+                semantic_novelty: 0.0,
+            }),
+        )
+        .await
+        .expect("the frontier is plannable");
 
         assert_eq!(outcome.path_len, 5);
         assert_eq!(outcome.frontier_size, 4 * 96 - 4);
@@ -990,6 +1325,8 @@ mod tests {
         assert_eq!(request["world_context"]["nav_seq"], 0);
         assert_eq!(request["world_context"]["voxel_seq"], 0);
         assert_eq!(request["world_context"]["footprint_seq"], 0);
+        assert_eq!(request["belief_risk"]["uncertainty_weight"], 0.5);
+        assert_eq!(request["belief_risk"]["semantic_novelty"], 0.0);
     }
 
     #[tokio::test]
@@ -1002,7 +1339,7 @@ mod tests {
         shm.set_robot_pose(pose(0.05, -4.75));
         publish_map(&shm, two_blobs);
 
-        let outcome = explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        let outcome = explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .expect("the second candidate is planned");
 
@@ -1032,10 +1369,10 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_some());
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(
@@ -1054,10 +1391,10 @@ mod tests {
         let mut tuning = ExploreTuning::from_env();
         tuning.goal_hold_ns = 0;
 
-        assert!(explore_once(&shm, &planner.addr, 300, tuning)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, tuning, None)
             .await
             .is_some());
-        assert!(explore_once(&shm, &planner.addr, 300, tuning)
+        assert!(explore_once(&shm, &planner.socket.addr, 300, tuning, None)
             .await
             .is_some());
         assert_eq!(planner.lines.lock().expect("planner lines").len(), 2);
@@ -1070,7 +1407,7 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, |_, _| UNKNOWN);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(shm.world_model().nav_goal.active, 0);
@@ -1089,7 +1426,7 @@ mod tests {
         shm.set_robot_pose(unlocalised);
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert!(planner.lines.lock().expect("planner lines").is_empty());
@@ -1104,7 +1441,7 @@ mod tests {
         shm.set_robot_pose(unstamped);
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert!(planner.lines.lock().expect("planner lines").is_empty());
@@ -1117,7 +1454,7 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(shm.world_model().nav_goal.active, 0);
@@ -1135,7 +1472,7 @@ mod tests {
         shm.set_robot_pose(pose(0.0, 0.0));
         publish_map(&shm, block);
 
-        assert!(explore_once(&shm, &planner.addr, 300, ExploreTuning::from_env())
+        assert!(explore_once(&shm, &planner.socket.addr, 300, ExploreTuning::from_env(), None)
             .await
             .is_none());
         assert_eq!(shm.world_model().nav_goal.active, 0);
@@ -1168,9 +1505,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_silent_planner_hits_the_read_deadline() {
-        let addr = silent_planner().await;
+        let planner = silent_planner().await;
         let started = Instant::now();
-        let err = ask_planner(&addr, 150, &request_for_test())
+        let err = ask_planner(&planner.addr, 150, &request_for_test())
             .await
             .expect_err("a silent planner must not satisfy the request");
         let elapsed = started.elapsed();
@@ -1188,11 +1525,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_closed_compute_socket_is_a_connect_error() {
-        let addr = {
-            let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-            listener.local_addr().expect("local addr").to_string()
-        };
-        let err = ask_planner(&addr, 300, &request_for_test())
+        let (listener, socket) = bind_planner("closed").await;
+        drop(listener);
+        let err = ask_planner(&socket.addr, 300, &request_for_test())
             .await
             .expect_err("a closed socket must not be used");
         assert!(err.starts_with("connect"), "unexpected error: {err}");
@@ -1201,7 +1536,7 @@ mod tests {
     #[tokio::test]
     async fn a_garbage_reply_is_a_decode_error() {
         let planner = fake_planner(|_| "not json".to_string()).await;
-        let err = ask_planner(&planner.addr, 300, &request_for_test())
+        let err = ask_planner(&planner.socket.addr, 300, &request_for_test())
             .await
             .expect_err("garbage must not decode");
         assert!(err.starts_with("decode"), "unexpected error: {err}");
