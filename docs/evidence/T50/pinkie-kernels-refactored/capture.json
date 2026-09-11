@@ -1,0 +1,145 @@
+{
+  "backend": "ncu",
+  "capture_range": "all",
+  "argv": [
+    "./target/release/deps/gpu-e5293633ad869b15",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "command": "./target/release/deps/gpu-e5293633ad869b15 --test-threads=1 --nocapture",
+  "profiler_argv": [
+    "sudo",
+    "env",
+    "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+    "/usr/local/cuda/bin/ncu",
+    "--section",
+    "LaunchStats",
+    "--section",
+    "Occupancy",
+    "--launch-count",
+    "24",
+    "--kernel-name",
+    "regex:add_one|costmap_stats|belief_update|cognition_update|cognition_patch",
+    "--metrics",
+    "gpu__time_duration.sum,sm__cycles_elapsed.avg,sm__cycles_active.avg,sm__warps_active.avg.pct_of_peak_sustained_active,sm__throughput.avg.pct_of_peak_sustained_elapsed,smsp__inst_executed.sum,l1tex__t_bytes.sum,l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum,lts__t_bytes.sum,dram__bytes.sum,launch__registers_per_thread,launch__shared_mem_per_block_static,launch__shared_mem_per_block_dynamic,launch__grid_size,launch__block_size,launch__waves_per_multiprocessor,launch__occupancy_limit_registers,launch__occupancy_limit_shared_mem,launch__occupancy_limit_warps,launch__occupancy_limit_blocks,sm__maximum_warps_per_active_cycle_pct",
+    "--csv",
+    "./target/release/deps/gpu-e5293633ad869b15",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "returncode": 0,
+  "status": "complete",
+  "kernel_count": 13,
+  "commit": "5eb7c9fe60dd65539151824857b046eb84abbe17",
+  "ticket": "T50 rank-1 kernel refactor (PR #221, ticket #172)",
+  "board": {
+    "name": "Pinkie",
+    "ssh": "jetson@192.168.55.1",
+    "kernel": "5.15.148-tegra",
+    "device": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "driver": "540.4.0",
+    "toolkit": "CUDA 12.9.41 at /usr/local/cuda",
+    "forward_compat": "libcuda at /usr/local/cuda-12.9/compat (12090) via LD_LIBRARY_PATH",
+    "ncu": "2025.2.0.0 (build 35613519)",
+    "cargo": "1.94.0",
+    "rustc": "1.94.0"
+  },
+  "build": {
+    "command": "cargo test -p qualia-cuda --features cuda --test gpu --no-run --release --offline -j 2",
+    "artifact": "target/release/deps/gpu-e5293633ad869b15",
+    "seconds": 219.2,
+    "kernel_path": "NVRTC at process start (no CUDAARCHS)"
+  },
+  "suite": {
+    "tests": 8,
+    "passed": 8,
+    "failed": 0,
+    "wall_seconds": 2.27,
+    "line": "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.27s",
+    "note": "this head's gpu.rs has 8 tests (the committed capture was taken when it had 5); the captures stay comparable per kernel, and the two kernels this ticket changes appear 1 + 2 times as the metric spec asks"
+  },
+  "changed": {
+    "belief_update": {
+      "launches": 1,
+      "duration_ms_before": [
+        12.976,
+        12.995
+      ],
+      "duration_ms_after": [
+        3.407008
+      ],
+      "speedup": 3.81,
+      "l1tex_bytes_before": 100717696,
+      "l1tex_bytes_after": 25220224,
+      "l1tex_ratio": 3.99,
+      "l1tex_sectors_after": 525281,
+      "registers_before": 44,
+      "registers_after": 42,
+      "static_shared_bytes": 8192
+    },
+    "cognition_update": {
+      "launches": 2,
+      "duration_ms_before": [
+        13.046,
+        12.991,
+        13.005,
+        13.015
+      ],
+      "duration_ms_after": [
+        3.589024,
+        3.595392
+      ],
+      "speedup": 3.62,
+      "l1tex_bytes_before": 104892416,
+      "l1tex_bytes_after": 29394944,
+      "l1tex_ratio": 3.57,
+      "l1tex_sectors_after": 656192,
+      "registers_before": 48,
+      "registers_after": 40,
+      "static_shared_bytes": 8192
+    }
+  },
+  "l1_bandwidth_gbs_from_l1_bytes": {
+    "belief_update": 7.4,
+    "cognition_update": 8.18
+  },
+  "unavailable_metrics": {
+    "dram__bytes.sum": "n/a on the Tegra driver (as in the committed capture), so GB/s is derived from the L1 byte counter"
+  },
+  "runs": [],
+  "files": {
+    "kernels.csv": {
+      "bytes": 2471,
+      "sha256": "57361d9536365c85303598599c0411c711d52ef7c93a1342323c00486e7e0b32"
+    },
+    "kernels.json": {
+      "bytes": 13707,
+      "sha256": "acd39d0d660868d65fec1b1de88995ccd70ec732f6ad128f02960d8ef897523f"
+    },
+    "metrics.csv": {
+      "bytes": 126023,
+      "sha256": "f23c1b46e0b747c2dac70510934c8a2790d12b5811721be79631ce5b2fca3fa2"
+    },
+    "capture.ncu-rep": {
+      "bytes": 483917,
+      "sha256": "06ed66abefa46086616e89f81935d610bbc95078ca0d51225728a48918b015bc"
+    },
+    "kernels-refactored.csv": {
+      "bytes": 126789,
+      "sha256": "2718fea8b11f3790458dc79efff56b02909e9be1b1ec85039259c20e662a8226"
+    },
+    "board-run.log": {
+      "bytes": 77469,
+      "sha256": "ef7402698cf15e46569292ffeb5e0444a7148512a4ee489fa21e3f1705f90793"
+    },
+    "t50-suite.log": {
+      "bytes": 560,
+      "sha256": "201c2baa2528b609cbbd05f827f17ef4289cb25164fc2cff75b2cebf7ba0f95e"
+    },
+    "ncu-export-run.log": {
+      "bytes": 1578,
+      "sha256": "a3079d2b6b69742b6f5f0cc375ed98961ebdb0b67dff3b78529d5625c9ef5ee3"
+    }
+  }
+}
