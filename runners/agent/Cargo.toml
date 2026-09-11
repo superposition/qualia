@@ -17,6 +17,7 @@ path = "src/main.rs"
 axum = { version = "0.8", features = ["ws"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 futures-util = "0.3"
+qualia-braid = { workspace = true }
 qualia-shm = { workspace = true }
 qualia-sync-types = { workspace = true }
 qualia-types = { workspace = true }

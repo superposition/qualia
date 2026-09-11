@@ -5,7 +5,8 @@
 //! downstream consumer does: the operator lines on stderr, the exit status, and
 //! the JSON records on each MCAP topic.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::Ordering;
@@ -145,7 +146,7 @@ struct ChildRun {
 }
 
 impl ChildRun {
-    fn start(root: &Path, sources: &str, duration_secs: Option<u64>) -> Self {
+    fn start(root: &Path, sources: &str, duration_secs: Option<u64>, agent_url: Option<&str>) -> Self {
         let mut command = Command::new(BIN);
         command
             .env("QUALIA_MCAP_ROOT", root)
@@ -157,6 +158,9 @@ impl ChildRun {
             .env_remove("QUALIA_SESSION_ID");
         if let Some(secs) = duration_secs {
             command.env("QUALIA_MCAP_DURATION_SECONDS", secs.to_string());
+        }
+        if let Some(url) = agent_url {
+            command.env("QUALIA_AGENT_URL", url);
         }
         let mut child = command
             .stdout(Stdio::null())
@@ -263,7 +267,7 @@ fn parse_completed(line: &str, root: &Path) -> (PathBuf, String, usize) {
 #[test]
 fn an_empty_source_list_fails_with_the_operator_diagnostic() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let mut run = ChildRun::start(temp.path(), "[]", None);
+    let mut run = ChildRun::start(temp.path(), "[]", None, None);
     let line = run.wait_for_line("qualia-arena-recorder: ");
     assert_eq!(
         line,
@@ -279,7 +283,7 @@ fn two_primary_sources_are_rejected_before_any_region_opens() {
         {"entity":"guard","shm_name":"/qualia-arena-recorder-absent-a","calibration_id":"a","primary":true},
         {"entity":"pinkie","shm_name":"/qualia-arena-recorder-absent-b","calibration_id":"b","primary":true}
     ]"#;
-    let mut run = ChildRun::start(temp.path(), sources, None);
+    let mut run = ChildRun::start(temp.path(), sources, None, None);
     let line = run.wait_for_line("qualia-arena-recorder: ");
     assert_eq!(
         line,
@@ -297,7 +301,7 @@ fn one_session_records_the_whole_physical_and_belief_state() {
     let stamp = now_ns();
     publish_physical_state(&region, stamp);
 
-    let mut run = ChildRun::start(&root, &single_source_json("guard", &shm_name), Some(2));
+    let mut run = ChildRun::start(&root, &single_source_json("guard", &shm_name), Some(2), None);
     let banner = run.wait_for_line("recording session=");
     assert_eq!(
         banner,
@@ -467,11 +471,109 @@ fn a_duration_bounded_session_seals_without_a_signal() {
     let region = ShmRegion::create(&shm_name).expect("region");
     publish_physical_state(&region, now_ns());
 
-    let mut run = ChildRun::start(&root, &single_source_json("timed", &shm_name), Some(1));
+    let mut run = ChildRun::start(&root, &single_source_json("timed", &shm_name), Some(1), None);
     let completed = run.wait_for_line("qualia-arena-recorder: completed ");
     assert!(run.wait_for_exit().success());
     run.drain();
     let (path, _, _) = parse_completed(&completed, &root);
     assert!(path.is_file(), "the partial was renamed to {path:?}");
     assert!(!root.join("it-session.mcap.partial").exists());
+}
+
+/// Stands in for the agent's braid edge: answers every request the recorder
+/// makes to `QUALIA_AGENT_URL` — the belief-status poller shares the address —
+/// and hands the body of the one `POST /braid` back to the test.
+fn braid_stub() -> (String, Receiver<Value>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("stub binds");
+    let port = listener.local_addr().expect("stub address").port();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || loop {
+        let Ok((mut socket, _)) = listener.accept() else {
+            return;
+        };
+        let Some((head, body)) = read_request(&mut socket) else {
+            continue;
+        };
+        let _ = socket.write_all(
+            b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+        );
+        if head.starts_with("POST /braid ") {
+            let event = serde_json::from_slice(&body).expect("the report is JSON");
+            let _ = sender.send(event);
+            return;
+        }
+    });
+    (format!("http://127.0.0.1:{port}"), receiver)
+}
+
+/// Reads one whole request off `socket`: its head, and the body its
+/// `content-length` declares.
+fn read_request(socket: &mut TcpStream) -> Option<(String, Vec<u8>)> {
+    let mut request = Vec::new();
+    let mut buffer = [0u8; 1024];
+    loop {
+        if let Some(head_end) = headers_end(&request) {
+            let length = content_length(&request[..head_end]);
+            if request.len() >= head_end + length {
+                let head = String::from_utf8_lossy(&request[..head_end]).into_owned();
+                return Some((head, request[head_end..head_end + length].to_vec()));
+            }
+        }
+        match socket.read(&mut buffer) {
+            Ok(0) | Err(_) => return None,
+            Ok(read) => request.extend_from_slice(&buffer[..read]),
+        }
+    }
+}
+
+/// The offset just past a request's blank line, once it has arrived.
+fn headers_end(request: &[u8]) -> Option<usize> {
+    request
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|at| at + 4)
+}
+
+/// The body length a request declares, or zero when it declares none.
+fn content_length(head: &[u8]) -> usize {
+    String::from_utf8_lossy(head)
+        .split("\r\n")
+        .find_map(|line| {
+            line.to_ascii_lowercase()
+                .strip_prefix("content-length:")
+                .and_then(|value| value.trim().parse().ok())
+        })
+        .unwrap_or(0)
+}
+
+/// A sealed segment is reported to the braid under the digest the `completed`
+/// line prints, so the view names the file a reader can check.
+#[test]
+fn a_sealed_segment_is_reported_to_the_braid() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+    let shm_name = unique_region("braid");
+    let region = ShmRegion::create(&shm_name).expect("region");
+    publish_physical_state(&region, now_ns());
+
+    let (agent_url, reported) = braid_stub();
+    let mut run = ChildRun::start(
+        &root,
+        &single_source_json("braid", &shm_name),
+        Some(1),
+        Some(&agent_url),
+    );
+    let completed = run.wait_for_line("qualia-arena-recorder: completed ");
+    assert!(run.wait_for_exit().success());
+    run.drain();
+    let (_, sha256, _) = parse_completed(&completed, &root);
+
+    let event = reported
+        .recv_timeout(WAIT)
+        .expect("the recorder reports the seal to the braid");
+    assert_eq!(event["event"], "evidence_sealed");
+    assert_eq!(
+        event["sha256"], sha256,
+        "the report carries the digest of the segment that sealed"
+    );
 }

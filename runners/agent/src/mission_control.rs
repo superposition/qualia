@@ -23,6 +23,7 @@ use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use qualia_braid::BraidEvent;
 use qualia_sync_types::{
     MissionCommandV1, MissionEnvelopeV1, MissionEventKindV1, MissionEventV1, MissionStatusV1,
     JSON_SAFE_INTEGER_MAX, MISSION_EVENT_SCHEMA_VERSION,
@@ -33,7 +34,6 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Notify;
 
 use crate::auth::AuthScope;
-use crate::braid::BraidEvent;
 use crate::config::{AgentConfig, LeashEndpoint, MissionBrokerEndpoint};
 use crate::{now_ms, AppState};
 
