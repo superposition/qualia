@@ -42,12 +42,12 @@ pub fn health_report(layer: usize, belief: &BeliefSlot) -> HealthReport {
     HealthReport {
         layer: layer as u8,
         compression: belief.compression,
-        _pad: [0; 2],
         vfe: belief.vfe,
         challenge_vfe: belief.challenge_vfe,
         confirm_streak: belief.confirm_streak,
         cycle_us: belief.cycle_us,
         timestamp_ns: belief.timestamp_ns,
+        _pad: [0; 2],
     }
 }
 
