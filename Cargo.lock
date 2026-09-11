@@ -4434,6 +4434,7 @@ dependencies = [
 name = "qualia-braid"
 version = "0.1.0"
 dependencies = [
+ "qualia-jepa",
  "qualia-jepa-registry",
  "qualia-mcap",
  "qualia-shm",

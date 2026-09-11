@@ -8,6 +8,7 @@ description = "One state machine every strand reports through: evidence seals, m
 [dev-dependencies]
 tempfile = "3"
 [dependencies]
+qualia-jepa = { workspace = true }
 qualia-mcap = { workspace = true }
 # The promotion strand's durable side: the braid's PromotionRolledBack fold
 # hands the reason to the registry's rollback. The registry has no library
