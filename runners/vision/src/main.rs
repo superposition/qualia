@@ -48,7 +48,7 @@ const VISION_TEMPERATURE: f32 = 0.1;
 const LOOP_PERIOD_MS: u64 = 200;
 
 /// Directive written at startup when the operator has not chosen one.
-const DEFAULT_DIRECTIVE: &str = "Watch the surroundings and describe what is present.";
+const DEFAULT_DIRECTIVE: &str = "Observe and understand the environment. Report what you see.";
 
 /// Thought kinds used by this runner.
 const THOUGHT_OBSERVE: u8 = 0;
@@ -85,10 +85,27 @@ const PRECISION_GAIN: f32 = 0.9;
 
 /// Sensor variance above which the offline scene calls itself moving.
 const MOTION_VARIANCE: f32 = 0.02;
+/// Sensor variance above which the offline embedding raises its motion flag.
+const EMBED_FLAG_VARIANCE: f32 = 0.01;
 /// Brightness above which the offline scene calls itself lit.
 const LIT_BRIGHTNESS: f32 = 0.3;
-/// Offline passes between summary thoughts.
-const OFFLINE_LOG_INTERVAL: u64 = 30;
+/// Brightness change above which an offline pass reports the sensor.
+const SENSOR_DELTA: f32 = 0.1;
+/// Offline passes between sensor thoughts.
+const OFFLINE_THOUGHT_INTERVAL: u64 = 30;
+/// Offline passes between the quiet sensor notes that stand in for a still scene.
+const OFFLINE_FALLBACK_INTERVAL: u64 = 150;
+/// Offline passes between tick summaries on stderr.
+const OFFLINE_STDERR_INTERVAL: u64 = 60;
+/// Sweep rate of the synthetic object drift, in radians per pass.
+const OFFLINE_SWEEP_RATE: f32 = 0.035;
+
+/// Longest excerpt of a scene description carried in a thought.
+const SCENE_EXCERPT: usize = 80;
+/// Longest excerpt of a question carried in a thought.
+const QUESTION_EXCERPT: usize = 50;
+/// Longest excerpt of an answer carried in a thought.
+const ANSWER_EXCERPT: usize = 60;
 
 /// Longest excerpt of a malformed response carried in an error message.
 const ERROR_EXCERPT: usize = 200;
@@ -313,6 +330,18 @@ fn error_excerpt(raw: &str) -> String {
     raw.chars().take(ERROR_EXCERPT).collect()
 }
 
+/// The first `limit` bytes of `text`, never splitting a character.
+fn excerpt(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut end = limit;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
 /// Calls the vision model and parses its schema-constrained reply.
 fn call_vision(
     transport: &impl Transport,
@@ -488,14 +517,14 @@ fn harvest_questions(shm: &ShmRegion) -> Vec<PendingQuestion> {
     pending
 }
 
-/// Writes one lore entry per answered question, pairing them in order.
+/// Writes one lore entry and its thought per answered question, pairing the
+/// question and answer lists by index.
 fn record_lore(
     shm: &ShmRegion,
     questions: &[PendingQuestion],
     answers: &[String],
     embedding_delta: f32,
-) -> usize {
-    let mut written = 0;
+) {
     for (question, answer) in questions.iter().zip(answers.iter()) {
         shm.emit_lore(
             &question.text,
@@ -505,9 +534,19 @@ fn record_lore(
             embedding_delta,
             0.0,
         );
-        written += 1;
+        shm.emit_thought(
+            RUNNER_LAYER,
+            THOUGHT_LEARN,
+            0.0,
+            &format!(
+                "lore L{} r={}: Q={} A={}",
+                question.layer,
+                question.reason,
+                excerpt(&question.text, QUESTION_EXCERPT),
+                excerpt(answer, ANSWER_EXCERPT)
+            ),
+        );
     }
-    written
 }
 
 /// Maps a metre offset from the room centre onto a voxel column.
@@ -630,7 +669,6 @@ fn inject_to_senses_layer(shm: &ShmRegion, world: &WorldModel) {
     let vfe = energy / STATE_DIM as f32;
     buffer.vfe = vfe;
     buffer.challenge_vfe = vfe;
-    buffer.timestamp_ns = now_ns();
     writer.publish();
 }
 
@@ -658,38 +696,50 @@ fn now_ns() -> u64 {
 // One online pass
 // ---------------------------------------------------------------------------
 
-/// What one model-backed pass observed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct TickReport {
-    objects: usize,
-    lore_entries: usize,
-    vision_input_tokens: u64,
-    vision_output_tokens: u64,
-    embedding_tokens: u64,
-    embedding_fell_back: bool,
-}
-
 /// Runs one complete online pass over `jpeg`: harvest questions, call the
 /// vision model, project the scene into the world and voxel grid, embed the
-/// scene text, and record any lore.
+/// scene text, and record any lore. `call_number` is the one-based index of
+/// this call, as the reference numbers its thoughts and diagnostics.
 ///
 /// A vision failure mutates nothing and returns the error; a failed embedding
-/// falls back to [`hash_embedding`] and is still reported as a success.
+/// falls back to [`hash_embedding`] and still counts as a pass.
 fn run_vision_tick(
     shm: &ShmRegion,
     transport: &impl Transport,
     api_key: &str,
     jpeg: &[u8],
-) -> Result<TickReport, String> {
+    call_number: u64,
+) -> Result<(), String> {
     let image_b64 = base64::engine::general_purpose::STANDARD.encode(jpeg);
-    let directive = {
-        let world = shm.world_model();
-        read_cstr(&world.directive)
-    };
+    let directive = read_cstr(&shm.world_model().directive);
     let before: [f32; STATE_DIM] = shm.world_model().scene_embedding;
     let questions = harvest_questions(shm);
 
+    eprintln!(
+        "qualia-vision: calling Gemini Vision API ({}B image)...",
+        image_b64.len()
+    );
     let (response, usage) = call_vision(transport, api_key, &image_b64, &directive, &questions)?;
+
+    {
+        let world = shm.world_model_mut();
+        world.gemini_input_tokens += usage.input_tokens;
+        world.gemini_output_tokens += usage.output_tokens;
+    }
+
+    let labels: Vec<&str> = response.objects.iter().map(|o| o.name.as_str()).collect();
+    shm.emit_thought(
+        RUNNER_LAYER,
+        THOUGHT_OBSERVE,
+        0.0,
+        &format!(
+            "gemini vision #{}: {} obj={} [{}]",
+            call_number,
+            excerpt(&response.scene, SCENE_EXCERPT),
+            response.objects.len(),
+            labels.join(",")
+        ),
+    );
 
     {
         let world = shm.world_model_mut();
@@ -700,46 +750,44 @@ fn run_vision_tick(
         update_world_voxels(voxels, &response.objects, &response.room);
     }
 
-    let labels: Vec<&str> = response.objects.iter().map(|o| o.name.as_str()).collect();
     let embedding_text = format!("{} {} {}", response.scene, response.activity, labels.join(" "));
-    let mut embedding_tokens = 0u64;
-    let mut embedding_fell_back = false;
     match call_embedding(transport, api_key, &embedding_text) {
         Ok((embedding, tokens)) => {
-            embedding_tokens = tokens;
-            let world = shm.world_model_mut();
-            project_embedding_to_scene(world, &embedding);
+            {
+                let world = shm.world_model_mut();
+                world.gemini_embedding_tokens += tokens;
+                project_embedding_to_scene(world, &embedding);
+            }
+            let norm: f32 = embedding.iter().map(|value| value * value).sum::<f32>().sqrt();
+            shm.emit_thought(
+                RUNNER_LAYER,
+                THOUGHT_LEARN,
+                0.0,
+                &format!(
+                    "embedding: {}d, norm={:.3}, projected to 64d",
+                    embedding.len(),
+                    norm
+                ),
+            );
         }
         Err(error) => {
-            embedding_fell_back = true;
-            eprintln!("qualia-vision: embedding unavailable ({error}); using the local hash");
+            eprintln!("qualia-vision: embedding API error: {error}");
             let world = shm.world_model_mut();
             hash_embedding(world, &response);
         }
     }
 
-    let after: [f32; STATE_DIM] = shm.world_model().scene_embedding;
-    let delta = embedding_delta(&before, &after);
-    let lore_entries = record_lore(shm, &questions, &response.lore_answers, delta);
+    let delta = embedding_delta(&before, &shm.world_model().scene_embedding);
+    record_lore(shm, &questions, &response.lore_answers, delta);
 
     {
         let world = shm.world_model_mut();
-        world.gemini_input_tokens += usage.input_tokens;
-        world.gemini_output_tokens += usage.output_tokens;
-        world.gemini_embedding_tokens += embedding_tokens;
         world.last_llm_ns = now_ns();
         world.llm_call_count += 1;
         world.update_seq.fetch_add(1, Ordering::Release);
     }
 
-    Ok(TickReport {
-        objects: response.objects.len(),
-        lore_entries,
-        vision_input_tokens: usage.input_tokens,
-        vision_output_tokens: usage.output_tokens,
-        embedding_tokens,
-        embedding_fell_back,
-    })
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -772,20 +820,20 @@ fn sensor_stats(mean: &[f32; STATE_DIM]) -> SensorStats {
 }
 
 /// The synthetic scene the offline loop publishes from sensor statistics.
-fn offline_response(stats: &SensorStats) -> VisionResponse {
-    let drift = (stats.edge_energy * 10.0).clamp(0.0, 0.2);
+fn offline_response(stats: &SensorStats, tick: u64) -> VisionResponse {
+    let sweep = (tick as f32 * OFFLINE_SWEEP_RATE).sin();
     let objects = vec![
         VisionObject {
-            name: "bench".to_string(),
-            confidence: 0.9,
-            x: (0.35 + drift).clamp(0.1, 0.9),
+            name: "anchor".to_string(),
+            confidence: 0.95,
+            x: (0.35 + sweep * 0.08).clamp(0.1, 0.9),
             y: 0.58,
             depth_m: 1.6,
         },
         VisionObject {
-            name: "column".to_string(),
-            confidence: 0.85,
-            x: (0.68 - drift).clamp(0.1, 0.9),
+            name: "pillar".to_string(),
+            confidence: 0.88,
+            x: (0.68 - sweep * 0.06).clamp(0.1, 0.9),
             y: 0.46,
             depth_m: 2.8,
         },
@@ -793,13 +841,13 @@ fn offline_response(stats: &SensorStats) -> VisionResponse {
     let activity = if stats.variance > MOTION_VARIANCE {
         "local motion estimate"
     } else if stats.brightness > LIT_BRIGHTNESS {
-        "steady lit view"
+        "local lit scene"
     } else {
-        "still dim view"
+        "local idle scene"
     };
     VisionResponse {
         scene: format!(
-            "offline scene: brightness={:.2} variance={:.3} edges={:.3}",
+            "local voxel map: bright={:.2} var={:.3} edge={:.3}",
             stats.brightness, stats.variance, stats.edge_energy
         ),
         activity: activity.to_string(),
@@ -813,26 +861,67 @@ fn offline_response(stats: &SensorStats) -> VisionResponse {
     }
 }
 
-/// Fills the scene embedding from sensor statistics and the pass counter.
-fn offline_embedding(world: &mut WorldModel, stats: &SensorStats, tick: u64) {
+/// Fills the scene embedding from the sensed belief and the pass counter.
+fn offline_embedding(world: &mut WorldModel, sensor: &BeliefSlot, stats: &SensorStats, tick: u64) {
     for (dim, value) in world.scene_embedding.iter_mut().enumerate() {
         *value = match dim % 8 {
             0 => stats.brightness,
             1 => stats.variance,
             2 => stats.edge_energy,
-            3 => (stats.brightness - 0.5).abs() * 2.0,
-            4 => {
-                if stats.variance > MOTION_VARIANCE {
+            3 => sensor.mean[dim],
+            4 => (stats.brightness - 0.5).abs(),
+            5 => {
+                if stats.variance > EMBED_FLAG_VARIANCE {
                     1.0
                 } else {
                     0.0
                 }
             }
-            5 => (stats.brightness - 0.5).clamp(-1.0, 1.0),
-            6 => (tick as f32 * 0.01).fract() - 0.5,
+            6 => sensor.precision[dim] * 0.01,
             _ => (tick as f32 * 0.001).sin() * 0.1,
         };
     }
+}
+
+/// The sensor thought one offline pass owes, if any: its VFE and its text.
+///
+/// A pass whose brightness moved, whose object count changed, or whose scene
+/// is moving reports itself; on the otherwise quiet passes every
+/// [`OFFLINE_FALLBACK_INTERVAL`] a still note stands in for it.
+fn offline_sensor_thought(
+    tick: u64,
+    stats: &SensorStats,
+    objects: u32,
+    previous_objects: u32,
+    previous_brightness: f32,
+) -> Option<(f32, String)> {
+    if tick % OFFLINE_THOUGHT_INTERVAL != 0 {
+        return None;
+    }
+    let brightness_change = (stats.brightness - previous_brightness).abs();
+    if brightness_change > SENSOR_DELTA
+        || objects != previous_objects
+        || stats.variance > MOTION_VARIANCE
+    {
+        return Some((
+            brightness_change,
+            format!(
+                "sensor: bright={:.2} var={:.3} edge={:.3} obj={} delta_b={:.2}",
+                stats.brightness, stats.variance, stats.edge_energy, objects, brightness_change
+            ),
+        ));
+    }
+    if tick % OFFLINE_FALLBACK_INTERVAL == 0 {
+        // The argument order of this line is fixed by the emitted contract.
+        return Some((
+            0.0,
+            format!(
+                "sensor: bright={:.2} var={:.3} obj={} tick={}",
+                stats.brightness, objects, stats.variance, tick
+            ),
+        ));
+    }
+    None
 }
 
 /// Captures one JPEG frame from the best source the platform offers.
@@ -851,11 +940,14 @@ fn capture_frame() -> Result<Vec<u8>, String> {
                 }
             }
         }
-        Err("no snapshot available; the agent must post one to /snapshot".to_string())
+        Err("no snapshot available — qualia-agent must be running to capture /dev/video0, \
+             or post a JPEG to /snapshot from camera.html"
+            .to_string())
     }
 
     #[cfg(not(target_os = "linux"))]
     {
+        eprintln!("qualia-vision: calling ffmpeg...");
         let video_size = format!("{CAPTURE_WIDTH}x{CAPTURE_HEIGHT}");
         let output = std::process::Command::new("ffmpeg")
             .args(["-y", "-hide_banner", "-loglevel", "error"])
@@ -886,12 +978,19 @@ fn capture_frame() -> Result<Vec<u8>, String> {
             .output()
             .map_err(|error| format!("ffmpeg: {error}"))?;
 
+        eprintln!(
+            "qualia-vision: ffmpeg returned, status={}, stdout={}B",
+            output.status,
+            output.stdout.len()
+        );
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("qualia-vision: ffmpeg stderr: {}", stderr);
             return Err(format!("ffmpeg failed: {stderr}"));
         }
         if output.stdout.is_empty() {
-            return Err("ffmpeg produced no frame".to_string());
+            return Err("ffmpeg produced no output".to_string());
         }
         Ok(output.stdout)
     }
@@ -903,10 +1002,7 @@ fn capture_frame() -> Result<Vec<u8>, String> {
 
 /// Offline mode: synthesise a scene from sensor statistics without a model.
 fn run_offline_loop(shm: &ShmRegion) {
-    {
-        let world = shm.world_model_mut();
-        set_default_directive(world);
-    }
+    set_default_directive(shm.world_model_mut());
     shm.emit_thought(
         RUNNER_LAYER,
         THOUGHT_OBSERVE,
@@ -915,44 +1011,43 @@ fn run_offline_loop(shm: &ShmRegion) {
     );
 
     let mut tick: u64 = 0;
+    let mut previous_brightness = 0.0f32;
+    let mut previous_objects = 0u32;
     loop {
-        let stats = {
+        let sensor = {
             let slot = shm.layer_slot(NUM_LAYERS - 1);
             let reader = LayerReader::new(slot);
-            sensor_stats(&reader.read().mean)
+            *reader.read()
         };
-        let response = offline_response(&stats);
+        let stats = sensor_stats(&sensor.mean);
+        let response = offline_response(&stats, tick);
 
         {
             let world = shm.world_model_mut();
             apply_vision_response(world, &response);
-            offline_embedding(world, &stats, tick);
+            offline_embedding(world, &sensor, &stats, tick);
         }
         {
             let voxels = shm.world_voxels_mut();
             update_world_voxels(voxels, &response.objects, &response.room);
         }
         note_frame(shm);
-        {
-            let world = shm.world_model_mut();
-            world.update_seq.fetch_add(1, Ordering::Release);
-        }
+        shm.world_model().update_seq.fetch_add(1, Ordering::Release);
 
         tick += 1;
-        if tick % OFFLINE_LOG_INTERVAL == 0 {
-            let objects = shm.world_model().num_objects;
-            shm.emit_thought(
-                RUNNER_LAYER,
-                THOUGHT_OBSERVE,
-                stats.variance,
-                &format!(
-                    "sensor: bright={:.2} var={:.3} edges={:.3} objects={}",
-                    stats.brightness, stats.variance, stats.edge_energy, objects
-                ),
-            );
+        let objects = shm.world_model().num_objects;
+        if let Some((vfe, text)) =
+            offline_sensor_thought(tick, &stats, objects, previous_objects, previous_brightness)
+        {
+            shm.emit_thought(RUNNER_LAYER, THOUGHT_OBSERVE, vfe, &text);
+        }
+        previous_brightness = stats.brightness;
+        previous_objects = objects;
+
+        if tick % OFFLINE_STDERR_INTERVAL == 0 {
             eprintln!(
-                "qualia-vision: offline tick {tick}, {objects} objects, brightness={:.2}",
-                stats.brightness
+                "qualia-vision: offline tick {}, {} objects, brightness={:.2}",
+                tick, objects, stats.brightness
             );
         }
 
@@ -963,13 +1058,10 @@ fn run_offline_loop(shm: &ShmRegion) {
 /// Online mode: capture, understand and embed on a fixed interval until the
 /// call budget runs out, then keep the sense signal alive from the sensors.
 fn run_vision_loop(shm: &ShmRegion, transport: &impl Transport, config: &Config) {
-    {
-        let world = shm.world_model_mut();
-        set_default_directive(world);
-    }
+    set_default_directive(shm.world_model_mut());
     shm.emit_thought(
         RUNNER_LAYER,
-        THOUGHT_LEARN,
+        THOUGHT_OBSERVE,
         0.0,
         &format!(
             "vision: gemini online, budget={}, interval={}s",
@@ -977,73 +1069,64 @@ fn run_vision_loop(shm: &ShmRegion, transport: &impl Transport, config: &Config)
         ),
     );
 
-    let interval = Duration::from_secs(config.llm_interval_secs);
+    let interval_secs = config.llm_interval_secs;
     let mut last_call = Instant::now()
-        .checked_sub(interval + Duration::from_secs(1))
+        .checked_sub(Duration::from_secs(interval_secs + 1))
         .unwrap_or_else(Instant::now);
     let mut calls: u64 = 0;
     let mut budget_spent = false;
 
     loop {
-        if !budget_spent && last_call.elapsed() >= interval {
+        let elapsed = last_call.elapsed().as_secs();
+        if !budget_spent && elapsed >= interval_secs {
+            eprintln!("qualia-vision: triggering capture ({}s since last)", elapsed);
             last_call = Instant::now();
+            let call_number = calls + 1;
             match capture_frame() {
-                Ok(jpeg) => match run_vision_tick(shm, transport, &config.api_key, &jpeg) {
-                    Ok(report) => {
-                        calls += 1;
-                        shm.emit_thought(
-                            RUNNER_LAYER,
-                            THOUGHT_OBSERVE,
-                            0.0,
-                            &format!(
-                                "gemini vision #{}: {} objects, {} lore, tokens {}/{}",
-                                calls,
-                                report.objects,
-                                report.lore_entries,
-                                report.vision_input_tokens,
-                                report.vision_output_tokens
-                            ),
-                        );
-                        if report.embedding_fell_back {
+                Ok(jpeg) => {
+                    match run_vision_tick(shm, transport, &config.api_key, &jpeg, call_number) {
+                        Ok(()) => {
+                            calls = call_number;
+                            let objects = shm.world_model().num_objects;
                             eprintln!(
-                                "qualia-vision: pass {calls} used the hash embedding ({} tokens)",
-                                report.embedding_tokens
+                                "qualia-vision: Gemini call #{}/{} — {} objects",
+                                calls, config.llm_max_calls, objects
                             );
+                            if calls >= config.llm_max_calls {
+                                budget_spent = true;
+                                shm.emit_thought(
+                                    RUNNER_LAYER,
+                                    THOUGHT_ESCALATE,
+                                    0.0,
+                                    &format!(
+                                        "budget exhausted: {}/{} calls, sensor-only mode",
+                                        calls, config.llm_max_calls
+                                    ),
+                                );
+                                eprintln!(
+                                    "qualia-vision: Gemini budget exhausted ({}/{}). Continuing with sensor data only.",
+                                    calls, config.llm_max_calls
+                                );
+                            }
                         }
-                        if calls >= config.llm_max_calls {
-                            budget_spent = true;
+                        Err(error) => {
+                            eprintln!("qualia-vision: Gemini vision error: {error}");
                             shm.emit_thought(
                                 RUNNER_LAYER,
                                 THOUGHT_ESCALATE,
                                 0.0,
-                                &format!(
-                                    "budget exhausted: {}/{} calls, sensor-only mode",
-                                    calls, config.llm_max_calls
-                                ),
-                            );
-                            eprintln!(
-                                "qualia-vision: budget exhausted ({}/{}); sensor-only from here",
-                                calls, config.llm_max_calls
+                                &format!("vision err: {}", error),
                             );
                         }
                     }
-                    Err(error) => {
-                        eprintln!("qualia-vision: vision error: {error}");
-                        shm.emit_thought(
-                            RUNNER_LAYER,
-                            THOUGHT_ESCALATE,
-                            0.0,
-                            &format!("vision err: {error}"),
-                        );
-                    }
-                },
+                }
                 Err(error) => {
                     eprintln!("qualia-vision: capture error: {error}");
                     shm.emit_thought(
                         RUNNER_LAYER,
                         THOUGHT_ESCALATE,
                         0.0,
-                        &format!("capture err: {error}"),
+                        &format!("capture err: {}", error),
                     );
                 }
             }
@@ -1064,10 +1147,14 @@ fn main() {
 
     if config.online() {
         eprintln!("qualia-vision: Gemini API enabled (vision + embeddings)");
+        eprintln!(
+            "qualia-vision: Interval: {}s, Max calls: {}",
+            config.llm_interval_secs, config.llm_max_calls
+        );
         run_vision_loop(&shm, &HttpTransport, &config);
     } else {
         eprintln!("qualia-vision: WARNING: GEMINI_API_KEY not set");
-        eprintln!("qualia-vision: running offline, synthetic scenes only");
+        eprintln!("qualia-vision: Running in offline mode — synthetic world model only");
         run_offline_loop(&shm);
     }
 }
@@ -1176,6 +1263,19 @@ mod tests {
         slot.question.pending.store(true, Ordering::Release);
     }
 
+    /// Every thought the region holds, oldest first, as (kind, text).
+    fn thought_texts(shm: &ShmRegion) -> Vec<(u8, String)> {
+        let buffer = shm.thought_buffer();
+        let written = buffer.write_seq.load(Ordering::Acquire);
+        (0..written)
+            .map(|seq| {
+                let entry = &buffer.entries[(seq as usize) % MAX_THOUGHTS];
+                assert_eq!(entry.seq, seq, "thought ring slot for seq {seq}");
+                (entry.kind, read_cstr(&entry.text))
+            })
+            .collect()
+    }
+
     #[test]
     fn config_reads_the_documented_keys_and_defaults_the_rest() {
         let configured = Config::from_lookup(|key| match key {
@@ -1236,11 +1336,16 @@ mod tests {
     }
 
     #[test]
-    fn fenced_and_prose_wrapped_payloads_still_parse() {
+    fn a_fenced_payload_still_parses_and_prose_around_it_does_not() {
         let fenced = format!("```json\n{SCENE_JSON}\n```");
         let transport = FakeTransport::scripted(vec![Ok(vision_envelope(&fenced))]);
         let (response, _) = call_vision(&transport, "k", "a", "d", &[]).expect("fenced parse");
         assert_eq!(response.objects[0].name, "mug");
+
+        // Only a bare fence is stripped; prose ahead of it is left in place.
+        let wrapped = format!("Here it is:\n```json\n{SCENE_JSON}\n```");
+        let transport = FakeTransport::scripted(vec![Ok(vision_envelope(&wrapped))]);
+        assert!(call_vision(&transport, "k", "a", "d", &[]).is_err());
     }
 
     #[test]
@@ -1272,12 +1377,7 @@ mod tests {
             Ok(embedding_envelope(STATE_DIM, 0.5, 7)),
         ]);
 
-        let report = run_vision_tick(&shm, &transport, "key", b"jpeg-bytes").expect("tick");
-        assert_eq!(report.objects, 1);
-        assert_eq!(report.vision_input_tokens, 12);
-        assert_eq!(report.vision_output_tokens, 34);
-        assert_eq!(report.embedding_tokens, 7);
-        assert!(!report.embedding_fell_back);
+        run_vision_tick(&shm, &transport, "key", b"jpeg-bytes", 1).expect("tick");
 
         let world = shm.world_model();
         assert_eq!(read_cstr(&world.scene), "a mug sits on a desk by a window");
@@ -1295,6 +1395,19 @@ mod tests {
         let voxels = shm.world_voxels();
         assert!(voxels.cells.iter().any(|cell| cell.occupancy > 0));
         assert!(voxels.update_seq.load(Ordering::Acquire) >= 1);
+
+        let thoughts = thought_texts(&shm);
+        assert_eq!(thoughts.len(), 2);
+        assert_eq!(thoughts[0].0, THOUGHT_OBSERVE);
+        assert_eq!(
+            thoughts[0].1,
+            "gemini vision #1: a mug sits on a desk by a window obj=1 [mug]"
+        );
+        assert_eq!(thoughts[1].0, THOUGHT_LEARN);
+        assert_eq!(
+            thoughts[1].1,
+            "embedding: 1024d, norm=16.000, projected to 64d"
+        );
 
         let (url, body) = transport.last_request();
         assert!(url.contains("/gemini-embedding-2-preview:embedContent"));
@@ -1316,7 +1429,7 @@ mod tests {
         ]);
 
         // Exactly STATE_DIM values are copied straight through.
-        run_vision_tick(&shm, &transport, "key", b"jpeg").expect("tick");
+        run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect("tick");
         assert!(shm
             .world_model()
             .scene_embedding
@@ -1324,7 +1437,7 @@ mod tests {
             .all(|value| (*value - 0.75).abs() < 1e-6));
 
         // A wider embedding is average-pooled into STATE_DIM bins.
-        run_vision_tick(&shm, &transport, "key", b"jpeg").expect("tick");
+        run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect("tick");
         let pooled_embedding = shm.world_model().scene_embedding;
         assert!(pooled_embedding[..STATE_DIM / 2]
             .iter()
@@ -1334,7 +1447,7 @@ mod tests {
             .all(|value| (*value + 1.0).abs() < 1e-6));
 
         // A narrower embedding fills the front and zero-pads the tail.
-        run_vision_tick(&shm, &transport, "key", b"jpeg").expect("tick");
+        run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect("tick");
         let narrow = shm.world_model().scene_embedding;
         assert!(narrow[..8].iter().all(|value| (*value - 0.75).abs() < 1e-6));
         assert!(narrow[8..].iter().all(|value| *value == 0.0));
@@ -1344,7 +1457,7 @@ mod tests {
     fn vision_failure_reports_the_error_and_leaves_the_world_untouched() {
         let shm = test_region("failure");
         let transport = FakeTransport::scripted(vec![Err("connection refused".to_string())]);
-        let error = run_vision_tick(&shm, &transport, "key", b"jpeg").expect_err("must fail");
+        let error = run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect_err("must fail");
         assert!(error.contains("connection refused"), "got {error}");
 
         let world = shm.world_model();
@@ -1356,13 +1469,14 @@ mod tests {
             .cells
             .iter()
             .any(|cell| cell.occupancy > 0));
+        assert!(thought_texts(&shm).is_empty());
     }
 
     #[test]
     fn a_body_that_is_not_the_scene_schema_is_an_error() {
         let shm = test_region("badbody");
         let transport = FakeTransport::scripted(vec![Ok("<html>502 bad gateway</html>".to_string())]);
-        let error = run_vision_tick(&shm, &transport, "key", b"jpeg").expect_err("must fail");
+        let error = run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect_err("must fail");
         assert!(error.contains("not JSON"), "got {error}");
         assert_eq!(shm.world_model().llm_call_count, 0);
     }
@@ -1374,9 +1488,7 @@ mod tests {
             Ok(vision_envelope(SCENE_JSON)),
             Err("embedding service down".to_string()),
         ]);
-        let report = run_vision_tick(&shm, &transport, "key", b"jpeg").expect("tick");
-        assert!(report.embedding_fell_back);
-        assert_eq!(report.embedding_tokens, 0);
+        run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect("tick");
 
         let world = shm.world_model();
         assert_eq!(world.gemini_embedding_tokens, 0);
@@ -1385,6 +1497,11 @@ mod tests {
             .scene_embedding
             .iter()
             .any(|value| value.is_finite() && *value != 0.0));
+
+        // A failed embedding is not reported as a thought, only the vision is.
+        let thoughts = thought_texts(&shm);
+        assert_eq!(thoughts.len(), 1);
+        assert_eq!(thoughts[0].0, THOUGHT_OBSERVE);
     }
 
     #[test]
@@ -1431,8 +1548,7 @@ mod tests {
             Ok(vision_envelope(SCENE_JSON)),
             Ok(embedding_envelope(STATE_DIM, 0.5, 7)),
         ]);
-        let report = run_vision_tick(&shm, &transport, "key", b"jpeg").expect("tick");
-        assert_eq!(report.lore_entries, 1);
+        run_vision_tick(&shm, &transport, "key", b"jpeg", 1).expect("tick");
 
         let lore = shm.lore_buffer();
         assert_eq!(lore.write_seq.load(Ordering::Acquire), 1);
@@ -1442,6 +1558,11 @@ mod tests {
         assert_eq!(entry.layer, 2);
         assert_eq!(entry.reason, 0);
         assert!(entry.embedding_delta > 0.0);
+
+        let thoughts = thought_texts(&shm);
+        assert_eq!(thoughts.len(), 3);
+        assert_eq!(thoughts[2].0, THOUGHT_LEARN);
+        assert_eq!(thoughts[2].1, "lore L2 r=0: Q=what is that? A=a mug");
 
         let (_, body) = transport.last_request();
         assert!(body.contains("a mug sits on a desk by a window"));
@@ -1454,27 +1575,93 @@ mod tests {
         assert!((stats.brightness - 0.6).abs() < 1e-6);
         assert!(stats.variance < 1e-6);
 
-        let response = offline_response(&stats);
+        let response = offline_response(&stats, 0);
         assert_eq!(response.objects.len(), 2);
-        assert_eq!(response.objects[0].name, "bench");
-        assert!(response.scene.contains("brightness=0.60"));
-        assert_eq!(response.activity, "steady lit view");
+        assert_eq!(response.objects[0].name, "anchor");
+        assert_eq!(response.objects[1].name, "pillar");
+        assert!(response.scene.contains("bright=0.60"));
+        assert_eq!(response.activity, "local lit scene");
 
-        let noisy_stats = SensorStats {
+        let moving = SensorStats {
             brightness: 0.2,
             variance: 0.5,
             edge_energy: 0.1,
         };
-        assert_eq!(offline_response(&noisy_stats).activity, "local motion estimate");
+        assert_eq!(offline_response(&moving, 0).activity, "local motion estimate");
 
+        let idle = SensorStats {
+            brightness: 0.2,
+            variance: 0.0,
+            edge_energy: 0.1,
+        };
+        assert_eq!(offline_response(&idle, 0).activity, "local idle scene");
+    }
+
+    #[test]
+    fn offline_embedding_follows_the_sensed_belief() {
         let shm = test_region("offline");
         {
-            let world = shm.world_model_mut();
-            offline_embedding(world, &stats, 3);
+            let slot = shm.layer_slot(NUM_LAYERS - 1);
+            let writer = LayerWriter::new(slot);
+            let buffer = writer.back_buffer();
+            for dim in 0..STATE_DIM {
+                buffer.mean[dim] = if dim % 2 == 0 { 0.0 } else { 1.0 };
+                buffer.precision[dim] = 0.5;
+            }
+            writer.publish();
         }
+        let sensor = *LayerReader::new(shm.layer_slot(NUM_LAYERS - 1)).read();
+        let stats = sensor_stats(&sensor.mean);
+        assert!((stats.brightness - 0.5).abs() < 1e-6);
+        assert!((stats.variance - 0.25).abs() < 1e-6);
+
+        offline_embedding(shm.world_model_mut(), &sensor, &stats, 3);
         let embedding = shm.world_model().scene_embedding;
-        assert!(embedding.iter().all(|value| value.is_finite()));
-        assert!(embedding.iter().any(|value| *value != 0.0));
+        assert_eq!(embedding[0], stats.brightness);
+        assert_eq!(embedding[1], stats.variance);
+        assert_eq!(embedding[2], stats.edge_energy);
+        assert_eq!(embedding[3], sensor.mean[3]);
+        assert_eq!(embedding[4], (stats.brightness - 0.5).abs());
+        assert_eq!(embedding[5], 1.0);
+        assert_eq!(embedding[6], sensor.precision[6] * 0.01);
+        assert_eq!(embedding[7], (3.0f32 * 0.001).sin() * 0.1);
+    }
+
+    #[test]
+    fn offline_sensor_thought_reports_changes_and_keeps_quiet() {
+        let stats = SensorStats {
+            brightness: 0.6,
+            variance: 0.0,
+            edge_energy: 0.02,
+        };
+
+        // Off-cadence passes say nothing.
+        assert_eq!(offline_sensor_thought(29, &stats, 2, 2, 0.6), None);
+        // An unchanged pass at the cadence says nothing either.
+        assert_eq!(offline_sensor_thought(30, &stats, 2, 2, 0.6), None);
+        // A brighter pass reports itself, with the change as its VFE.
+        let (vfe, text) = offline_sensor_thought(30, &stats, 2, 2, 0.4).expect("a thought");
+        assert!((vfe - 0.2).abs() < 1e-6);
+        assert_eq!(
+            text,
+            "sensor: bright=0.60 var=0.000 edge=0.020 obj=2 delta_b=0.20"
+        );
+        // A new object reports itself even when the brightness held.
+        assert!(offline_sensor_thought(60, &stats, 3, 2, 0.6).is_some());
+        // The quiet fallback stands in every 150th pass.
+        let (vfe, text) = offline_sensor_thought(150, &stats, 2, 2, 0.6).expect("a fallback");
+        assert_eq!(vfe, 0.0);
+        assert_eq!(text, "sensor: bright=0.60 var=2 obj=0 tick=150");
+    }
+
+    #[test]
+    fn directive_defaults_to_the_reference_text() {
+        let shm = test_region("directive");
+        set_default_directive(shm.world_model_mut());
+        assert_eq!(
+            read_cstr(&shm.world_model().directive),
+            "Observe and understand the environment. Report what you see."
+        );
     }
 
     #[test]
