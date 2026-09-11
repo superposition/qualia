@@ -76,12 +76,8 @@ fn a_host_without_a_runnable_backend_fails_naming_its_layer() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains(&format!("layer {LAYER}")),
-        "the refusal names the slot it was handed: {stderr}"
-    );
-    assert!(
-        stderr.contains(NAME),
-        "the refusal names this runner: {stderr}"
+        stderr.contains(&format!("layer {LAYER} ({NAME})")),
+        "the refusal names the layer and runner it was handed: {stderr}"
     );
     assert!(
         output.stdout.is_empty(),

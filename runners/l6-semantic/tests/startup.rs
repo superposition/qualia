@@ -8,10 +8,13 @@
 //! alone matters as much as the refusal — a consumer must never read a layer
 //! slot that a runner half-filled before giving up.
 //!
-//! On macOS the same binary enters the real layer loop and blocks, so these
-//! checks cover the hosts where the refusal is the reachable path.
+//! On macOS the same binary enters the real layer loop and blocks, and with the
+//! `cuda` feature on a CUDA host it enters the loop wherever the arena exists
+//! (`running at ... Hz`), so `Command::output()` — which has no timeout — would
+//! wait forever. These checks therefore cover the hosts where the refusal is
+//! the structural path: metal on a non-macOS host.
 
-#![cfg(not(target_os = "macos"))]
+#![cfg(all(not(target_os = "macos"), not(feature = "cuda")))]
 
 use qualia_shm::ShmRegion;
 use std::process::Command;
@@ -51,12 +54,8 @@ fn refuses_to_enter_the_layer_and_names_it_on_the_log() {
 
     let log = String::from_utf8_lossy(&run.stderr);
     assert!(
-        log.contains("layer 6"),
-        "the refusal names the layer ordinal: {log}"
-    );
-    assert!(
-        log.contains("l6-semantic"),
-        "the refusal names this runner: {log}"
+        log.contains("layer 6 (l6-semantic)"),
+        "the refusal names the layer and runner: {log}"
     );
     assert!(
         run.stdout.is_empty(),
