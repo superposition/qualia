@@ -1,0 +1,13 @@
+bodyId,type,superclass,side,dimorphism
+10001,EPG,central,left,unisex
+10002,EPG,central,right,unisex
+10003,EPG,central,left,unisex
+10004,PEN_a,central,left,unisex
+10005,PEN_a,central,right,unisex
+10006,PEN_a,central,right,unisex
+10007,KCg-m,central,left,unisex
+10008,KCg-m,central,right,unisex
+10009,OA-VPM3,visual,left,unisex
+10010,OA-VPM3,visual,right,unisex
+10011,DNp01,descending,left,male-specific
+10012,DNp01,descending,right,male-specific
