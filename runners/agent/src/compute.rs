@@ -14,9 +14,10 @@ use serde::Serialize;
 /// `QUALIA_COMPUTE_SOCKET`, default `/tmp/qualia-compute.sock`.
 #[cfg(not(windows))]
 pub const DEFAULT_COMPUTE_SOCKET: &str = "/tmp/qualia-compute.sock";
-/// `QUALIA_COMPUTE_SOCKET` has no default on Windows: there is no socket.
+/// `QUALIA_COMPUTE_SOCKET`, default `127.0.0.1:46321` on Windows, where the
+/// service is reached over loopback TCP rather than a unix socket.
 #[cfg(windows)]
-pub const DEFAULT_COMPUTE_SOCKET: &str = "";
+pub const DEFAULT_COMPUTE_SOCKET: &str = "127.0.0.1:46321";
 /// `QUALIA_COMPUTE_TIMEOUT_MS`, default `250`.
 pub const DEFAULT_TIMEOUT_MS: u64 = 250;
 /// The service instance every compute response names.
