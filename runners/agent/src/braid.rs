@@ -10,7 +10,10 @@
 //!   segment, and the JEPA runtime hands over
 //!   `BraidEvent::PromotionAccepted` / `PromotionRolledBack` when the generation
 //!   pointer moves. The body is the `BraidEvent` JSON the braid crate fixes
-//!   (`{"event": …}`), and the reply is the view the report folded into.
+//!   (`{"event": …}`), and the reply is the view the report folded into. A seal
+//!   is also what makes Step 31 true: the edge hands it to the improvement loop,
+//!   and a seal under a closed mission submits one bounded training job for the
+//!   supervisor to run. See [`crate::improvement`].
 //!
 //! The mission strand runs in this process, so it calls
 //! [`BraidRuntime::observe`] directly instead of going through HTTP; the count
@@ -121,6 +124,13 @@ impl BraidRuntime {
     pub fn view(&self) -> BraidView {
         BraidView::of(&self.state.lock().expect("braid state lock"))
     }
+
+    /// The braid's own state, for a caller that drives a policy over it — the
+    /// improvement loop reads `open_missions` to know whether a mission has
+    /// closed.
+    pub fn snapshot(&self) -> BraidState {
+        self.state.lock().expect("braid state lock").clone()
+    }
 }
 
 /// `GET /braid` — the view the console polls every 250 ms and the operator page
@@ -155,8 +165,17 @@ pub async fn event_post(
         )
             .into_response();
     }
-    match state.braid.report(event) {
-        Ok(view) => (StatusCode::OK, Json(view)).into_response(),
+    match state.braid.report(event.clone()) {
+        Ok(view) => {
+            // A seal under a closed mission asks the improvement loop for one
+            // bounded training job (Step 31). The braid has already folded the
+            // report and decides nothing; the supervisor runs what the loop's
+            // single-flight queue accepted.
+            if matches!(event, BraidEvent::EvidenceSealed { .. }) {
+                state.improvement.on_event(&state.braid.snapshot(), &event);
+            }
+            (StatusCode::OK, Json(view)).into_response()
+        }
         Err(error) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "error": error.to_string() })),

@@ -20,6 +20,7 @@
 
 pub mod drift;
 pub mod heal;
+pub mod improvement;
 pub mod rules;
 
 use serde::{Deserialize, Serialize};

@@ -5744,6 +5744,7 @@ dependencies = [
  "futures-util",
  "http-body-util",
  "qualia-braid",
+ "qualia-jepa-registry",
  "qualia-shm",
  "qualia-sync-types",
  "qualia-types",
