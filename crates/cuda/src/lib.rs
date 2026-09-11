@@ -20,5 +20,6 @@ mod cuda_impl;
 
 #[cfg(feature = "cuda")]
 pub use cuda_impl::{
-    run_layer, CostmapStats, CostmapStatsContext, CudaCognitionStack, CudaContext, SmokeContext,
+    run_layer, ActionScoreContext, BeliefCoupleContext, CostmapStats, CostmapStatsContext,
+    CudaCognitionStack, CudaContext, PerceptionVoxelContext, SmokeContext,
 };
