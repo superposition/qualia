@@ -3,7 +3,7 @@
 //! pins the contract rather than the implementation.
 
 use qualia_studio_rust::{
-    qualia_studio_lingbot_abi_version, qualia_studio_lingbot_context_create,
+    qualia_studio_lingbot_context_create,
     qualia_studio_lingbot_context_destroy, qualia_studio_lingbot_context_observe,
     qualia_studio_lingbot_context_reset, qualia_studio_lingbot_decode_pose,
     qualia_studio_lingbot_encode_pose, qualia_studio_lingbot_inverse_se3,
