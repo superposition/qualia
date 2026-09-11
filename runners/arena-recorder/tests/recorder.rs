@@ -360,7 +360,9 @@ fn one_session_records_the_whole_physical_and_belief_state() {
     assert_eq!(cameras[0]["schema_version"], "qualia.camera-evidence.v1");
     assert_eq!(cameras[0]["entity"], "guard");
     assert_eq!(cameras[0]["calibration_id"], "guard-cal");
-    assert_eq!(cameras[0]["source_sequence"], 1);
+    // The recorded sequence is the slot's even seqlock version, which the
+    // publish path doubles, not the `seq` field of the published payload.
+    assert_eq!(cameras[0]["source_sequence"], 2);
     assert_eq!(cameras[0]["timestamp_ns"], stamp);
     assert_eq!(cameras[0]["valid"], true);
     assert_eq!(logged(&path, TOPIC_CAMERA)[0].log_time_ns, stamp);
@@ -439,14 +441,22 @@ fn one_session_records_the_whole_physical_and_belief_state() {
     assert_eq!(beliefs[0]["vfe"], 1.25);
     assert_eq!(beliefs[0]["source_sequence"], stamp);
 
+    // The belief lane stays live for the whole two-second session, so every
+    // poll after the first contributes one summary of all eight layers.
     let health = records(&path, TOPIC_HEALTH);
-    assert_eq!(health.len(), 1);
-    assert_eq!(health[0]["schema_version"], "qualia.health-evidence.v1");
-    let layers = health[0]["layers"].as_array().expect("layer summaries");
-    assert_eq!(layers.len(), 8);
-    assert_eq!(layers[0]["layer"], 0);
-    assert_eq!(layers[0]["timestamp_ns"], stamp);
-    assert_eq!(layers[0]["cycle_us"], 400);
+    assert!(
+        health.len() > 1,
+        "health summarizes every poll with a live belief layer: {}",
+        health.len()
+    );
+    for record in &health {
+        assert_eq!(record["schema_version"], "qualia.health-evidence.v1");
+        let layers = record["layers"].as_array().expect("layer summaries");
+        assert_eq!(layers.len(), 8);
+        assert_eq!(layers[0]["layer"], 0);
+        assert_eq!(layers[0]["timestamp_ns"], stamp);
+        assert_eq!(layers[0]["cycle_us"], 400);
+    }
 }
 
 #[test]

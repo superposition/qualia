@@ -1006,7 +1006,7 @@ mod tests {
         .expect("recorder")
     }
 
-    fn record_values(path: &std::path::Path, topic: &str) -> Vec<serde_json::Value> {
+    fn record_values(path: &str, topic: &str) -> Vec<serde_json::Value> {
         read_window(path, Some(topic), 0, u64::MAX)
             .expect("session replays")
             .iter()
