@@ -159,3 +159,32 @@ fn main() {
     #[cfg(all(not(feature = "cuda"), not(feature = "metal")))]
     compile_error!("enable either cuda or metal feature");
 }
+
+#[cfg(all(test, feature = "fly-prior"))]
+mod coupling_scale {
+    use super::{fly_coupling_scale_from_env, FLY_COUPLING_SCALE_KEY};
+    use qualia_jepa::prior::{COUPLING_SCALE_CEILING, COUPLING_SCALE_DEFAULT, COUPLING_SCALE_FLOOR};
+
+    /// The dial the operator hands down is read and bounded, so a hand-edited
+    /// manifest cannot drive this layer's coupling to zero or to infinity.
+    #[test]
+    fn the_dial_is_read_at_the_coupling_bounds() {
+        for (raw, expected) in [
+            ("0", COUPLING_SCALE_FLOOR),
+            ("inf", COUPLING_SCALE_CEILING),
+            ("nan", COUPLING_SCALE_DEFAULT),
+            ("2.5", 2.5),
+            ("not-a-number", COUPLING_SCALE_DEFAULT),
+        ] {
+            std::env::set_var(FLY_COUPLING_SCALE_KEY, raw);
+            assert_eq!(fly_coupling_scale_from_env(), expected, "dial {raw:?}");
+        }
+
+        std::env::remove_var(FLY_COUPLING_SCALE_KEY);
+        assert_eq!(
+            fly_coupling_scale_from_env(),
+            COUPLING_SCALE_DEFAULT,
+            "an unset dial is the identity"
+        );
+    }
+}

@@ -159,6 +159,79 @@ async fn a_closed_mission_steps_the_coupling_dial() {
     );
 }
 
+/// With `QUALIA_STACK_MANIFEST` unset there is no manifest the supervisor will
+/// read, so the dial's handover is inert: closing a mission steps and journals
+/// the dial, and the repository's own tracked manifest is left untouched.
+///
+/// The default this pins: a launch that names no manifest must not resolve one
+/// to `config/stack-manifest.default.json`. `runners/init` embeds that file and
+/// reads the embedded copy when the variable is unset, so the agent's in-place
+/// rewrite was both a mutation of the repository and invisible to the stack.
+#[tokio::test]
+async fn an_unset_stack_manifest_leaves_the_repository_manifest_alone() {
+    let tracked = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("config")
+        .join("stack-manifest.default.json");
+    let before = std::fs::read(&tracked).expect("the shipped manifest is readable");
+
+    let mut journal = std::path::PathBuf::new();
+    let harness = Harness::with(|config| {
+        config.stack_manifest = None;
+        journal = std::path::PathBuf::from(&config.mission_journal);
+    });
+
+    // The dial only steps on a closed mission; a cancel is not a success.
+    for (key, command, sequence) in [
+        ("idem-inert-start", "start", 1u64),
+        ("idem-inert-cancel", "cancel", 2),
+    ] {
+        let accepted = harness
+            .post_json(
+                "/mission-control/envelopes",
+                Some(BROKER_TOKEN),
+                envelope(MISSION, key, sequence, command),
+            )
+            .await;
+        assert_eq!(accepted.status, StatusCode::ACCEPTED);
+        qualia_agent::mission_control::supervise_once(&harness.state).await;
+    }
+
+    assert_eq!(
+        std::fs::read(&tracked).expect("the shipped manifest is readable"),
+        before,
+        "an unset QUALIA_STACK_MANIFEST must not rewrite the repository's manifest"
+    );
+    let partials = std::fs::read_dir(tracked.parent().expect("the config directory"))
+        .expect("the config directory is readable")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".stack-manifest.default.json."))
+        .count();
+    assert_eq!(
+        partials, 0,
+        "a handover that is skipped must leave no temp file behind"
+    );
+
+    // Nothing is lost: the step is durable in the journal, so the agent resumes
+    // from it even though the dial was handed to no stack.
+    let text = std::fs::read_to_string(&journal).expect("the journal is readable");
+    let newest = text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .expect("the journal has a newest record");
+    let record: serde_json::Value = serde_json::from_str(newest).expect("the record is JSON");
+    let stepped = record["state"]["coupling_scale"]
+        .as_f64()
+        .expect("the stepped dial is journalled");
+    assert!(
+        (stepped - 0.90).abs() < 1e-6,
+        "the step is journalled even when the handover is inert: {stepped}"
+    );
+}
+
 /// The coupling dial the stack manifest declares, or `None` when it declares
 /// none.
 fn dial(path: &std::path::Path) -> Option<f32> {

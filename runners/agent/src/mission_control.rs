@@ -189,8 +189,11 @@ struct MissionJournalRecord {
 pub struct MissionControlRuntime {
     inner: Arc<Mutex<MissionControlStateV1>>,
     journal_path: Arc<PathBuf>,
-    /// The stack manifest the dial is handed to the supervisor through.
-    stack_manifest: Arc<PathBuf>,
+    /// The stack manifest the dial is handed to the supervisor through, or
+    /// `None` when the environment named none: there is then no manifest the
+    /// supervisor reads (`runners/init` uses its embedded default), so the
+    /// handover is skipped rather than rewriting a file nobody reads.
+    stack_manifest: Option<Arc<PathBuf>>,
     persistence_error: Arc<Mutex<Option<String>>>,
     notify: Arc<Notify>,
     shutting_down: Arc<AtomicBool>,
@@ -229,7 +232,10 @@ impl MissionControlRuntime {
         Self {
             inner: Arc::new(Mutex::new(state)),
             journal_path: Arc::new(journal_path),
-            stack_manifest: Arc::new(PathBuf::from(&config.stack_manifest)),
+            stack_manifest: config
+                .stack_manifest
+                .as_ref()
+                .map(|path| Arc::new(PathBuf::from(path))),
             persistence_error: Arc::new(Mutex::new(error)),
             notify: Arc::new(Notify::new()),
             shutting_down: Arc::new(AtomicBool::new(false)),
@@ -845,6 +851,8 @@ impl MissionControlRuntime {
     /// The new reading is committed to the journal before it is handed to the
     /// manifest, so a crash between the two leaves the agent resuming from the
     /// scale it last stepped rather than from a reading no durable record has.
+    /// A launch that names no manifest has nothing to hand the dial to, so the
+    /// handover is skipped and the journal is the only durable record.
     fn step_coupling_scale(&self, outcome_ok: bool) {
         let (previous, next) = {
             let mut state = self.inner.lock().expect("mission control state lock");
@@ -860,7 +868,14 @@ impl MissionControlRuntime {
             (previous, next)
         };
         eprintln!("qualia-agent: coupling scale {previous} -> {next}");
-        if let Err(error) = write_coupling_scale(&self.stack_manifest, next) {
+        let Some(manifest) = &self.stack_manifest else {
+            eprintln!(
+                "qualia-agent: coupling scale not handed to the stack \
+                 (QUALIA_STACK_MANIFEST is unset; the journal holds it)"
+            );
+            return;
+        };
+        if let Err(error) = write_coupling_scale(manifest, next) {
             eprintln!("qualia-agent: coupling scale not handed to the stack ({error})");
         }
     }

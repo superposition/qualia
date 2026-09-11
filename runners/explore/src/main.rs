@@ -1236,6 +1236,44 @@ mod tests {
         );
     }
 
+    /// The dial the manifest hands down is read at the coupling's bounds: a
+    /// hand-edited manifest cannot drive the planner's prior to zero or to
+    /// infinity.
+    #[test]
+    fn the_dial_is_read_at_the_coupling_bounds() {
+        use qualia_jepa::prior::{COUPLING_SCALE_CEILING, COUPLING_SCALE_FLOOR};
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("assets")
+            .join("brain")
+            .join("prior")
+            .to_string_lossy()
+            .into_owned();
+        for (raw, expected) in [
+            ("0", COUPLING_SCALE_FLOOR),
+            ("inf", COUPLING_SCALE_CEILING),
+            ("nan", COUPLING_SCALE_DEFAULT),
+            ("2.5", 2.5),
+        ] {
+            let prior = FlyPrior::from_settings(
+                Some("prior".to_string()),
+                Some(path.clone()),
+                Some(raw.to_string()),
+            )
+            .unwrap_or_else(|| panic!("the committed prior loads for dial {raw:?}"));
+            assert_eq!(prior.scale, expected, "dial {raw:?}");
+        }
+
+        let unset = FlyPrior::from_settings(Some("prior".to_string()), Some(path), None)
+            .expect("the committed prior loads with no dial");
+        assert_eq!(
+            unset.scale, COUPLING_SCALE_DEFAULT,
+            "an unset dial is the identity"
+        );
+    }
+
     #[test]
     fn belief_risk_is_written_only_with_a_prior() {
         let grid = PlanGrid {

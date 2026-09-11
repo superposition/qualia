@@ -24,12 +24,6 @@ pub const DEFAULT_SHM_NAME: &str = "/qualia_body";
 pub const DEFAULT_SESSION_STORE: &str = "artifacts/qualia_session_store.sqlite";
 /// `QUALIA_MISSION_CONTROL_JOURNAL`, default `artifacts/qualia_mission_control.jsonl`.
 pub const DEFAULT_MISSION_JOURNAL: &str = "artifacts/qualia_mission_control.jsonl";
-/// `QUALIA_STACK_MANIFEST`, default `config/stack-manifest.default.json`.
-///
-/// The manifest the supervisor spawns the stack's children from. The agent
-/// rewrites its `env` block with the coupling dial it steps (T30, #46), so the
-/// next start of a belief layer is handed the dial the agent last chose.
-pub const DEFAULT_STACK_MANIFEST: &str = "config/stack-manifest.default.json";
 /// `QUALIA_REPLICA_ID`, default `qualia-host`.
 pub const DEFAULT_REPLICA_ID: &str = "qualia-host";
 /// `QUALIA_ROSBRIDGE_URL`, default `ws://127.0.0.1:9091`.
@@ -93,7 +87,13 @@ pub struct AgentConfig {
     pub shm_autocreate: bool,
     pub session_store: String,
     pub mission_journal: String,
-    pub stack_manifest: String,
+    /// `QUALIA_STACK_MANIFEST`: the manifest the supervisor spawns the stack's
+    /// children from, when the environment names one. There is no default: a
+    /// launch that names none has no manifest the supervisor will read the
+    /// coupling dial from (`runners/init` falls back to its *embedded*
+    /// `config/stack-manifest.default.json`), so the handover is inert rather
+    /// than rewriting the product's tracked manifest in place (T30, #46).
+    pub stack_manifest: Option<String>,
     pub compute: ComputeConfig,
     pub thought_theater: ThoughtTheaterConfig,
     pub mission_broker: Option<MissionBrokerEndpoint>,
@@ -125,7 +125,7 @@ impl Default for AgentConfig {
             shm_autocreate: false,
             session_store: DEFAULT_SESSION_STORE.to_string(),
             mission_journal: DEFAULT_MISSION_JOURNAL.to_string(),
-            stack_manifest: DEFAULT_STACK_MANIFEST.to_string(),
+            stack_manifest: None,
             compute: ComputeConfig::default(),
             thought_theater: ThoughtTheaterConfig {
                 enabled: false,
@@ -186,8 +186,7 @@ impl AgentConfig {
                 .unwrap_or_else(|| DEFAULT_SESSION_STORE.to_string()),
             mission_journal: env_string("QUALIA_MISSION_CONTROL_JOURNAL")
                 .unwrap_or_else(|| DEFAULT_MISSION_JOURNAL.to_string()),
-            stack_manifest: env_string("QUALIA_STACK_MANIFEST")
-                .unwrap_or_else(|| DEFAULT_STACK_MANIFEST.to_string()),
+            stack_manifest: env_string("QUALIA_STACK_MANIFEST"),
             compute: ComputeConfig::from_env(),
             thought_theater: ThoughtTheaterConfig {
                 enabled: !viewer_url.trim().is_empty(),

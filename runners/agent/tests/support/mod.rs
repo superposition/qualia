@@ -60,7 +60,7 @@ impl Harness {
             .to_string_lossy()
             .into_owned();
         let stack_manifest = dir.path().join("stack-manifest.json");
-        config.stack_manifest = stack_manifest.to_string_lossy().into_owned();
+        config.stack_manifest = Some(stack_manifest.to_string_lossy().into_owned());
         std::fs::write(
             &stack_manifest,
             r#"{"schema_version":"qualia.stack.v1","env":{"QUALIA_FLY_MODE":"off"}}"#,
