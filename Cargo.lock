@@ -5844,6 +5844,7 @@ name = "qualia-cuda"
 version = "0.1.0"
 dependencies = [
  "cudarc 0.19.9",
+ "qualia-jepa",
  "qualia-shm",
  "qualia-types",
 ]
@@ -6115,6 +6116,7 @@ version = "0.1.0"
 dependencies = [
  "metal 0.31.0",
  "objc",
+ "qualia-jepa",
  "qualia-shm",
  "qualia-types",
 ]
