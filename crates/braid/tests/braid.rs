@@ -3,9 +3,14 @@
 //! A strand talks to the braid the way a runner will: it decodes a `BraidEvent`
 //! and hands it to `observe`, then a later reader looks at the `BraidState` that
 //! came out. These tests therefore assert on state a consumer can see and on the
-//! one dispatch a `BraidEvent` can trigger, never on how `observe` is written.
+//! dispatches a `BraidEvent` can trigger, never on how `observe` is written.
+//!
+//! The rollback's durable record is the generation registry's, so the test that
+//! pins the record drives a real registry through `route` and reads the record
+//! back where it is written: `crates/jepa-registry`'s test module.
 
-use qualia_braid::{observe, BraidError, BraidEvent, BraidState};
+use qualia_braid::{observe, route, BraidError, BraidEvent, BraidState};
+use qualia_jepa_registry::CandidateRegistry;
 use std::fs;
 
 #[test]
@@ -61,8 +66,8 @@ fn mission_lifecycle_updates_open_count() {
     assert_eq!(state.open_missions, 0, "a close with nothing open is a no-op");
 }
 
-#[test]
-fn rollback_event_is_recorded_and_state_survives() {
+#[tokio::test]
+async fn rollback_event_is_recorded_and_state_survives() {
     let mut state = BraidState::default();
 
     observe(
@@ -103,10 +108,77 @@ fn rollback_event_is_recorded_and_state_survives() {
     // generation registry's, whose rollback call this revision cannot make (see
     // the dated resolution on issue #34: the call lands with C10 #76, the
     // routing with T22 #37), so no part of the braid's own view carries it.
+    // The routing below is where the record is written.
     let view = serde_json::to_string(&state).unwrap();
     assert!(
         !view.contains("health gate failed"),
         "the braid keeps no reason of its own: {view}"
+    );
+
+    // The routing owns the registry edge the fold cannot reach. A registry that
+    // does not own the generation pointer cannot publish the rollback, so the
+    // dispatch fails — and because the dispatch runs first, the pointer does not
+    // move and no stamp is taken: a reader never sees a pointer the record does
+    // not have.
+    let temp = tempfile::tempdir().unwrap();
+    let registry = CandidateRegistry::open(temp.path().join("registry.turso"))
+        .await
+        .unwrap();
+    let generation_file = temp.path().join("active-generation.json");
+
+    let mut routed = BraidState::default();
+    observe(
+        &mut routed,
+        &BraidEvent::PromotionAccepted { generation: 7 },
+    )
+    .unwrap();
+    let routed_at = routed.last_promotion_ns;
+
+    let refused = route(&mut routed, &rollback, &registry, &generation_file).await;
+    assert!(
+        matches!(refused, Err(BraidError::Rollback(_))),
+        "a rollback the registry will not publish is reported, not swallowed: {refused:?}"
+    );
+    assert_eq!(
+        routed.generation, 7,
+        "the pointer does not move when the record cannot be written"
+    );
+    assert_eq!(
+        routed.last_promotion_ns, routed_at,
+        "and no promotion stamp is taken either"
+    );
+    assert!(
+        !generation_file.exists(),
+        "the registry published no generation when it could not roll back"
+    );
+}
+
+#[tokio::test]
+async fn routing_folds_the_events_that_have_no_registry_edge() {
+    // Only the rollback has a registry edge. Every other event, including one
+    // this build cannot read, is the fold the caller already knows: the routing
+    // must not consult the record for them.
+    let temp = tempfile::tempdir().unwrap();
+    let registry = CandidateRegistry::open(temp.path().join("registry.turso"))
+        .await
+        .unwrap();
+    let generation_file = temp.path().join("active-generation.json");
+
+    let mut state = BraidState::default();
+    for event in [
+        BraidEvent::MissionOpened {
+            mission_id: "mission-1".to_string(),
+        },
+        BraidEvent::Unknown,
+    ] {
+        route(&mut state, &event, &registry, &generation_file)
+            .await
+            .unwrap();
+    }
+    assert_eq!(state.open_missions, 1, "the mission count is the fold's");
+    assert!(
+        !generation_file.exists(),
+        "no event but a rollback writes the generation pointer"
     );
 }
 

@@ -7,14 +7,14 @@ description = "One state machine every strand reports through: evidence seals, m
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 [dependencies]
 qualia-jepa = { workspace = true }
 qualia-mcap = { workspace = true }
-# The promotion strand's durable side: the braid's PromotionRolledBack fold
-# hands the reason to the registry's rollback. The registry has no library
-# target yet, so cargo ignores this dependency with a warning and the call is
-# deferred: the library lands with C10 (#76) and the routing with T22 (#37).
-# See the module docs in src/lib.rs and the resolution comment on issue #34.
+# The promotion strand's durable side: the routing (`route` in src/lib.rs) hands
+# a PromotionRolledBack's `reason` to the registry's rollback, which records it.
+# C10 (#76) gave the registry its library target, so the call the #34 resolution
+# deferred is live: T22 (#37) lands the routing.
 qualia-jepa-registry = { workspace = true }
 qualia-shm = { workspace = true }
 qualia-types = { workspace = true }

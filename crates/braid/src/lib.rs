@@ -7,17 +7,16 @@
 //! through the event, and the crate that owns that record writes it: MCAP for
 //! partial evidence, the generation registry for a rollback.
 //!
-//! The MCAP edge is live; the registry edge is not yet wired. This workspace's
-//! `crates/jepa-registry` ships no library target, so cargo ignores the
-//! dependency this crate declares on it and no registry symbol is callable — and
-//! the registry's rollback wants a registry handle, the path of the generation
-//! pointer and an async context, none of which the signatures fixed here carry.
-//! So a [`BraidEvent::PromotionRolledBack`] only moves the pointer: the view
-//! takes the event's generation, `last_promotion_ns` stays where the last
-//! acceptance put it, and the `reason` is left on the wire for the strand that
-//! owns the registry to dispatch with. The call lands with the registry library
-//! in C10 (#76) and the routing with T22 (#37); the dated resolution on issue
-//! #34 records both.
+//! The two durable edges are reached differently because their records want
+//! different things. [`observe`] is synchronous and holds no handle, so it runs
+//! the dispatch that needs only the event: a [`BraidEvent::Quarantined`] moves
+//! the partials aside through [`qualia_mcap::quarantine_partials`]. The
+//! generation registry's rollback wants a handle, the path of the generation
+//! pointer and an async context, so it is [`route`]'s half of the dispatch: the
+//! strand that holds the registry edge passes it with the event, and the
+//! rollback's `reason` becomes the record the registry writes. The braid keeps
+//! no storage either way — the pointer it moves and the record the registry
+//! writes are the only copies there are.
 
 pub mod drift;
 pub mod rules;
@@ -27,6 +26,7 @@ use std::error::Error;
 use std::fmt;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+use qualia_jepa_registry::CandidateRegistry;
 use qualia_shm::{LayerReader, ShmRegion, MAX_LEDGER_ENTRIES, NUM_LAYERS};
 
 /// The wire contract for the JSON form of a [`BraidEvent`].
@@ -91,6 +91,10 @@ pub enum BraidError {
     /// bytes are still where they were, and the caller should retry rather than
     /// treat the evidence as gone.
     Quarantine(Box<dyn Error + Send + Sync>),
+    /// `qualia-jepa-registry` could not publish the rollback a
+    /// [`BraidEvent::PromotionRolledBack`] asked for. The registry owns the
+    /// generation pointer, so it is where it left it; the caller should retry.
+    Rollback(Box<dyn Error + Send + Sync>),
 }
 
 impl fmt::Display for BraidError {
@@ -98,6 +102,9 @@ impl fmt::Display for BraidError {
         match self {
             BraidError::Quarantine(source) => {
                 write!(f, "quarantining partial evidence failed: {source}")
+            }
+            BraidError::Rollback(source) => {
+                write!(f, "routing the rollback to the generation registry failed: {source}")
             }
         }
     }
@@ -107,6 +114,7 @@ impl Error for BraidError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             BraidError::Quarantine(source) => Some(&**source),
+            BraidError::Rollback(source) => Some(&**source),
         }
     }
 }
@@ -128,8 +136,9 @@ impl Error for BraidError {
 ///   move the generation pointer. A rollback is not a promotion, so it leaves
 ///   `last_promotion_ns` where the last acceptance put it. The rollback's
 ///   durable record, which is what carries its `reason`, is the generation
-///   registry's; the call is deferred, so the pointer moves and the reason stays
-///   on the wire (see the module docs).
+///   registry's and is written by [`route`], which dispatches before the fold.
+///   A caller that folds a rollback without routing it keeps the pointer move
+///   and drops the record.
 /// - [`BraidEvent::EvidenceSealed`] carries the digest of a sealed segment; the
 ///   sealed segment is the record, so the braid keeps only the knowledge that it
 ///   happened (nothing here changes).
@@ -154,9 +163,9 @@ pub fn observe(state: &mut BraidState, event: &BraidEvent) -> Result<(), BraidEr
         }
         // The pointer moves with the event. `last_promotion_ns` is deliberately
         // not touched, and the rollback's `reason` is deliberately not stored:
-        // its durable record belongs to the generation registry, whose dispatch
-        // is deferred (see the dated resolution on issue #34). The dropped field
-        // is the resolution, not an oversight.
+        // its durable record belongs to the generation registry, and `route`
+        // dispatches it before this fold runs. The dropped field is the
+        // resolution, not an oversight.
         BraidEvent::PromotionRolledBack { generation, .. } => {
             state.generation = *generation;
         }
@@ -168,6 +177,37 @@ pub fn observe(state: &mut BraidState, event: &BraidEvent) -> Result<(), BraidEr
         BraidEvent::Unknown => {}
     }
     Ok(())
+}
+
+/// Route one event to the durable record it asks for, then fold it.
+///
+/// This is the registry edge of the dispatch [`observe`] cannot make: the
+/// generation registry's rollback wants a handle, the path of the generation
+/// pointer and an async context, and the fold is synchronous and holds none of
+/// them. A caller that holds the registry edge — the strand that owns the
+/// promotion record — passes it here with the event, and the event's `reason`
+/// becomes the record [`qualia_jepa_registry::CandidateRegistry::rollback`]
+/// writes.
+///
+/// The dispatch runs first, the way the MCAP quarantine dispatch does inside
+/// [`observe`], and for the same reason: a dispatch that could not run moves
+/// nothing. A rollback the registry refuses — there is no prior accepted
+/// generation to return to — is reported to the caller and `state` is left
+/// where it was, so a reader never sees a pointer the record does not have.
+/// Every other event has no registry edge and is the fold alone.
+pub async fn route(
+    state: &mut BraidState,
+    event: &BraidEvent,
+    registry: &CandidateRegistry,
+    generation_file: impl AsRef<Path>,
+) -> Result<(), BraidError> {
+    if let BraidEvent::PromotionRolledBack { reason, .. } = event {
+        registry
+            .rollback(generation_file, qualia_jepa_registry::now_ms(), reason)
+            .await
+            .map_err(|error| BraidError::Rollback(Box::from(error)))?;
+    }
+    observe(state, event)
 }
 
 /// Nanoseconds since the Unix epoch, the unit every other clock in the stack
