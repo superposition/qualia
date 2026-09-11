@@ -111,10 +111,19 @@ The dev host is shared by every agent and cannot be rebooted cheaply. Four rules
   `ncu`/`nsys` runs count. Profiling happens on Pinkie (the board), not the host.
 - **Build bounded.** `cargo ... -j 4` for agent builds; no `--workspace` build/test matrices, no
   unbounded test loops; prefer one package at a time.
-- **Watch the guard.** `C:/tmp/resmon2.py` runs persistently (`hub ps`, name `resmon2`) and logs to
-  `C:/tmp/resmon.log`; under memory pressure it kills the largest build processes rather than let the
-  box OOM. If you see `WARN[HIGH]`/`WARN[CRITICAL]` lines, reduce your own footprint and say so in your
-  braid.
+- **The CPU itself is currently faulty.** Since 05:44 on 2026-09-11 the host logs WHEA-Logger Id 19
+  corrected machine checks (processor core, internal parity error) every 1–3 minutes under load; rustc
+  intermittently dies with garbage-value const-eval ICEs as a result. Build with `cargo -j 2` at most,
+  one build at a time, never a workspace build; keep the exit code, not a piped `tail`. An ICE is a host
+  fault: retry once at `-j 1`, then post `blocked_on: host CPU fault (WHEA 19)` and stop. A result
+  obtained while a WHEA event landed within ±2 minutes is provisional — re-run it, or show two agreeing
+  runs spanning an event. Static work (git, Python, the gate, diff reads) is unaffected. See
+  [`decisions.md`](decisions.md) D-014.
+- **Watch the guard.** `C:/tmp/resmon4.py` runs persistently (`hub ps`, name `resmon4`) and logs to
+  `C:/tmp/resmon.log`: RAM/VRAM/build count every 10 s, new WHEA events as `WHEA …`, and the last fault
+  stamped at `C:/tmp/host_fault_window.txt`. Under memory pressure it kills the largest build processes
+  rather than let the box OOM. If you see `WARN[HIGH]`/`WARN[CRITICAL]`, reduce your footprint and say so
+  in your braid.
 
 ## Definition of done
 

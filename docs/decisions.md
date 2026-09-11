@@ -156,6 +156,39 @@ use `cargo -j 4`; no workspace-wide build/test matrices; GPU work is one bounded
 happens on Pinkie. Measured 2026-09-11 with 21 agents building at once: 19.5–21.7 GiB of 63.9 GiB used
 and pagefile slack ≥ 41 GiB, so the guard is a ceiling, not a routine actor.
 
+## D-014 — The host CPU is throwing corrected machine checks; builds are throttled and re-verified
+
+Since 05:44 local on 2026-09-11 the host logs `Microsoft-Windows-WHEA-Logger` Id 19 events: *"A corrected
+hardware error has occurred. Reported by component: Processor Core / Error Source: Corrected Machine
+Check / Error Type: Internal parity error."* Eight events by 06:27 local (05:44:09 ×2, 05:44:38,
+06:20:36 ×2, 06:21:58, 06:23:08, 06:27:43), i.e. **one every one to three minutes while the swarm
+builds** — not a one-off.
+
+The user-visible symptom: rustc dies nondeterministically with const-eval ICEs whose reported values are
+garbage — `scalar size mismatch: expected <different garbage each run> bytes but got 8 bytes`,
+`primitive read not possible for type: usize`, `the compiler unexpectedly panicked` in
+`eval_to_allocation_raw` — on unrelated crates (`windows-sys`, `zmij`, `paste`, `ring`, `owo-colors`,
+`icu_locale_core`) while the same command line sometimes succeeds. Reported by six agents; a fresh
+minimal crate using the same windows-sys version compiles, and the same source at the same commit
+alternates between success and ICE, so the variable is the host, not the code.
+
+Consequences, in force until the operator clears the fault:
+
+- **Builds are throttled and don't count as evidence until re-verified.** `cargo -j 2` at most, one build
+  at a time per agent, no workspace-wide builds. A result obtained while a WHEA event was within ±2
+  minutes is provisional; in practice the valid bar is two agreeing runs spanning an event. Keep the exit
+  code, not a piped `tail`.
+- **An ICE is a host fault, not a crate bug.** Retry once at `-j 1`; if it recurs, post
+  `blocked_on: host CPU fault (WHEA 19)` and stop. Do not hunt a compiler or dependency defect.
+- **Mitigation applied.** Processor maximum state is 99% on AC and DC (`PROCTHROTTLEMAX`), which
+  disables turbo boost and its voltage excursions; the previous value was 100%. Revert with
+  `powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMAX 100` (and `/setdcvalueindex`,
+  then `/setactive SCHEME_CURRENT`). `C:/tmp/resmon3.py` samples RAM/VRAM/build count, reads WHEA events
+  every minute into `C:/tmp/resmon.log`, and stamps `C:/tmp/host_fault_window.txt` on each new event.
+- **Operator action is required for a real fix**: update the BIOS/microcode for this Raptor Lake
+  i9-14900KF and select the Intel-default (not unlimited) power profile; if events persist, the CPU
+  needs an RMA. Software throttling reduces but does not remove the corruption.
+
 ## D-003 — Repository
 
 
