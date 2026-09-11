@@ -4,14 +4,45 @@
 //! the operator CLI must reach a self-signed loopback endpoint exactly the way
 //! the rest of the stack's tooling does, and curl already speaks that contract
 //! without pulling a TLS stack into the binary.
+//!
+//! Every request is bounded: curl gets a connection timeout and a total
+//! timeout, so no server — silent, hung or trickling a body — can hold the
+//! operator's terminal. The configured URL is tried first; if the transport
+//! never completes an exchange there, the same host is tried on the twin
+//! scheme, because a stack that serves cleartext on a port the CLI guessed was
+//! TLS must still be reachable. Only the configured host is ever contacted.
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::process::Command;
+use std::sync::Mutex;
 
 /// Delimiter curl appends after the body, carrying the status code out of band.
 const STATUS_MARKER: &str = "__qualia_http_code__:";
+
+/// Seconds curl may spend on the connection phase (DNS, TCP, TLS handshake).
+const CONNECT_TIMEOUT_SECS: u32 = 2;
+
+/// Seconds the whole exchange may take, connection included. A server that
+/// accepts and then says nothing fails on this bound, not on the operator's
+/// patience.
+const TOTAL_TIMEOUT_SECS: u32 = 5;
+
+/// How a transport failure is reported. The reference ran the readiness paths
+/// curl-silent (`-ks`) and printed the bare exit status; its JSON paths ran
+/// `-ksS` and appended curl's own reason. Which form an operator sees is the
+/// caller's decision, so it is carried here rather than re-worded at the
+/// failure site.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CurlFailure {
+    /// `-ks`: no curl diagnostics, so the text is the exit status alone — the
+    /// readiness paths' reference wording.
+    Bare,
+    /// `-ksS`: append curl's reason when it printed one — the JSON paths'
+    /// reference wording.
+    Reason,
+}
 
 pub fn get_json<T>(agent_url: &str, path: &str) -> Result<T, String>
 where
@@ -32,9 +63,68 @@ where
 }
 
 fn request(method: &str, url: &str, payload: Option<&str>) -> Result<String, String> {
+    let (status, body) = fetch(method, url, payload, CurlFailure::Reason)?;
+    if !(200..300).contains(&status) {
+        return Err(format!("http {status}: {}", error_text(body.trim())));
+    }
+    Ok(body)
+}
+
+/// Perform one exchange against `url`, resolving the scheme against the
+/// configured origin. A transport failure moves on to the twin scheme; an
+/// exchange the server answered — whatever its status — never does, because
+/// the URL was right and only the status was not.
+fn fetch(
+    method: &str,
+    url: &str,
+    payload: Option<&str>,
+    failure: CurlFailure,
+) -> Result<(u16, String), String> {
+    let (origin, path) = split_origin(url);
+    if let Some(resolved) = resolved_origin(&origin) {
+        return attempt(method, &format!("{resolved}{path}"), payload, failure);
+    }
+
+    let mut last_error = None;
+    for candidate in candidate_origins(&origin) {
+        match attempt(method, &format!("{candidate}{path}"), payload, failure) {
+            Ok(answer) => {
+                remember_origin(&origin, &candidate);
+                if candidate != origin {
+                    eprintln!("qualia: agent url {candidate} (fallback from {origin})");
+                }
+                return Ok(answer);
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| format!("no candidate URL for {origin}")))
+}
+
+/// One bounded curl exchange. `Ok((status, body))` means an HTTP response
+/// arrived; `Err` means curl never completed an exchange — refused, unroutable,
+/// the wrong protocol or over the timeout — so another candidate may still.
+/// `failure` decides whether curl is asked for its own reason text, and hence
+/// which reference wording the error carries.
+fn attempt(
+    method: &str,
+    url: &str,
+    payload: Option<&str>,
+    failure: CurlFailure,
+) -> Result<(u16, String), String> {
+    let connect_timeout = CONNECT_TIMEOUT_SECS.to_string();
+    let total_timeout = TOTAL_TIMEOUT_SECS.to_string();
     let mut command = Command::new(curl_binary());
     command.args([
-        "-ksS",
+        match failure {
+            CurlFailure::Bare => "-ks",
+            CurlFailure::Reason => "-ksS",
+        },
+        "--connect-timeout",
+        &connect_timeout,
+        "--max-time",
+        &total_timeout,
         "-X",
         method,
         "-w",
@@ -55,11 +145,13 @@ fn request(method: &str, url: &str, payload: Option<&str>) -> Result<String, Str
         .map_err(|err| format!("curl failed: {err}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("curl returned {}", output.status)
-        } else {
-            format!("curl returned {}: {stderr}", output.status)
-        });
+        return Err(
+            if failure == CurlFailure::Reason && !stderr.is_empty() {
+                format!("curl returned {}: {stderr}", output.status)
+            } else {
+                format!("curl returned {}", output.status)
+            },
+        );
     }
 
     let text = String::from_utf8_lossy(&output.stdout);
@@ -71,10 +163,55 @@ fn request(method: &str, url: &str, payload: Option<&str>) -> Result<String, Str
         .trim()
         .parse::<u16>()
         .map_err(|err| format!("failed to parse HTTP status: {err}"))?;
-    if !(200..300).contains(&status) {
-        return Err(format!("http {status}: {}", error_text(body.trim())));
+    Ok((status, body))
+}
+
+/// Split a request URL into `(origin, path)`, where the origin is the scheme
+/// and authority alone.
+fn split_origin(url: &str) -> (String, String) {
+    let Some(scheme_end) = url.find("://") else {
+        return (url.to_string(), String::new());
+    };
+    let authority = scheme_end + 3;
+    match url[authority..].find('/') {
+        Some(offset) => (
+            url[..authority + offset].to_string(),
+            url[authority + offset..].to_string(),
+        ),
+        None => (url.to_string(), String::new()),
     }
-    Ok(body)
+}
+
+/// The origins to try for a configured one, in order: what the operator asked
+/// for, then the same host on the other scheme. No other host or port is ever
+/// guessed at.
+fn candidate_origins(origin: &str) -> Vec<String> {
+    if let Some(rest) = origin.strip_prefix("https://") {
+        vec![origin.to_string(), format!("http://{rest}")]
+    } else if let Some(rest) = origin.strip_prefix("http://") {
+        vec![origin.to_string(), format!("https://{rest}")]
+    } else {
+        vec![format!("http://{origin}"), format!("https://{origin}")]
+    }
+}
+
+/// The origin that answered last, remembered for the rest of the process: a
+/// command that makes several requests resolves the scheme once, so a wrong
+/// guess costs one timeout per run rather than one per request.
+static RESOLVED_ORIGIN: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+fn resolved_origin(origin: &str) -> Option<String> {
+    let slot = RESOLVED_ORIGIN.lock().ok()?;
+    match slot.as_ref() {
+        Some((configured, resolved)) if configured == origin => Some(resolved.clone()),
+        _ => None,
+    }
+}
+
+fn remember_origin(configured: &str, resolved: &str) {
+    if let Ok(mut slot) = RESOLVED_ORIGIN.lock() {
+        *slot = Some((configured.to_string(), resolved.to_string()));
+    }
 }
 
 /// Prefer the server's structured `error` field; fall back to raw text.
@@ -169,12 +306,10 @@ pub fn fetch_stack_health(agent_url: &str) -> Result<StackHealth, String> {
 }
 
 fn curl_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
-    let output = Command::new(curl_binary())
-        .args(["-ks", url])
-        .output()
-        .map_err(|err| format!("curl failed: {err}"))?;
-    if !output.status.success() {
-        return Err(format!("curl returned {}", output.status));
-    }
-    serde_json::from_slice(&output.stdout).map_err(|err| err.to_string())
+    // The readiness documents carry the verdict in their body, and a stack
+    // that is not ready may answer 503 with that body, so the status is not
+    // consulted here. These paths keep the reference's bare transport-failure
+    // text: curl runs silent and the reason is the exit status alone.
+    let (_status, body) = fetch("GET", url, None, CurlFailure::Bare)?;
+    serde_json::from_str(&body).map_err(|err| err.to_string())
 }

@@ -29,6 +29,16 @@ The binary is named `qualia` and is built from the `qualia-cli` package.
 - `qualia world [--json]` — proposal, canonical and operational scene state
 - `qualia decisions [--json] [--limit <n>]` — recorded coach decisions
 
+## Agent URL
+`qualia health`, `qualia planner`, `qualia world`, `qualia decisions`,
+`qualia propose` and `qualia decide` read the agent at `QUALIA_AGENT_URL` when
+it is set, otherwise at `https://127.0.0.1:$QUALIA_WEB_PORT` (default `8080`).
+Every request carries a connect timeout and a total timeout, so a server that
+is silent, hung or trickling a body fails with a readable reason instead of
+holding the terminal. When the configured scheme does not answer, the same host
+is tried on the other scheme and the fallback is printed; no other host or port
+is ever probed.
+
 ## Exit codes
 - `0` — the command completed (including the `unavailable` service reports)
 - `1` — the command could not complete: a missing manifest, log, socket,

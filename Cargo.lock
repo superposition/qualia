@@ -4460,6 +4460,8 @@ dependencies = [
  "qualia-ipc",
  "qualia-sync-types",
  "qualia-types",
+ "rcgen",
+ "rustls",
  "serde",
  "serde_json",
 ]

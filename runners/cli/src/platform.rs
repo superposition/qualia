@@ -281,10 +281,25 @@ pub fn default_compute_socket() -> String {
     })
 }
 
-/// The agent's local control surface.
+/// The agent's local control surface. `QUALIA_AGENT_URL` is the operator's
+/// explicit override and wins outright; without it the port comes from
+/// `QUALIA_WEB_PORT` on loopback, which is the only address the CLI assumes.
 pub fn default_agent_url() -> String {
-    let port = std::env::var("QUALIA_WEB_PORT").unwrap_or_else(|_| "8080".to_string());
-    format!("https://127.0.0.1:{port}")
+    let configured = std::env::var("QUALIA_AGENT_URL").ok();
+    let port = std::env::var("QUALIA_WEB_PORT").ok();
+    agent_url_from(configured.as_deref(), port.as_deref())
+}
+
+/// The URL precedence behind [`default_agent_url`], kept free of the
+/// environment so the order can be tested directly.
+fn agent_url_from(configured: Option<&str>, port: Option<&str>) -> String {
+    if let Some(url) = configured {
+        let url = url.trim().trim_end_matches('/');
+        if !url.is_empty() {
+            return url.to_string();
+        }
+    }
+    format!("https://127.0.0.1:{}", port.unwrap_or("8080"))
 }
 
 /// Fetch the compute service's capability document over its raw socket.
@@ -351,8 +366,23 @@ mod tests {
     #[test]
     fn agent_url_tracks_the_web_port() {
         // The default must remain the documented loopback surface.
-        let url = default_agent_url();
-        assert!(url.starts_with("https://127.0.0.1:"));
+        let url = agent_url_from(None, Some("18081"));
+        assert_eq!(url, "https://127.0.0.1:18081");
+    }
+
+    #[test]
+    fn configured_agent_url_wins_over_the_port() {
+        // `QUALIA_AGENT_URL` is the operator's explicit override; the loopback
+        // default applies only when it is absent or blank.
+        assert_eq!(
+            agent_url_from(Some("http://192.0.2.10:9000/"), Some("18081")),
+            "http://192.0.2.10:9000"
+        );
+        assert_eq!(
+            agent_url_from(Some("   "), Some("18081")),
+            "https://127.0.0.1:18081"
+        );
+        assert_eq!(agent_url_from(None, None), "https://127.0.0.1:8080");
     }
 
     #[test]
