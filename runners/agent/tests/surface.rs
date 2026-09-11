@@ -4,6 +4,8 @@
 
 mod support;
 
+use std::sync::Arc;
+
 use axum::http::StatusCode;
 use qualia_shm::ShmRegion;
 use support::Harness;
@@ -42,6 +44,7 @@ async fn perception_status_reports_absent_then_fresh_camera() {
 
     let absent = harness.get("/perception/status").await.json();
     assert_eq!(absent["camera"]["available"], false);
+    assert_eq!(absent["camera"]["source"], "qualia-shm:camera_frame");
     assert_eq!(absent["movement_input_ready"], false);
     assert!(absent["movement_blocker"].is_string());
 
@@ -63,6 +66,7 @@ async fn perception_status_reports_absent_then_fresh_camera() {
     let fresh = harness.get("/perception/status").await.json();
     assert_eq!(fresh["camera"]["available"], true);
     assert_eq!(fresh["camera"]["fresh"], true);
+    assert_eq!(fresh["camera"]["source"], "qualia-shm:camera_frame");
     assert_eq!(fresh["camera"]["frame_seq"], seq);
     assert_eq!(fresh["camera"]["source_width"], 640);
     assert_eq!(fresh["camera"]["quality"], "usable");
@@ -150,12 +154,13 @@ async fn status_routes_keep_their_reference_shapes() {
     assert_eq!(theater["viewer_url"], "");
     assert_eq!(theater["blueprint_name"], "Thought Theater");
 
-    let mcp = harness.get("/mcp/status").await.json();
-    assert_eq!(mcp["ok"], true);
-    assert_eq!(mcp["transport"], "streamable-http");
-    assert_eq!(mcp["server"], "qualia-agent");
-    assert_eq!(mcp["protocol_version"], "2025-11-25");
-    assert!(mcp["tool_count"].as_u64().is_some_and(|count| count > 0));
+    let mcp = harness.get("/mcp/status").await;
+    assert_eq!(mcp.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        mcp.text(),
+        "session store unavailable",
+        "the reference reports exactly this when it cannot build the arena projection"
+    );
 
     let planner = harness.get("/planner/status").await.json();
     assert_eq!(planner["schema_version"], "qualia.service-status.v1");
@@ -172,6 +177,202 @@ async fn status_routes_keep_their_reference_shapes() {
 async fn entities_are_empty_without_profiles() {
     let harness = Harness::new();
     let body = harness.get("/entities").await.json();
-    assert_eq!(body["schema_version"], "qualia.entity.v1");
+    assert_eq!(body["schema_version"], "qualia.entities.v1");
     assert!(body["entities"].as_array().is_some_and(Vec::is_empty));
+}
+
+/// The reference's auth refusal, body and all: consumers key on the schema and
+/// the code, not on prose.
+#[tokio::test]
+async fn an_unauthenticated_read_gets_the_reference_auth_error() {
+    let harness = Harness::with(|config| {
+        config.auth.read_token = Some(Arc::from("read-test-token"));
+        config.auth.allow_loopback = false;
+    });
+
+    let reply = harness.get("/mission-control/missions").await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    let body = reply.json();
+    assert_eq!(body["schema_version"], "qualia.auth-error.v1");
+    assert_eq!(body["error"], "authentication_required");
+
+    let admitted = harness
+        .get_with_token("/mission-control/missions", "read-test-token")
+        .await;
+    assert_eq!(admitted.status, StatusCode::OK);
+}
+
+/// The tool manifest is the reference's: an external agent selects tools by
+/// name, so the advertised set must not shrink with this build.
+#[tokio::test]
+async fn mcp_advertises_the_reference_tool_manifest() {
+    let harness = Harness::new();
+    let expected = [
+        "arena_status",
+        "arena_observe",
+        "multimodal_observe",
+        "arena_start_session",
+        "arena_stop_session",
+        "arena_submit_intent",
+        "studio_focus",
+        "studio_control",
+        "world_query",
+        "world_propose",
+        "belief_status",
+        "belief_query",
+        "belief_sketch",
+        "belief_shadow_status",
+        "belief_shadow_patch",
+        "belief_shadow_publish",
+        "belief_propose_feedback",
+        "belief_propose_prior",
+        "belief_withdraw_prior",
+        "embodiment_health",
+        "embodiment_observe",
+        "embodiment_invoke_capability",
+        "embodiment_stop",
+        "embodiment_estop",
+        "guard_health",
+        "guard_observe",
+        "guard_invoke_capability",
+        "guard_stop",
+        "guard_estop",
+    ];
+
+    let body = harness.get("/mcp/tools").await.json();
+    assert_eq!(body["ok"], true);
+    let names: Vec<&str> = body["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(names, expected, "the advertised tool set is the reference's");
+    for tool in body["tools"].as_array().expect("tools") {
+        assert_eq!(tool["inputSchema"]["type"], "object");
+        assert!(tool["safety"].is_string(), "a descriptor carries its safety class");
+    }
+
+    let listed = harness
+        .post_json(
+            "/mcp",
+            None,
+            serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        )
+        .await
+        .json();
+    let protocol_names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(protocol_names, expected, "`tools/list` advertises the same set");
+    assert!(listed["result"]["tools"][0]["safety"].is_null());
+
+    let initialized = harness
+        .post_json(
+            "/mcp",
+            None,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "initialize",
+                "params": { "protocolVersion": "2025-11-25" }
+            }),
+        )
+        .await
+        .json();
+    assert_eq!(initialized["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(
+        initialized["result"]["instructions"],
+        "Qualia is the shared superposed world model. Read arena_observe/world_query, submit typed intent or world proposals, and let Leash retain all physical safety authority.",
+        "the protocol instructions are the reference's, word for word"
+    );
+
+    let unknown = harness
+        .post_json(
+            "/mcp",
+            None,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": { "name": "belief_status", "arguments": {} }
+            }),
+        )
+        .await
+        .json();
+    assert_eq!(unknown["result"]["isError"], true);
+    assert!(unknown["result"]["content"][0]["text"]
+        .as_str()
+        .is_some_and(|text| text.contains("the cognition runtime")));
+}
+
+/// `/compute/cuda-smoke` reports a smoke-test result, never the error envelope.
+#[tokio::test]
+async fn cuda_smoke_reports_a_result_body() {
+    let harness = Harness::new();
+    let reply = harness.get("/compute/cuda-smoke").await;
+    assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
+    let body = reply.json();
+
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "binary_path",
+            "compiler",
+            "reason",
+            "request_id",
+            "result_type",
+            "schema_version",
+            "service_instance",
+            "status",
+            "stderr",
+            "stdout",
+        ],
+        "the result carries the reference's fields, not the error envelope"
+    );
+    assert_eq!(body["schema_version"], "compute.v1");
+    assert_eq!(body["result_type"], "cuda_smoke");
+    assert_eq!(body["status"], "error");
+    assert!(body["reason"].as_str().is_some_and(|reason| !reason.is_empty()));
+}
+
+/// `/compute/path` names the missing planner input before it names the missing
+/// service: pose first, then lidar.
+#[tokio::test]
+async fn compute_path_checks_pose_then_lidar_before_the_service() {
+    let harness = Harness::new();
+
+    let no_pose = harness.post_json("/compute/path", None, serde_json::json!({})).await;
+    assert_eq!(no_pose.status, StatusCode::SERVICE_UNAVAILABLE);
+    let no_pose = no_pose.json();
+    assert_eq!(no_pose["error"]["code"], "pose_unavailable");
+    assert_eq!(no_pose["result_type"], "error");
+    assert_eq!(no_pose["error"]["retryable"], true);
+
+    let region = ShmRegion::open(&harness.state.config.shm_name).expect("scratch region");
+    region.set_robot_pose(qualia_types::NavPose {
+        x_m: 0.0,
+        y_m: 0.0,
+        z_m: 0.0,
+        yaw_rad: 0.0,
+        pitch_rad: 0.0,
+        roll_rad: 0.0,
+        confidence: 1.0,
+        _pad0: 0.0,
+        timestamp_ns: qualia_agent::now_ns(),
+    });
+
+    let no_lidar = harness.post_json("/compute/path", None, serde_json::json!({})).await;
+    assert_eq!(no_lidar.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(no_lidar.json()["error"]["code"], "lidar_unavailable");
 }

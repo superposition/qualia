@@ -37,6 +37,13 @@ impl Harness {
     /// journal file and its own web directory, so no test can see another's
     /// bytes.
     pub fn new() -> Self {
+        Self::with(|_| {})
+    }
+
+    /// The same scratch state, with `configure` applied to the resolved config
+    /// before the state is built — for the tests that need a different auth
+    /// posture or a different subsystem under test.
+    pub fn with(configure: impl FnOnce(&mut AgentConfig)) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let mut config = AgentConfig::default();
         config.web_dir = dir.path().join("web").to_string_lossy().into_owned();
@@ -62,6 +69,7 @@ impl Harness {
             "<!doctype html><title>operator</title>",
         )
         .expect("index");
+        configure(&mut config);
         let state = qualia_agent::build_state(config).expect("agent state");
         Self {
             router: app(state.clone()),
@@ -72,6 +80,11 @@ impl Harness {
 
     pub async fn get(&self, uri: &str) -> Reply {
         self.send(request("GET", uri, None, None)).await
+    }
+
+    /// `GET` with a bearer token, for the auth postures a test configures.
+    pub async fn get_with_token(&self, uri: &str, token: &str) -> Reply {
+        self.send(request("GET", uri, Some(token), None)).await
     }
 
     pub async fn post_json(&self, uri: &str, token: Option<&str>, body: serde_json::Value) -> Reply {

@@ -151,7 +151,10 @@ fn constant_time_eq(expected: &[u8], presented: &[u8]) -> bool {
 fn unauthorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({ "error": "a valid bearer token is required" })),
+        Json(serde_json::json!({
+            "schema_version": "qualia.auth-error.v1",
+            "error": "authentication_required",
+        })),
     )
         .into_response()
 }

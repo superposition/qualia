@@ -1,9 +1,10 @@
 //! The model-facing surface: MCP over HTTP, and the JEPA studio status.
 //!
-//! The tools this build advertises are the ones it can actually answer —
-//! observation of the braid, the mission broker, perception, the planner and
-//! the JEPA lanes. A model that asks for a tool this build does not have is
-//! told so, rather than handed an empty success.
+//! The tool manifest is the reference's: the names, safety classes and input
+//! schemas a model discovers here are the ones it discovers from the reference,
+//! so an external agent's tool selection does not change with this build. A call
+//! is answered with the name of the subsystem that has not landed, rather than
+//! with a result the process cannot substantiate.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -36,20 +37,28 @@ pub struct McpCallRequest {
 
 /// `GET /mcp/status` — what this server is and what it serves.
 pub async fn status_get(State(state): State<AppState>) -> Response {
-    Json(json!({
-        "ok": true,
-        "transport": "streamable-http",
-        "server": "qualia-agent",
-        "protocol_version": MCP_PROTOCOL_VERSION,
-        "tool_count": tool_descriptors().len(),
-        "world_model": "sync.v1 + world.model.v1",
-        "arena": {
-            "available": false,
-            "reason": "the arena projection lands with the sync arena runtime",
-            "replica_id": state.config.replica.id,
-        },
-    }))
-    .into_response()
+    match arena_projection(&state) {
+        Ok(arena) => Json(json!({
+            "ok": true,
+            "transport": "streamable-http",
+            "server": "qualia-agent",
+            "protocol_version": MCP_PROTOCOL_VERSION,
+            "tool_count": tool_descriptors().len(),
+            "world_model": "sync.v1 + world.model.v1",
+            "arena": arena,
+        }))
+        .into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+/// The sync.v1-projected arena and Studio state `/mcp/status` nests under
+/// `arena`. It is the sync arena runtime's projection, read out of the session
+/// store; this build carries neither, so the route reports what the reference
+/// reports when its store cannot be opened. The projection's fields arrive with
+/// the runtime that owns them.
+fn arena_projection(_state: &AppState) -> Result<Value, String> {
+    Err("session store unavailable".to_string())
 }
 
 /// `GET /mcp/tools` — the tool descriptors, with their safety class.
@@ -87,7 +96,7 @@ pub async fn protocol_post(State(state): State<AppState>, Json(request): Json<Va
                         "name": "qualia-agent",
                         "version": env!("CARGO_PKG_VERSION")
                     },
-                    "instructions": "Qualia is the shared superposed world model. Observe through the status tools; physical authority stays with Leash.",
+                    "instructions": "Qualia is the shared superposed world model. Read arena_observe/world_query, submit typed intent or world proposals, and let Leash retain all physical safety authority.",
                 }),
             )
         }
@@ -125,69 +134,415 @@ pub async fn call_post(State(state): State<AppState>, Json(request): Json<McpCal
 }
 
 /// Run one advertised tool.
-async fn call_tool(state: &AppState, name: &str, _args: Value) -> Result<Value, String> {
-    match name {
-        "braid_status" => Ok(serde_json::to_value(state.braid.view()).unwrap_or(Value::Null)),
-        "mission_control_missions" => Ok(state.mission_control.missions_envelope()),
-        "stack_health" => {
-            let (_, Json(health)) = crate::health::ready_get(State(state.clone())).await;
-            Ok(serde_json::to_value(health).unwrap_or(Value::Null))
-        }
-        "planner_status" => {
-            let (_, Json(planner)) = crate::health::planner_status_get(State(state.clone())).await;
-            Ok(serde_json::to_value(planner).unwrap_or(Value::Null))
-        }
-        "perception_status" => {
-            let (_, Json(perception)) = crate::perception::status_get(State(state.clone())).await;
-            Ok(serde_json::to_value(perception).unwrap_or(Value::Null))
-        }
-        "jepa_status" => jepa_status(state).await,
-        other => Err(format!("unknown tool: {other}")),
+///
+/// Every tool in this manifest reads a subsystem this build does not carry, so
+/// the call names the missing subsystem instead of answering with a result the
+/// process cannot substantiate. A name outside the manifest stays an error.
+async fn call_tool(_state: &AppState, name: &str, _args: Value) -> Result<Value, String> {
+    if !tool_manifest().iter().any(|entry| entry.0 == name) {
+        return Err(format!("unknown tool: {name}"));
+    }
+    Err(format!(
+        "{name} is not available in this build: {} has not landed",
+        tool_subsystem(name)
+    ))
+}
+
+/// The subsystem an advertised tool reads, for the answer a call gets here.
+fn tool_subsystem(name: &str) -> &'static str {
+    if name.starts_with("belief_") {
+        "the cognition runtime"
+    } else if name.starts_with("embodiment_") || name.starts_with("guard_") {
+        "the Leash operator client"
+    } else {
+        "the sync arena runtime"
     }
 }
 
-/// The tool list, with the safety class the studio renders.
-pub fn tool_descriptors() -> Vec<Value> {
+/// The reference's tool manifest: name, description, safety class, input schema.
+///
+/// Names, safety classes and schemas are the interface a model selects against.
+/// The descriptions are the reference's own, character for character, so a
+/// model reading them here reads what it reads there.
+fn tool_manifest() -> Vec<(&'static str, &'static str, &'static str, Value)> {
     vec![
-        tool(
-            "braid_status",
-            "Read the braid view: generation, session, open missions and the last promotion and quarantine stamps",
+        (
+            "arena_status",
+            "Read the sync.v1-projected arena and Studio state",
             "observe-only",
+            object_schema(&[]),
         ),
-        tool(
-            "mission_control_missions",
-            "Read every mission the broker holds, with its stage, status and last decision code",
+        (
+            "arena_observe",
+            "Read one correlated Leash observation plus Qualia SHM, GPU/planner state, and typed ontology",
             "observe-only",
+            object_schema(&[]),
         ),
-        tool(
-            "stack_health",
-            "Read stack readiness: integration inputs, planner state and the accelerator the compute service reports",
+        (
+            "multimodal_observe",
+            "Read one correlated camera frame, spatial voxel/world and route-plan state, plus L3-L6 belief sketches for multimodal reasoning",
             "observe-only",
+            object_schema(&[]),
         ),
-        tool(
-            "planner_status",
-            "Read whether the planner has fresh inputs and what the compute service can plan with",
-            "observe-only",
+        (
+            "arena_start_session",
+            "Start a Guard arena activity in the shared Qualia sync state",
+            "state-change",
+            object_schema(&[("label", "string", false)]),
         ),
-        tool(
-            "perception_status",
-            "Read the camera and VSLAM lanes and the movement gate they feed",
-            "observe-only",
+        (
+            "arena_stop_session",
+            "Stop Guard through Leash and close the shared arena activity",
+            "physical-stop",
+            object_schema(&[("reason", "string", false)]),
         ),
-        tool(
-            "jepa_status",
-            "Read the coherent JEPA evidence and telemetry slots, with their gates and provenance",
+        (
+            "arena_submit_intent",
+            "Submit a bounded LLM intent into the shared directive register while fast GPU lanes continue",
+            "state-change",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "intent": { "type": "string" },
+                    "constraints": { "type": "array" },
+                    "evidence_refs": { "type": "array" },
+                },
+                "required": ["intent"],
+            }),
+        ),
+        (
+            "studio_focus",
+            "Select the native Studio projection the human should inspect",
+            "state-change",
+            object_schema(&[("focus", "string", true)]),
+        ),
+        (
+            "studio_control",
+            "Select a native Studio entity, workspace, and surface; the app acknowledges the applied command",
+            "state-change",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "entity_id": { "type": "string" },
+                    "workspace": { "type": "string", "enum": ["history", "review", "mission", "world"] },
+                    "surface": { "type": "string", "enum": ["spatial", "camera", "calibration", "graph", "plan", "agent"] },
+                },
+            }),
+        ),
+        (
+            "world_query",
+            "Query typed sync namespaces including proposals, canonical objects, regions, factors, and beliefs",
             "observe-only",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "namespace": { "type": "string" },
+                    "key": { "type": "string" },
+                    "limit": { "type": "integer" },
+                },
+            }),
+        ),
+        (
+            "world_propose",
+            "Add a weighted world.model.v1 proposal without bypassing curator promotion",
+            "state-change",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": { "proposal": { "type": "object" } },
+                "required": ["proposal"],
+            }),
+        ),
+        (
+            "belief_status",
+            "Read continuous Qualia L3-L6 predictive belief state and Leash boundary freshness",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "belief_query",
+            "Query L3-L6 summaries and active evidence-backed semantic priors",
+            "observe-only",
+            object_schema(&[("query", "string", false)]),
+        ),
+        (
+            "belief_sketch",
+            "Read compact activation and weight-matrix sketches for canonical and shadow L3-L6 beliefs",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "belief_shadow_status",
+            "Read the operator-unlocked shadow experiment, patches, and prediction-error comparison",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "belief_shadow_patch",
+            "Apply one bounded delta to an operator-unlocked shadow L3-L6 weight coordinate; canonical weights and motors are never changed",
+            "shadow-only",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "layer": { "type": "integer", "minimum": 3, "maximum": 6 },
+                    "row": { "type": "integer", "minimum": 0, "maximum": 1023 },
+                    "column": { "type": "integer", "minimum": 0, "maximum": 1023 },
+                    "delta": { "type": "number", "minimum": -0.25, "maximum": 0.25 },
+                    "reason": { "type": "string" },
+                },
+                "required": ["layer", "row", "column", "delta"],
+            }),
+        ),
+        (
+            "belief_shadow_publish",
+            "Publish the bounded shadow patch set as an append-only CRDT cognition candidate; every device evaluates it against local weights before any local promotion",
+            "evidence-gated-learning",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "evidence_ids": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "maxItems": 64,
+                    },
+                },
+            }),
+        ),
+        (
+            "belief_propose_feedback",
+            "Propose one typed interpretation against the short-lived receipt returned by multimodal_observe; fresh physical evidence gates a bounded canonical L3-L6 learning update and Leash retains all motor authority",
+            "evidence-gated-learning",
+            model_feedback_schema(),
+        ),
+        (
+            "belief_propose_prior",
+            "Propose a typed, JEPA-evidence-bound Hermes/Kimi semantic view at L6; accepted priors influence canonical learning only while fresh physical evidence is present and never gain planner or motor authority",
+            "state-change",
+            semantic_prior_schema(),
+        ),
+        (
+            "belief_withdraw_prior",
+            "Withdraw a semantic prior from L6 by id",
+            "state-change",
+            object_schema(&[("prior_id", "string", true)]),
+        ),
+        (
+            "embodiment_health",
+            "Read the selected Leash embodiment adapter health and safety gates",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "embodiment_observe",
+            "Read telemetry from the selected Leash embodiment adapter",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "embodiment_invoke_capability",
+            "Invoke a typed Leash adapter capability; physical actions retain every Leash safety gate",
+            "leash-gated",
+            json!({
+                "type": "object",
+                "additionalProperties": true,
+                "properties": { "capability": { "type": "string" } },
+                "required": ["capability"],
+            }),
+        ),
+        (
+            "embodiment_stop",
+            "Send a non-latching zero-speed stop through the selected Leash adapter",
+            "physical-stop",
+            object_schema(&[]),
+        ),
+        (
+            "embodiment_estop",
+            "Latch e-stop through the selected Leash adapter",
+            "physical-stop",
+            object_schema(&[]),
+        ),
+        // Compatibility aliases for existing Guard operators: new clients use
+        // the adapter-neutral embodiment_* names above.
+        (
+            "guard_health",
+            "Read Guard health and Leash safety gates",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "guard_observe",
+            "Read Guard telemetry and sensor state through Leash",
+            "observe-only",
+            object_schema(&[]),
+        ),
+        (
+            "guard_invoke_capability",
+            "Invoke a Leash capability; physical actions still require authorization, deadman, collision, and e-stop gates",
+            "leash-gated",
+            json!({
+                "type": "object",
+                "additionalProperties": true,
+                "properties": { "capability": { "type": "string" } },
+                "required": ["capability"],
+            }),
+        ),
+        (
+            "guard_stop",
+            "Send a non-latching zero-speed stop through Leash",
+            "physical-stop",
+            object_schema(&[]),
+        ),
+        (
+            "guard_estop",
+            "Latch Guard emergency stop through Leash",
+            "physical-stop",
+            object_schema(&[]),
         ),
     ]
 }
 
-fn tool(name: &str, description: &str, safety: &str) -> Value {
+/// The tool list, with the safety class the studio renders.
+pub fn tool_descriptors() -> Vec<Value> {
+    tool_manifest()
+        .into_iter()
+        .map(|(name, description, safety, input_schema)| {
+            tool(name, description, safety, input_schema)
+        })
+        .collect()
+}
+
+/// One typed interpretation, as `belief_propose_feedback` carries it.
+fn proposition_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "class": { "enum": ["obstacle", "traversable", "object_identity", "person", "goal_preference", "motion", "location", "uncertainty"] },
+            "subject": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "relation": { "enum": ["is", "near", "left_of", "right_of", "ahead_of", "behind", "blocks", "supports"] },
+            "object": { "type": ["string", "null"] },
+            "polarity": { "enum": ["supports", "contradicts"] },
+        },
+        "required": ["class", "subject", "relation", "polarity"],
+    })
+}
+
+/// The JEPA-evidence reference a proposed semantic prior must carry.
+fn evidence_ref_schema() -> Value {
+    let id = || json!({ "type": "string", "minLength": 1, "maxLength": 256 });
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "producer_epoch": { "type": "integer", "minimum": 1 },
+            "runner_epoch": { "type": "integer", "minimum": 1 },
+            "inference_seq": { "type": "integer", "minimum": 1 },
+            "timestamp_ms": { "type": "integer", "minimum": 1 },
+            "camera_seq": { "type": "integer", "minimum": 0 },
+            "lidar_seq": { "type": "integer", "minimum": 0 },
+            "pose_seq": { "type": "integer", "minimum": 0 },
+            "action_seq": { "type": "integer", "minimum": 0 },
+            "physical_model_id": id(),
+            "checkpoint_id": id(),
+        },
+        "required": [
+            "producer_epoch",
+            "runner_epoch",
+            "inference_seq",
+            "timestamp_ms",
+            "camera_seq",
+            "lidar_seq",
+            "pose_seq",
+            "action_seq",
+            "physical_model_id",
+            "checkpoint_id",
+        ],
+    })
+}
+
+fn model_feedback_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "observation_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "proposition": proposition_schema(),
+            "confidence": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "model_id": { "type": "string" },
+            "model_version": { "type": "string" },
+            "request_id": { "type": "string" },
+            "runtime": { "enum": ["hermes", "kimi", "local_slm"] },
+        },
+        "required": ["observation_id", "proposition", "confidence"],
+    })
+}
+
+fn semantic_prior_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "prior": prior_schema() },
+        "required": ["prior"],
+    })
+}
+
+/// The `prior` object: the typed L6 view `belief_propose_prior` submits.
+fn prior_schema() -> Value {
+    let id = || json!({ "type": "string", "minLength": 1, "maxLength": 256 });
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "schema_version": { "const": "qualia.semantic-prior.v2" },
+            "prior_id": id(),
+            "proposition": proposition_schema(),
+            "evidence_refs": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": evidence_ref_schema(),
+            },
+            "confidence": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "created_at_ms": { "type": "integer", "minimum": 1 },
+            "expires_at_ms": { "type": "integer", "minimum": 1 },
+            "target_layer": { "const": 6 },
+            "projection_version": { "const": "qualia.l6-to-l3.fixed.v1" },
+            "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "runtime": { "enum": ["hermes", "kimi"] },
+                    "model_id": id(),
+                    "model_version": id(),
+                    "request_id": id(),
+                },
+                "required": ["runtime", "model_id", "model_version", "request_id"],
+            },
+            "goal_preference": {
+                "type": ["object", "null"],
+                "properties": {
+                    "canonical_goal_id": id(),
+                    "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+                },
+                "required": ["canonical_goal_id", "weight"],
+                "additionalProperties": false,
+            },
+        },
+        "required": ["schema_version", "prior_id", "proposition", "evidence_refs", "confidence", "created_at_ms", "expires_at_ms", "target_layer", "projection_version", "source", "goal_preference"],
+    })
+}
+
+fn tool(name: &str, description: &str, safety: &str, input_schema: Value) -> Value {
     json!({
         "name": name,
         "description": description,
         "safety": safety,
-        "inputSchema": object_schema(&[]),
+        "inputSchema": input_schema,
     })
 }
 

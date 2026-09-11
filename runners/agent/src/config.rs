@@ -6,6 +6,8 @@
 
 use std::path::PathBuf;
 
+use qualia_sync_types::ReplicaRole;
+
 use crate::auth::AuthConfig;
 use crate::compute::ComputeConfig;
 use crate::ThoughtTheaterConfig;
@@ -24,8 +26,6 @@ pub const DEFAULT_SESSION_STORE: &str = "artifacts/qualia_session_store.sqlite";
 pub const DEFAULT_MISSION_JOURNAL: &str = "artifacts/qualia_mission_control.jsonl";
 /// `QUALIA_REPLICA_ID`, default `qualia-host`.
 pub const DEFAULT_REPLICA_ID: &str = "qualia-host";
-/// `QUALIA_REPLICA_ROLE`, default `host`.
-pub const DEFAULT_REPLICA_ROLE: &str = "host";
 /// `QUALIA_ROSBRIDGE_URL`, default `ws://127.0.0.1:9091`.
 pub const DEFAULT_ROSBRIDGE_URL: &str = "ws://127.0.0.1:9091";
 /// `QUALIA_RERUN_BLUEPRINT_NAME`, default `Thought Theater`.
@@ -61,7 +61,7 @@ pub struct LeashEndpoint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplicaConfig {
     pub id: String,
-    pub role: String,
+    pub role: ReplicaRole,
     pub display_name: String,
     pub capabilities_json: String,
     pub metadata_json: String,
@@ -128,7 +128,7 @@ impl Default for AgentConfig {
             leash: None,
             replica: ReplicaConfig {
                 id: DEFAULT_REPLICA_ID.to_string(),
-                role: DEFAULT_REPLICA_ROLE.to_string(),
+                role: ReplicaRole::Host,
                 display_name: DEFAULT_REPLICA_ID.to_string(),
                 capabilities_json: "{}".to_string(),
                 metadata_json: "{}".to_string(),
@@ -189,7 +189,8 @@ impl AgentConfig {
             replica: ReplicaConfig {
                 id: replica_id,
                 role: env_string("QUALIA_REPLICA_ROLE")
-                    .unwrap_or_else(|| DEFAULT_REPLICA_ROLE.to_string()),
+                    .and_then(|value| value.parse::<ReplicaRole>().ok())
+                    .unwrap_or(ReplicaRole::Host),
                 display_name,
                 capabilities_json: env_string("QUALIA_REPLICA_CAPABILITIES_JSON")
                     .unwrap_or_else(|| "{}".to_string()),
@@ -267,13 +268,11 @@ fn env_string(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
-/// The stack's boolean spelling: only `0`, `false` and `no` are off.
+/// The stack's boolean spelling: only the reference's five on-spellings are on,
+/// so `QUALIA_ROSBRIDGE_ENABLED=Yes` is off exactly as it is in the reference.
 pub fn env_flag(name: &str, fallback: bool) -> bool {
     match std::env::var(name) {
-        Ok(value) => !matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "no"
-        ),
+        Ok(value) => matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"),
         Err(_) => fallback,
     }
 }

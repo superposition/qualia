@@ -111,6 +111,21 @@ pub struct ErrorEnvelope {
     pub error: ComputeErrorBody,
 }
 
+/// What `/compute/cuda-smoke` reports, success or failure alike.
+#[derive(Debug, Clone, Serialize)]
+pub struct CudaSmokeResult {
+    pub schema_version: String,
+    pub service_instance: String,
+    pub request_id: String,
+    pub result_type: String,
+    pub status: String,
+    pub reason: String,
+    pub compiler: Option<String>,
+    pub binary_path: Option<String>,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
+}
+
 /// The capability block for a service that has not answered.
 pub fn unavailable_capabilities(config: &ComputeConfig) -> ComputeCapabilities {
     ComputeCapabilities {
@@ -133,7 +148,12 @@ pub fn unavailable_capabilities(config: &ComputeConfig) -> ComputeCapabilities {
 }
 
 /// Build the error envelope for `code`.
-pub fn error_response(status: StatusCode, code: &str, message: String) -> Response {
+pub fn error_response(
+    status: StatusCode,
+    code: &str,
+    message: String,
+    retryable: bool,
+) -> Response {
     (
         status,
         Json(ErrorEnvelope {
@@ -144,7 +164,7 @@ pub fn error_response(status: StatusCode, code: &str, message: String) -> Respon
             error: ComputeErrorBody {
                 code: code.to_string(),
                 message,
-                retryable: false,
+                retryable,
             },
         }),
     )
@@ -158,6 +178,7 @@ fn compute_service_error() -> Response {
         StatusCode::SERVICE_UNAVAILABLE,
         "unavailable",
         "the compute service is not available in this build".to_string(),
+        false,
     )
 }
 
@@ -167,14 +188,70 @@ pub async fn capabilities_get(
     Json(unavailable_capabilities(&state.config.compute))
 }
 
-pub async fn cuda_smoke_get() -> Response {
-    compute_service_error()
+/// `/compute/cuda-smoke` answers with the result the compute service reports,
+/// never with the error envelope: a smoke test that could not run is a result
+/// with `status = "error"`.
+pub async fn cuda_smoke_get(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+) -> (StatusCode, Json<CudaSmokeResult>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(CudaSmokeResult {
+            schema_version: COMPUTE_SCHEMA_VERSION.to_string(),
+            service_instance: state.config.compute.service_instance.clone(),
+            request_id: String::new(),
+            result_type: "cuda_smoke".to_string(),
+            status: "error".to_string(),
+            reason: "the compute service is not available in this build".to_string(),
+            compiler: None,
+            binary_path: None,
+            stdout: None,
+            stderr: None,
+        }),
+    )
 }
 
 pub async fn costmap_stats_get() -> Response {
     compute_service_error()
 }
 
-pub async fn path_post() -> Response {
+/// `/compute/path` checks the planner's inputs before it asks the service: no
+/// fresh pose is `pose_unavailable`, no fresh lidar is `lidar_unavailable`, and
+/// only then does the missing service answer.
+pub async fn path_post(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+) -> Response {
+    let now = crate::now_ns();
+    let (pose_ns, lidar_ns) = match state.shm_opt() {
+        Some(region) => {
+            let world = region.world_model();
+            let lidar_ns = region
+                .lidar_scan()
+                .snapshot(4)
+                .map(|scan| scan.scan_end_ns)
+                .unwrap_or(0);
+            (world.robot_pose.timestamp_ns, lidar_ns)
+        }
+        None => (0, 0),
+    };
+    let fresh = |timestamp_ns: u64, stale_ns: u64| {
+        timestamp_ns != 0 && now.checked_sub(timestamp_ns).is_some_and(|age| age <= stale_ns)
+    };
+    if !fresh(pose_ns, crate::POSE_STALE_NS) {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pose_unavailable",
+            "planner blocked: no fresh backend pose".to_string(),
+            true,
+        );
+    }
+    if !fresh(lidar_ns, crate::LIDAR_STALE_NS) {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "lidar_unavailable",
+            "planner blocked: no fresh backend lidar".to_string(),
+            true,
+        );
+    }
     compute_service_error()
 }

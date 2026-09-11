@@ -87,7 +87,7 @@ pub struct ExploreStatus {
 /// `GET /entities`
 pub async fn entities_get(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
-        "schema_version": qualia_types::ENTITY_PROFILE_SCHEMA_VERSION,
+        "schema_version": "qualia.entities.v1",
         "entities": (*state.entity_profiles).clone(),
     }))
 }

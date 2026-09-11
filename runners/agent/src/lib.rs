@@ -379,7 +379,7 @@ pub async fn run(config: AgentConfig) -> Result<(), String> {
 
     let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path)
         .await
-        .map_err(|error| format!("load TLS keypair: {error}"))?;
+        .expect("Failed to load TLS cert");
 
     let state = build_state(config)?;
     start_background(&state);

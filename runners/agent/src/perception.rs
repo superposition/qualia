@@ -14,9 +14,6 @@ use serde::Serialize;
 
 use crate::{AppState, CAMERA_STALE_MS, VSLAM_STALE_MS};
 
-/// `QUALIA_ARENA_TAG_CAMERA_ID` names the camera the tag detector reads.
-pub const ARENA_TAG_CAMERA_ID: &str = "QUALIA_ARENA_TAG_CAMERA_ID";
-
 /// The camera lane.
 #[derive(Debug, Serialize)]
 pub struct CameraPerceptionStatus {
@@ -64,10 +61,17 @@ pub struct PerceptionStatus {
     pub visual_mapping_warning: Option<String>,
 }
 
-/// `QUALIA_ORIN_CAMERA_DEVICE` is the board's camera; the status names whichever
-/// device the frames actually came from when the configuration says nothing.
-fn camera_source(state: &AppState) -> String {
-    state.config.orin.camera_device.clone()
+/// The source the camera lane names: the stream or snapshot URL the operator
+/// configured, else the shared-memory camera frame the runners publish.
+pub fn camera_source() -> String {
+    ["QUALIA_CAMERA_STREAM_URL", "QUALIA_CAMERA_SNAPSHOT_URL"]
+        .into_iter()
+        .find_map(|name| {
+            std::env::var(name)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .unwrap_or_else(|| "qualia-shm:camera_frame".to_string())
 }
 
 fn camera_quality(luminance_mean: f32, luminance_stddev: f32) -> &'static str {
@@ -92,7 +96,7 @@ fn unavailable_status(state: &AppState, reason: &str) -> PerceptionStatus {
         camera: CameraPerceptionStatus {
             available: false,
             fresh: false,
-            source: camera_source(state),
+            source: camera_source(),
             frame_seq: 0,
             age_ms: None,
             source_width: 0,
@@ -195,7 +199,7 @@ pub async fn status_get(State(state): State<AppState>) -> (StatusCode, Json<Perc
         camera: CameraPerceptionStatus {
             available: camera_available,
             fresh: camera_fresh,
-            source: camera_source(&state),
+            source: camera_source(),
             frame_seq: camera.seq,
             age_ms: camera_age_ms,
             source_width: camera.source_width,
