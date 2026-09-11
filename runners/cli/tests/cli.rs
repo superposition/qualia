@@ -93,6 +93,41 @@ fn code(output: &Output) -> i32 {
         .expect("qualia exited without a status code")
 }
 
+/// The value of the first line that carries `label`.
+#[track_caller]
+fn value_of<'a>(text: &'a str, label: &str) -> &'a str {
+    text.lines()
+        .find_map(|line| line.strip_prefix(label))
+        .unwrap_or_else(|| panic!("no `{label}` line in:\n{text}"))
+}
+
+/// A transport failure on a readiness path must read exactly as the reference
+/// prints it: `curl returned <ExitStatus>` and nothing more. curl's own reason
+/// text (`: curl: (N) …`) is build-specific prose and was never part of that
+/// value (D-009); only the JSON paths append it.
+#[track_caller]
+fn assert_reference_reason(reason: &str) {
+    let rest = reason.strip_prefix("curl returned ").unwrap_or_else(|| {
+        panic!("a readiness reason must be `curl returned <ExitStatus>`, got {reason:?}")
+    });
+    // `ExitStatus` renders as `exit status: <n>` on Unix and `exit code: <n>`
+    // on Windows; anything after the number is the drift this test pins.
+    let status = ["exit status: ", "exit code: "]
+        .iter()
+        .find_map(|prefix| rest.strip_prefix(prefix))
+        .unwrap_or_else(|| {
+            panic!("a readiness reason must be curl's bare exit status, got {reason:?}")
+        });
+    assert!(
+        !status.is_empty() && status.bytes().all(|byte| byte.is_ascii_digit()),
+        "a readiness reason must be curl's bare exit status, got {reason:?}"
+    );
+    assert!(
+        !reason.contains("curl: ("),
+        "curl's own diagnostic must not reach a readiness reason, got {reason:?}"
+    );
+}
+
 #[test]
 fn no_arguments_prints_usage_on_stderr_and_succeeds() {
     let output = run(&[]);
@@ -291,6 +326,18 @@ fn planner_reports_unavailable_when_no_agent_answers() {
     assert!(text.contains("last_result: none\n"));
     assert!(text.contains("planner_reason: "));
     assert!(elapsed < BOUND, "a dead port held the CLI for {elapsed:?}");
+}
+
+/// The readiness paths keep the reference's transport-failure text: the bare
+/// curl exit status, without the `: curl: (N) …` diagnostic the JSON paths
+/// carry. The bound #168 adds must not re-word what the operator reads.
+#[test]
+fn readiness_reason_text_stays_the_reference_wording() {
+    let health = stdout(&run_with(&["health"], "QUALIA_WEB_PORT", "1"));
+    assert_reference_reason(value_of(&health, "health_reason: "));
+
+    let planner = stdout(&run_with(&["planner"], "QUALIA_WEB_PORT", "1"));
+    assert_reference_reason(value_of(&planner, "planner_reason: "));
 }
 
 #[test]
@@ -501,8 +548,11 @@ fn install_crypto_provider() {
 }
 
 /// The ceiling every bounded call must stay under. The real bound is the
-/// transport's own timeouts; this only fails a call that hangs.
-const BOUND: Duration = Duration::from_secs(30);
+/// transport's own timeouts — a connect timeout plus a total timeout is 7 s
+/// worst case across the two scheme candidates, both measured under 7.2 s —
+/// so this is a hang detector with room for a loaded host, not the bound
+/// itself. 20 s still fails a regression that more than doubles the timeouts.
+const BOUND: Duration = Duration::from_secs(20);
 
 #[test]
 fn health_bounds_a_hung_server() {
