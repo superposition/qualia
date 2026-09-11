@@ -6,6 +6,11 @@
 //! occupancy logit map, plus the immutable artifacts the evidence gates read
 //! back (`weights.safetensors` beside a `manifest.json` whose SHA-256 covers
 //! the weights). It never writes a plan or a motor command.
+//!
+//! Both published artifacts — the checkpoint manifest and the training report —
+//! reject any non-finite floating-point metric through `ensure_finite_fields`,
+//! which refuses by checkpoint and field name rather than let `serde_json`
+//! write a `null` the readers reject.
 
 use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use candle_nn::{
@@ -987,6 +992,10 @@ fn valid_checkpoint_id_byte(byte: u8) -> bool {
 /// The online model and the EMA encoder are stored in a single safetensors
 /// file under `target_encoder.` names, so a reader that verifies the digest has
 /// verified the exact bytes the runtime will load.
+///
+/// A manifest carrying a non-finite floating-point metric is refused before
+/// anything is staged: JSON cannot represent it, and the published manifest
+/// would be unreadable.
 pub fn write_candidate_checkpoint(
     root: impl AsRef<Path>,
     checkpoint_id: &str,
@@ -1277,7 +1286,7 @@ fn training_report_float_fields(report: &TrainingReport) -> Vec<(&'static str, f
 /// (`qualia-jepa-plan-eval` and the registry) reject a `null` metric with the
 /// same `invalid type: null, expected f64` error. A non-finite report metric is
 /// a diverged-run outcome and is not publishable.
-pub fn ensure_training_report_metrics_finite(report: &TrainingReport) -> ModelResult<()> {
+fn ensure_training_report_metrics_finite(report: &TrainingReport) -> ModelResult<()> {
     ensure_finite_fields(
         &report.checkpoint_id,
         "training-report",
