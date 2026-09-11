@@ -1,0 +1,29 @@
++    0.700 jepa materialize source=1/12 session=session-0
++    2.201 jepa materialized session=session-0 train=4167 validation=0 test=0
++    2.201 jepa materialize source=2/12 session=session-1
++    3.512 jepa materialized session=session-1 train=4167 validation=0 test=0
++    3.512 jepa materialize source=3/12 session=session-10
++    4.779 jepa materialized session=session-10 train=4167 validation=0 test=0
++    4.779 jepa materialize source=4/12 session=session-11
++    6.054 jepa materialized session=session-11 train=4167 validation=0 test=0
++    6.054 jepa materialize source=5/12 session=session-2
++    7.328 jepa materialized session=session-2 train=0 validation=4167 test=0
++    7.328 jepa materialize source=6/12 session=session-3
++    8.542 jepa materialized session=session-3 train=0 validation=0 test=4167
++    8.542 jepa materialize source=7/12 session=session-4
++    9.745 jepa materialized session=session-4 train=4167 validation=0 test=0
++    9.745 jepa materialize source=8/12 session=session-5
++   11.024 jepa materialized session=session-5 train=4167 validation=0 test=0
++   11.024 jepa materialize source=9/12 session=session-6
++   12.318 jepa materialized session=session-6 train=4167 validation=0 test=0
++   12.318 jepa materialize source=10/12 session=session-7
++   13.628 jepa materialized session=session-7 train=4167 validation=0 test=0
++   13.628 jepa materialize source=11/12 session=session-8
++   14.924 jepa materialized session=session-8 train=4167 validation=0 test=0
++   14.925 jepa materialize source=12/12 session=session-9
++   16.242 jepa materialized session=session-9 train=4167 validation=0 test=0
++  383.439 jepa train epoch=1/1 backend=cpu samples=41670 batches=1303 cnn_total=21.631748 cnn_nll=-3.770763 cnn_var=0.927191 cnn_cov=2.221737 cnn_ground=0.001000 flat_total=520.492891 flat_nll=129.123199 seconds=367.197 samples_per_second=113.48
++  383.439 jepa calibrate constant_baseline_samples=41670
++  465.844 candidate=cnn-b9992b243b19 weights=~/t47t31-capture/plain/train/cnn-b9992b243b19/weights.safetensors manifest=~/t47t31-capture/plain/train/cnn-b9992b243b19/manifest.json report=~/t47t31-capture/plain/train/jepa-training-report-d750e0c7d768a4cf6d4bdb931b0ffdcfd54f0f652f8343507f40e5a0df65dd44.json gate=false
++  465.896 qualia-jepa-train: candidate failed held-out predictive, grounding, or calibration gates
+[exit 1] total 465.983 s
