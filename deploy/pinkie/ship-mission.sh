@@ -86,39 +86,53 @@ fi
 # script or Makefile is broken on the board, and D-010 records exactly that. The
 # rest of the shipped text is reported, not refused: a committed CRLF Markdown or
 # Mermaid source changes nothing the board runs or parses.
-EXEC_MEMBERS="$(tar tzf "$TARBALL" | grep -E '\.(sh|py)$|(^|/)(Dockerfile|Makefile)[^/]*$')"
-TEXT_MEMBERS="$(tar tzf "$TARBALL" | grep -E '\.(toml|mmd|ts|mjs|html|css|ya?ml|json)$')"
+#
+# `|| true` on both listings: `grep` exits 1 when the archive holds no member of
+# that kind, and a bare command substitution under `set -e` would abort the ship
+# with no message. A member's CR is found by the shell's own pattern match on the
+# extracted bytes — `grep -q $'\r'` does not match a CR under this workstation's
+# MINGW grep, which would make the guard silently blind exactly where it matters.
+EXEC_MEMBERS="$(tar tzf "$TARBALL" | grep -E '\.(sh|py)$|(^|/)(Dockerfile|Makefile)[^/]*$' || true)"
+TEXT_MEMBERS="$(tar tzf "$TARBALL" | grep -E '\.(toml|mmd|ts|mjs|html|css|ya?ml|json)$' || true)"
 
-members_with_cr() {
-  local member
+scan_members() {
+  # scan_members <members> <offenders-var> <count-var>
+  local member content count=0 offenders=""
   while IFS= read -r member; do
     [ -n "$member" ] || continue
-    if tar xOzf "$TARBALL" "$member" | grep -q $'\r'; then
-      printf '%s\n' "$member"
-    fi
+    count=$((count + 1))
+    content="$(tar xOzf "$TARBALL" "$member" 2>/dev/null)" || continue
+    case "$content" in
+      *$'\r'*) offenders="${offenders}${member}
+" ;;
+    esac
   done <<<"$1"
+  printf -v "$2" '%s' "$offenders"
+  printf -v "$3" '%s' "$count"
 }
 
-CR_EXEC="$(members_with_cr "$EXEC_MEMBERS")"
+CR_EXEC=""
+EXEC_COUNT=0
+scan_members "$EXEC_MEMBERS" CR_EXEC EXEC_COUNT
 if [ -n "$CR_EXEC" ]; then
   echo "ship-mission: the archive carries CRLF in a file Linux runs; do not ship it:" >&2
-  printf '%s\n' "$CR_EXEC" >&2
+  printf '%s' "$CR_EXEC" >&2
   exit 1
 fi
-EXEC_COUNT="$(printf '%s\n' "$EXEC_MEMBERS" | grep -c .)"
 echo "check:    no CR in $EXEC_COUNT shipped script, Makefile and Dockerfile(s) (the archive is LF)"
 
-CR_TEXT="$(members_with_cr "$TEXT_MEMBERS")"
+CR_TEXT=""
+TEXT_COUNT=0
+scan_members "$TEXT_MEMBERS" CR_TEXT TEXT_COUNT
 if [ -n "$CR_TEXT" ]; then
-  TEXT_COUNT="$(printf '%s\n' "$CR_TEXT" | grep -c .)"
-  echo "note:     $TEXT_COUNT shipped source file(s) the board does not execute carry CRLF:"
-  printf '%s\n' "$CR_TEXT" | sed 's/^/          /'
+  echo "note:     $(printf '%s' "$CR_TEXT" | wc -l) other shipped file(s) carry CRLF (the parsers the board uses accept them; a shell or make would not):"
+  printf '%s' "$CR_TEXT" | sed 's/^/          /'
 fi
 
 SIZE="$(wc -c <"$TARBALL")"
 echo "bytes:    $SIZE"
 echo "sha256:   $(sha256sum "$TARBALL" | cut -d' ' -f1)"
-echo "files:    $(tar tzf "$TARBALL" | grep -vc '/$')"
+echo "files:    $(tar tzf "$TARBALL" | grep -vc '/$' || true)"
 
 PRIOR_NOTE=""
 REPO_ABS="$(cd -- "$REPO" && pwd)"

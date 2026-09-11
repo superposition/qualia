@@ -815,14 +815,23 @@ def self_test():
     case("the terminal record shapes are the statuses the checker accepts",
          nested["status"] in TERMINAL_STATUSES and flat["status"] in TERMINAL_STATUSES)
 
-    # The terminal-record lookup must find a nested record, which is what the live
-    # agent answers: the regression that a flat-only match hides.
-    found = next(
-        (mission for mission in [{"envelope": {"mission_id": "keep"}}, nested]
-         if record_mission_id(mission) == "m-nested"),
-        None,
-    )
-    case("the lookup finds a nested record among others", found is nested)
+    # The lookup itself, not a re-implementation of it: `_terminal_record` reads
+    # the missions route, so the fixture patches that and calls the real function.
+    # A revert to `mission.get("mission_id")` fails these cases.
+    saved_read_missions = globals()["read_missions"]
+    try:
+        globals()["read_missions"] = lambda base_url, token: [
+            {"envelope": {"mission_id": "other"}}, nested
+        ]
+        case("_terminal_record finds a nested record",
+             _terminal_record("http://unit", "token", "m-nested") is nested)
+        globals()["read_missions"] = lambda base_url, token: [flat]
+        case("_terminal_record finds a flat record",
+             _terminal_record("http://unit", "token", "m-flat") is flat)
+        case("_terminal_record reports no record for an id it does not hold",
+             _terminal_record("http://unit", "token", "m-missing") is None)
+    finally:
+        globals()["read_missions"] = saved_read_missions
 
     if failures:
         for failure in failures:

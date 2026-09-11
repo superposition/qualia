@@ -27,8 +27,10 @@ bash deploy/pinkie/ship-mission.sh                   # same, then scp to the boa
 
 The tarball travels as `git archive` output, never a working copy: a Windows checkout writes CRLF,
 and CRLF breaks shell scripts and the cross-build Dockerfile on Linux (D-010). `ship-mission.sh`
-checks every shipped script and config file in the archive for a CR before it ships — one missed file
-is the failure the guard exists for — and refuses if it finds one.
+checks every shipped script, Makefile and Dockerfile in the archive for a CR — one missed file is the
+failure the guard exists for — and refuses if it finds one; other shipped files that carry CRLF (the
+Mermaid sources, a JSON export) are listed, not refused, because the parsers the board uses accept
+them.
 
 Board — the invocation Main runs (the defaults are already the ticket's):
 
@@ -73,9 +75,10 @@ mission: OK
 ```
 
 The checker's own fixtures run anywhere, with no board and no stack:
-`python3 scripts/mission_check.py --self-test` prints `mission-check: self-test OK (38 cases)` and
-covers the transition's boundaries, the 8192 MiB bound, both memory parsers, the record shape the
-agent answers with, and the envelope bounds the broker validates.
+`python3 scripts/mission_check.py --self-test` prints `mission-check: self-test OK (40 cases)` and
+covers the transition's boundaries, the 8192 MiB bound, both memory parsers, the mission-record shapes
+the agent answers with (through the real lookup, so a revert to the flat-only match fails), and the
+envelope bounds the broker validates.
 
 ## Board facts the runbook assumes
 
