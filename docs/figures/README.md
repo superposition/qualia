@@ -8,7 +8,7 @@ in layout, colour or provenance. This file is the convention step 38 fixes;
 $ python scripts/figures_check.py              # the figures of the worktree you run it in
 $ python scripts/figures_check.py --root DIR   # a named tree, e.g. another worktree
 $ python scripts/figures_check.py --self-test  # the checker's own fixtures, no repository needed
-figures: OK (2 entries, 8 figures, 400 KiB budget)
+figures: OK (10 entries, 49 figures, 400 KiB budget)
 ```
 
 ## Layout
@@ -42,7 +42,8 @@ ticket rather than to a published entry takes a short slug for that set — `fly
    there — never retyped, so the entries cannot drift apart in colour. Every committed `.svg` carries
    the background, and the check says so.
 4. **Absolute URLs.** The entry references each figure by absolute URL
-   (`https://superposition.github.io/journal/<entry-slug>/<name>.svg`), never a relative path. The
+   (`https://raw.githubusercontent.com/superposition/qualia/main/docs/figures/<entry-slug>/<name>.<ext>`),
+   never a relative path. The
    publish gate ([`scripts/journal_gate.py`](../../scripts/journal_gate.py), step 37b) refuses a
    relative reference; this check makes the same rule true from this side by matching the journal URL
    a directory README quotes to the directory's own slug.
