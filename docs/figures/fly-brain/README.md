@@ -7,7 +7,7 @@ model, and the belief matrices.
 | --- | --- | --- |
 | `brain-layout.svg` (+ `.png`) | render | The committed prior in its committed spectral layout: 5 types, 9 edges, node size by degree. |
 | `brain-firing.svg` (+ `.png`) | render | Node intensity from the belief slots' activity (per layer), and each edge's pulse as `weight × rate[source]` — the published fly rate vector, which the coupling term `crates/fly-circuit` integrates. |
-| `brain-matrices.svg` (+ `.png`) | chart | One layer's decimated generative weight matrix and belief mean as heatmaps, over the short time axis with the braid's promotion marker and the coupling-scale marker on it. |
+| `brain-matrices.svg` (+ `.png`) | chart | One layer's decimated generative weight matrix and belief mean as heatmaps — both recorded, not hand-drawn — over the short time axis with the braid's promotion marker and the coupling-scale marker on it. |
 | `turntable.glb` | 3D asset | The same layout and firing, nodes and edges, with a 60-frame rotation baked as an animation (the T43 pattern). |
 | `firing-sample.json` | data | The recording every figure above reads. |
 
@@ -18,11 +18,14 @@ accent `#91dbba`, with the console's muted `#5c6673` as the idle end of the ramp
 
 `firing-sample.json` is not hand-written. `apps/qualia-console/examples/brain_evidence.rs` loads the
 committed prior, steps `crates/fly-circuit`'s rate model over it **with a synthetic drive** (types 0
-and 2; the runtime drives no type yet), publishes the model state and evolving belief slots into a
-fresh shared region, and samples that region through `BrainView::sample` — the console's own read
-path. The figures, the turntable and the panel therefore draw the same numbers.
+and 2; the runtime drives no type yet), publishes the model state, evolving belief slots and a
+decimated weight pattern into a fresh shared region, and samples that region through
+`BrainView::sample` — the console's own read path. The figures, the turntable and the panel therefore
+draw the same numbers.
 
-The view reads two sources, and the split is deliberate:
+The view reads two live sources — the belief slots for the nodes, the published rate vector for the
+pulses — and the recording carries a third, synthetic element, the weight matrix. The split is
+deliberate:
 
 * **Node intensity is the belief slots' activity**, live. The prior carries no type-to-layer map, so
   the crossing is stated: type `t` reads the `belief` slot of layer `t % 8`, and its intensity is
@@ -33,12 +36,18 @@ The view reads two sources, and the split is deliberate:
   live stack publishes an all-zero vector and the pulses are **flat** — that is the honest picture of
   the model at rest, and wiring the drive belongs to the T30/T31 work. The pulses in these committed
   figures come from the example's synthetic drive above, not from a runner.
+* **The generative weight matrices are synthetic too**: the runtime evolves no weights yet, so the
+  example publishes a deterministic decimated pattern into the real slot field the panel reads
+  (`shm::write_weight_tile` writes `layer_slot(layer).weights`), derived from the same belief phase it
+  publishes and rising over the recording so the weight scale moves. It is a stand-in for a live
+  weight update, in the same class as the synthetic drive above; the example refuses to write a
+  recording whose weight matrix is flat, and `make_figures.py` refuses to draw one.
 
 ```console
 $ cargo run -p qualia-console --example brain_evidence
-brain evidence: 5 types, 9 edges, peak rate 0.7763, 64 lidar points, 512 history frames, 2 markers -> docs/figures/fly-brain/firing-sample.json
+brain evidence: 5 types, 9 edges, peak rate 0.7763, weight peak 0.5000 (8192 decimated values, 512 weight scales), 64 lidar points, 512 history frames, 2 markers -> docs/figures/fly-brain/firing-sample.json
 $ py -3.13 docs/figures/fly-brain/make_figures.py
-figures: 5 nodes, 9 edges, belief node peak 0.4474, peak rate 0.7763, 8 layers, 512 history frames, 2 markers
+figures: 5 nodes, 9 edges, belief node peak 0.4474, peak rate 0.7763, weight peak 0.5000 (1024 distinct values), 8 layers, 512 history frames, 2 markers
 $ "C:/Program Files/Blender Foundation/Blender 4.3/blender.exe" --background \
       --python docs/figures/fly-brain/make_turntable.py
 turntable: 5 nodes, 9 edges, 60 frames -> docs/figures/fly-brain/turntable.glb (90180 bytes)
@@ -46,11 +55,11 @@ turntable: 5 nodes, 9 edges, 60 frames -> docs/figures/fly-brain/turntable.glb (
 
 Blender is invoked by path because it is not on `PATH`. `turntable.glb` is **not**
 byte-reproducible: Blender's glTF exporter writes the same structure, counts and animation every run
-(15 nodes, one `turntableAction` rotation channel over 60 frames) but not the same bytes in the
-binary payload, so a rebuild shows up as a binary diff — and the byte count above is the committed
-file's own, not a fixed size. Every input to it — `assets/brain/layout.json`, the prior and
-`firing-sample.json` — is reproducible; only the exporter's float emission is not. The file is
-committed so the figure has an asset to link either way.
+(15 nodes before the join, **2** after it — `brain` and `turntable` — one `turntableAction` rotation
+channel over 60 frames) but not the same bytes in the binary payload, so a rebuild shows up as a
+binary diff — and the byte count above is the committed file's own, not a fixed size. Every input to
+it — `assets/brain/layout.json`, the prior and `firing-sample.json` — is reproducible; only the
+exporter's float emission is not. The file is committed so the figure has an asset to link either way.
 
 The markers on the time axis are real: `PromotionAccepted` is the committed braid fixture's
 `last_promotion_ns`, and the coupling-scale marker is the dial the example observed through the same
@@ -78,3 +87,6 @@ redesign. The static `brain-layout.svg` and `brain-firing.svg` are the no-WebGL 
 * A frame count on the time axis is presentation, not measurement: the axis is the console's own
   short history, and no journal number is read off it. The frame cost is measured separately (see
   `apps/qualia-console/tests/brain_frame.rs`).
+* The weight matrices in the recording are the example's synthetic pattern, not a learned one: the
+  runtime evolves no weights yet (the same follow-up as the fly drive). The belief and rate evidence
+  is unaffected.

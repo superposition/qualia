@@ -61,10 +61,15 @@ Seven named states — `mission_healthy`, `mission_degraded`, `belief_stale`, `e
 as image snapshots under `tests/snapshots/`. The first four are driven from that same fixture;
 `world_fresh` opens a fresh shared region and pins that an attached but never-written World region
 reads `pose: no fix`, `map: not published` and `voxels: not published` instead of zeroes;
-`brain_fresh` publishes one fly-model state, the belief slots and one lidar scan into a fresh region
-and pins the belief-lit graph, the matrices and the braid marker; `default_arrangement` pins the
-opening picture, all six floating windows at their grid positions. To accept an intentional visual change, re-run with
-`UPDATE_SNAPSHOTS=1`.
+`brain_fresh` publishes one fly-model state, the belief slots, a decimated weight pattern and one
+lidar scan into a fresh region and pins the belief-lit graph, the matrices and the braid marker;
+`default_arrangement` pins the opening picture, all six floating windows at their grid positions. To
+accept an intentional visual change, re-run with `UPDATE_SNAPSHOTS=1`.
+
+The image compare allows a bounded number of differing pixels on the Linux board, because its wgpu
+backend rasterizes a handful of anti-aliased edges differently (6 observed) while the committed PNGs
+are rendered here; on this host it allows none. It is a floor for rasterizer noise, not a licence to
+drift: reverting the node-intensity source moves hundreds of pixels and still fails.
 
 The snapshot harness drives `egui_kittest` with the wgpu backend (`.wgpu()`), so the test host needs
 a GPU-capable adapter; development and verification run on the 4090. The snapshots assert no

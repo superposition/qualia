@@ -9,6 +9,14 @@
 //! `docs/figures/fly-brain/firing-sample.json`. The figure script and the
 //! console therefore draw the same numbers.
 //!
+//! The layer weights are **synthetic too**, and disclosed as such: the runtime
+//! evolves no weight matrix yet, so the example publishes a deterministic
+//! pattern into the real slot field the panel and the figures read
+//! (`write_weight_tile` writes `layer_slot(layer).weights`). The pattern is
+//! stated in `decimated_weight` and checked before the sample is written: a
+//! recording whose weight matrix is flat is a refused output, not a blank
+//! figure. Wiring a real weight update is the same follow-up as the fly drive.
+//!
 //! Run from the workspace root:
 //!
 //! ```console
@@ -17,6 +25,7 @@
 
 use std::path::PathBuf;
 
+use qualia_console::views::brain::matrices::{MATRIX_DIM, STATE_STRIDE};
 use qualia_console::views::brain::{BrainView, LayerPoint, PriorGraph};
 use qualia_types::{BeliefSlot, FlySimPayload, LidarScanSnapshot, JEPA_FLAG_OUTPUT_FINITE, JEPA_FLAG_VALID, NUM_LAYERS, STATE_DIM};
 use qualia_shm::{LayerWriter, ShmRegion};
@@ -28,6 +37,24 @@ const STEPS: usize = 64;
 /// first few percent of one, and the figure is a picture of the model's
 /// behaviour rather than of its first millisecond.
 const STEP_SECONDS: f32 = 0.02;
+
+/// The synthetic generative weight the example publishes for one decimated
+/// cell at one step.
+///
+/// The runtime evolves no weight matrix yet, so this stands in exactly as the
+/// drive above does. It has the belief's own shape at that cell — the belief
+/// mean is `0.5·sin(cell·0.05 + step·0.2 + layer)`, and this is the same phase
+/// scaled by a per-row envelope and a per-frame growth factor — so the two
+/// matrices the panels draw are related, deterministic (no clock, no RNG) and
+/// sign-changing, and `growth` rises 0.20 → 0.50 across the recording so the
+/// weight scale moves on the time axis. Four constants, no hidden state.
+fn decimated_weight(layer: usize, step: usize, row: usize, column: usize) -> f32 {
+    let cell = (row * MATRIX_DIM + column) as f32;
+    let phase = cell * 0.05 + step as f32 * 0.2 + layer as f32;
+    let envelope = 0.55 + 0.45 * (row as f32 * 0.41 + layer as f32).cos();
+    let growth = 0.20 + 0.30 * (step as f32 / (STEPS - 1) as f32);
+    growth * phase.sin() * envelope
+}
 
 fn prior_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/brain/prior")
@@ -118,6 +145,24 @@ fn main() -> Result<(), String> {
             slot.timestamp_ns = timestamp_ns;
             slot.cycle_us = 900;
             writer.publish();
+
+            // The weight half of #173 step 3, through the same slot the panel
+            // reads. One element per decimated cell (stride `STATE_STRIDE`) is
+            // what `MatrixReading::sample` copies, so this writes exactly the
+            // samples the panel and the figures see; a full 1024×1024 write per
+            // frame would be a megabyte per layer, and a real layer runner does
+            // that, not this recording.
+            for row in 0..MATRIX_DIM {
+                for column in 0..MATRIX_DIM {
+                    region.write_weight_tile(
+                        layer,
+                        row * STATE_STRIDE,
+                        column * STATE_STRIDE,
+                        1,
+                        &[decimated_weight(layer, step, row, column)],
+                    );
+                }
+            }
         }
 
         let sample = BrainView::sample(&region);
@@ -129,6 +174,42 @@ fn main() -> Result<(), String> {
     let mut sample = BrainView::sample(&region);
     sample.record_braid(&fixture.braid);
     sample.observe_coupling_scale(base_ns);
+
+    // #173 step 3 reads the recorded weight matrices as evidence, so a flat one
+    // is a refused output rather than a blank figure: count every distinct
+    // decimated value the panels will see and stop if the matrix (or the
+    // weight scale the history records) has only one.
+    let mut distinct: Vec<f32> = sample
+        .layers
+        .iter()
+        .flat_map(|layer| layer.weight.iter().copied())
+        .collect();
+    distinct.sort_by(f32::total_cmp);
+    distinct.dedup();
+    let weight_peak = sample
+        .layers
+        .iter()
+        .map(|layer| {
+            layer
+                .weight
+                .iter()
+                .fold(0.0_f32, |peak, value| peak.max(value.abs()))
+        })
+        .fold(0.0_f32, f32::max);
+    let mut scales: Vec<f32> = history
+        .iter()
+        .map(|point| point.weight_scale)
+        .collect();
+    scales.sort_by(f32::total_cmp);
+    scales.dedup();
+    if weight_peak <= f32::EPSILON || distinct.len() < 2 || scales.len() < 2 {
+        return Err(format!(
+            "the recorded weight matrix is flat: peak {weight_peak}, \
+             {} distinct decimated value(s), {} distinct weight scale(s)",
+            distinct.len(),
+            scales.len()
+        ));
+    }
 
     let firing = sample.firing.as_ref().ok_or("the fly slot is empty")?;
     let markers: Vec<serde_json::Value> = sample
@@ -206,10 +287,13 @@ fn main() -> Result<(), String> {
     .map_err(|error| format!("{}: {error}", path.display()))?;
 
     println!(
-        "brain evidence: {} types, {} edges, peak rate {:.4}, {} lidar points, {} history frames, {} markers -> {}",
+        "brain evidence: {} types, {} edges, peak rate {:.4}, weight peak {:.4} ({} decimated values, {} weight scales), {} lidar points, {} history frames, {} markers -> {}",
         prior.type_count(),
         prior.edge_count(),
         firing.peak(),
+        weight_peak,
+        distinct.len(),
+        scales.len(),
         sample.cloud.points.len(),
         history.len(),
         sample.markers.len(),

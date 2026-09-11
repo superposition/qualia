@@ -16,7 +16,9 @@ publishes into a shared region, so the numbers here are the ones the view reads,
 not a hand-drawn sketch. The node intensity is the belief slots' activity, which
 in this recording is the example's evolving belief; live it is the runners'. The
 edge pulses are the published fly rate vector, which stays flat until the fly
-drive is wired (T30/T31).
+drive is wired (T30/T31). The weight matrices are the example's synthetic
+pattern too — the runtime evolves no weights yet — and this script refuses to
+draw a flat one, so a blank weight panel is a failed run, not a quiet figure.
 
 Run:  python make_figures.py
 """
@@ -116,7 +118,12 @@ def project(positions: np.ndarray) -> np.ndarray:
     return np.stack([x, y], axis=1)
 
 
-def heat(ax, values: np.ndarray, title: str) -> None:
+def heat(ax, values: np.ndarray, title: str, *, require_variation: bool = False) -> None:
+    if require_variation and np.unique(values).size < 2:
+        raise SystemExit(
+            f"figures: {title} is flat ({np.unique(values).size} distinct value(s)); "
+            "refusing to write a blank panel"
+        )
     ax.set_title(title, color=INK, fontsize=9.0, fontfamily="DejaVu Sans Mono")
     scale = max(float(np.abs(values).max()), 1e-9)
     ax.imshow(values, cmap=SIGNED_RAMP, vmin=-scale, vmax=scale, interpolation="nearest", aspect="equal")
@@ -242,7 +249,12 @@ def figure_matrices(sample: dict, history: list[dict], markers: list[dict]) -> N
     fig.patch.set_facecolor(BG)
     grid = fig.add_gridspec(2, 2, height_ratios=[3.0, 1.0], hspace=0.35, wspace=0.12)
 
-    heat(fig.add_subplot(grid[0, 0]), weight, f"layer {layer['layer']} weight matrix (decimated)")
+    heat(
+        fig.add_subplot(grid[0, 0]),
+        weight,
+        f"layer {layer['layer']} weight matrix (decimated)",
+        require_variation=True,
+    )
     heat(fig.add_subplot(grid[0, 1]), belief, f"layer {layer['layer']} belief mean (decimated)")
 
     ax = fig.add_subplot(grid[1, :])
@@ -303,10 +315,16 @@ def main() -> int:
     figure_matrices(sample, sample["history"], sample["markers"])
 
     intensity = node_intensity(sample, type_count)
+    matrices = next(
+        (layer for layer in sample["layers"] if layer["layer"] == 0), sample["layers"][0]
+    )
+    weight = np.asarray(matrices["weight"], dtype=float)
     print(
         f"figures: {type_count} nodes, {edge_count} edges, "
         f"belief node peak {max(intensity, default=0.0):.4f}, "
         f"peak rate {max(abs(rate) for rate in sample['rates']):.4f}, "
+        f"weight peak {float(np.abs(weight).max()):.4f} "
+        f"({np.unique(weight).size} distinct values), "
         f"{len(sample['layers'])} layers, {len(sample['history'])} history frames, "
         f"{len(sample['markers'])} markers"
     )
