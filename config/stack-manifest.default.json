@@ -58,6 +58,7 @@
   "env": {
     "QUALIA_FLY_MODE": "off",
     "QUALIA_FLY_PRIOR_PATH": "",
+    "QUALIA_FLY_COUPLING_SCALE": "1.0",
     "QUALIA_LEASH_BASE_URL": "http://127.0.0.1:8000"
   }
 }

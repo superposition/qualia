@@ -12,6 +12,11 @@
 //! and can be cancelled or time out with a verified-zero stop because it never
 //! entered motion. Each of those publishes a braid mission event, so the
 //! operator page's mission count is the broker's count.
+//!
+//! A closed mission also steps the agent's bounded dial on the prior's coupling
+//! (T30, #46). The reading lives in the journal beside the mission rows, and is
+//! written into the stack manifest's `env` block so the supervisor hands it to
+//! the belief layers at their next start.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -23,6 +28,7 @@ use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use qualia_braid::rules::{clamp_coupling_scale, next_coupling_scale, COUPLING_SCALE_DEFAULT};
 use qualia_braid::BraidEvent;
 use qualia_sync_types::{
     MissionCommandV1, MissionEnvelopeV1, MissionEventKindV1, MissionEventV1, MissionStatusV1,
@@ -140,6 +146,15 @@ struct MissionControlStateV1 {
     next_event_sequence: u64,
     broker_producer_epoch: Option<u64>,
     broker_sequence: u64,
+    /// The agent's dial on the prior's coupling (T30, #46), as it was last
+    /// stepped. `serde`-defaulted and skipped at its default so a journal a
+    /// build before the dial wrote still reproduces its own digest: the
+    /// journal's `state_sha256` covers this state's serialized form, and a
+    /// field that appears in it only when the agent has stepped the dial keeps
+    /// every earlier line verifiable. Dropping old journals instead would throw
+    /// away the missions and the producer epoch with them.
+    #[serde(default = "coupling_scale_default", skip_serializing_if = "is_coupling_scale_default")]
+    coupling_scale: f32,
     deliveries: BTreeMap<String, MissionEnvelopeV1>,
     missions: BTreeMap<String, MissionRecordV1>,
     events: Vec<OutboundMissionEvent>,
@@ -153,6 +168,7 @@ impl MissionControlStateV1 {
             next_event_sequence: 0,
             broker_producer_epoch: None,
             broker_sequence: 0,
+            coupling_scale: COUPLING_SCALE_DEFAULT,
             deliveries: BTreeMap::new(),
             missions: BTreeMap::new(),
             events: Vec::new(),
@@ -173,6 +189,11 @@ struct MissionJournalRecord {
 pub struct MissionControlRuntime {
     inner: Arc<Mutex<MissionControlStateV1>>,
     journal_path: Arc<PathBuf>,
+    /// The stack manifest the dial is handed to the supervisor through, or
+    /// `None` when the environment named none: there is then no manifest the
+    /// supervisor reads (`runners/init` uses its embedded default), so the
+    /// handover is skipped rather than rewriting a file nobody reads.
+    stack_manifest: Option<Arc<PathBuf>>,
     persistence_error: Arc<Mutex<Option<String>>>,
     notify: Arc<Notify>,
     shutting_down: Arc<AtomicBool>,
@@ -201,9 +222,20 @@ impl MissionControlRuntime {
                 eprintln!("qualia-agent: migrated mission event ordering to a JSON-safe producer epoch");
             }
         }
+        // The dial the environment names is this process's seed: the supervisor
+        // hands down the manifest the agent itself last wrote, and an operator
+        // who sets the key means it. Every step the dial takes is journalled,
+        // so an environment that names nothing resumes from the last reading.
+        if let Some(scale) = coupling_scale_from_env() {
+            state.coupling_scale = scale;
+        }
         Self {
             inner: Arc::new(Mutex::new(state)),
             journal_path: Arc::new(journal_path),
+            stack_manifest: config
+                .stack_manifest
+                .as_ref()
+                .map(|path| Arc::new(PathBuf::from(path))),
             persistence_error: Arc::new(Mutex::new(error)),
             notify: Arc::new(Notify::new()),
             shutting_down: Arc::new(AtomicBool::new(false)),
@@ -805,13 +837,137 @@ impl MissionControlRuntime {
         Ok(())
     }
 
-    /// Report a mission closing to the braid once its record is terminal.
+    /// Report a mission closing to the braid once its record is terminal, and
+    /// step the dial the belief layers read.
+    ///
+    /// A completed mission is a success; every other terminal status — failed
+    /// or cancelled — is not, so it carries the coupling down. The bounds hold
+    /// from either direction: a run of failures cannot reach zero and a run of
+    /// successes cannot reach infinity.
     fn report_closed(&self, mission_id: &str, status: MissionStatusV1) {
         self.braid.observe(BraidEvent::MissionClosed {
             mission_id: mission_id.to_string(),
             outcome: braid_outcome(status),
         });
+        self.step_coupling_scale(status == MissionStatusV1::Completed);
     }
+
+    /// Step the bounded coupling dial by one mission outcome, durably.
+    ///
+    /// The new reading is committed to the journal before it is handed to the
+    /// manifest, so a crash between the two leaves the agent resuming from the
+    /// scale it last stepped rather than from a reading no durable record has.
+    /// A launch that names no manifest has nothing to hand the dial to, so the
+    /// handover is skipped and the journal is the only durable record.
+    fn step_coupling_scale(&self, outcome_ok: bool) {
+        let (previous, next) = {
+            let mut state = self.inner.lock().expect("mission control state lock");
+            let previous_state = state.clone();
+            let previous = state.coupling_scale;
+            let next = next_coupling_scale(previous, outcome_ok);
+            state.coupling_scale = next;
+            drop(state);
+            if let Err(error) = self.commit(previous_state) {
+                eprintln!("qualia-agent: coupling scale not persisted ({error})");
+                return;
+            }
+            (previous, next)
+        };
+        eprintln!("qualia-agent: coupling scale {previous} -> {next}");
+        let Some(manifest) = &self.stack_manifest else {
+            eprintln!(
+                "qualia-agent: coupling scale not handed to the stack \
+                 (QUALIA_STACK_MANIFEST is unset; the journal holds it)"
+            );
+            return;
+        };
+        if let Err(error) = write_coupling_scale(manifest, next) {
+            eprintln!("qualia-agent: coupling scale not handed to the stack ({error})");
+        }
+    }
+}
+
+/// The dial's default, for a journal written before the dial existed.
+fn coupling_scale_default() -> f32 {
+    COUPLING_SCALE_DEFAULT
+}
+
+/// Whether a dial reading is the default, and so stays out of the journal's
+/// digested state.
+fn is_coupling_scale_default(scale: &f32) -> bool {
+    *scale == COUPLING_SCALE_DEFAULT
+}
+
+/// The bounded dial reading the environment names, or `None` when it names
+/// none: an unset key leaves the journalled reading alone, and one that is not
+/// a number is the default.
+fn coupling_scale_from_env() -> Option<f32> {
+    std::env::var("QUALIA_FLY_COUPLING_SCALE")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<f32>().ok())
+        .map(clamp_coupling_scale)
+}
+
+/// Write the dial into the stack manifest's `env` block, atomically.
+///
+/// The supervisor reads the manifest when it spawns the children, so this is
+/// how a belief layer's next start is handed the dial the agent last chose. The
+/// write is the discipline `qualia-jepa-registry` uses: a uniquely named
+/// sibling is written and synced, then renamed over the manifest, so a crash
+/// leaves the previous manifest rather than a torn one.
+fn write_coupling_scale(path: &PathBuf, scale: f32) -> Result<(), String> {
+    use std::io::Write;
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("read stack manifest {}: {error}", path.display()))?;
+    let mut manifest: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("decode stack manifest {}: {error}", path.display()))?;
+    let object = manifest
+        .as_object_mut()
+        .ok_or_else(|| format!("stack manifest {} is not an object", path.display()))?;
+    let env = object
+        .entry("env")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| format!("stack manifest {} carries no env block", path.display()))?;
+    env.insert(
+        "QUALIA_FLY_COUPLING_SCALE".to_string(),
+        serde_json::Value::String(scale.to_string()),
+    );
+    let bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|error| format!("encode stack manifest {}: {error}", path.display()))?;
+
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    std::fs::create_dir_all(directory)
+        .map_err(|error| format!("create stack manifest dir {}: {error}", directory.display()))?;
+    let marker = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("stack-manifest");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let partial = directory.join(format!(".{marker}.{}.{nonce}.partial", std::process::id()));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&partial)
+        .map_err(|error| format!("create {}: {error}", partial.display()))?;
+    file.write_all(&bytes)
+        .map_err(|error| format!("write {}: {error}", partial.display()))?;
+    file.sync_all()
+        .map_err(|error| format!("sync {}: {error}", partial.display()))?;
+    drop(file);
+    std::fs::rename(&partial, path)
+        .map_err(|error| format!("rename {}: {error}", partial.display()))?;
+    #[cfg(unix)]
+    std::fs::File::open(directory)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|error| format!("sync {}: {error}", directory.display()))?;
+    Ok(())
 }
 
 /// Stop every mission the broker owns, for a clean shutdown.

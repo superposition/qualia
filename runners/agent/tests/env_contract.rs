@@ -138,3 +138,29 @@ fn the_camera_source_names_the_configured_url() {
     std::env::remove_var("QUALIA_CAMERA_STREAM_URL");
     std::env::remove_var("QUALIA_CAMERA_SNAPSHOT_URL");
 }
+
+/// `QUALIA_STACK_MANIFEST` names the manifest the supervisor is handed the
+/// coupling dial through. With none named there is no target and no default:
+/// `runners/init` reads its own embedded `config/stack-manifest.default.json`
+/// when the key is unset, so an agent that fell back to that tracked path would
+/// rewrite a file the running stack never reads (T30, #46).
+#[test]
+fn an_unset_stack_manifest_names_no_handover_target() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+
+    std::env::remove_var("QUALIA_STACK_MANIFEST");
+    assert_eq!(
+        AgentConfig::from_env().stack_manifest,
+        None,
+        "an unset key leaves the handover with no target, never the tracked default"
+    );
+
+    std::env::set_var("QUALIA_STACK_MANIFEST", "C:/tmp/deploy/manifest.json");
+    assert_eq!(
+        AgentConfig::from_env().stack_manifest.as_deref(),
+        Some("C:/tmp/deploy/manifest.json"),
+        "a manifest the environment names is the handover target"
+    );
+
+    std::env::remove_var("QUALIA_STACK_MANIFEST");
+}

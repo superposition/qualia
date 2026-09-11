@@ -17,6 +17,19 @@
 
 use crate::BraidEvent;
 
+/// The bounded dial the mission-outcome rule drives (T30, #46).
+///
+/// The arithmetic is the coupling's own contract, so it lives beside
+/// `CouplingPrior::couple`, which applies the scale a dial reading names. The
+/// rule layer re-exports it because the dial is what
+/// [`BraidAction::LowerCoupling`] asks for: the failed-mission rule fires the
+/// same [`COUPLING_STEP_DOWN`] factor [`next_coupling_scale`] steps by, and the
+/// agent persists the bounded reading for the belief runners.
+pub use qualia_jepa::prior::{
+    clamp_coupling_scale, next_coupling_scale, COUPLING_SCALE_CEILING, COUPLING_SCALE_DEFAULT,
+    COUPLING_SCALE_FLOOR, COUPLING_STEP_DOWN, COUPLING_STEP_UP,
+};
+
 /// The braid event a rule fires on.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventPattern {
@@ -43,8 +56,11 @@ pub enum EventPattern {
 /// What a fired rule asks the agent to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BraidAction {
-    /// Lower the prior's coupling by `factor`, bounded by the caller (T30, #46:
-    /// `0.90` carries a failed mission down one step).
+    /// Lower the prior's coupling by `factor`, bounded by the caller (T30,
+    /// #46: `0.90` carries a failed mission down one step). The caller is the
+    /// agent, and [`next_coupling_scale`] is the step it takes: the product is
+    /// clamped to [`COUPLING_SCALE_FLOOR`]..[`COUPLING_SCALE_CEILING`] so no
+    /// failure can drive the coupling to zero.
     LowerCoupling { factor: f32 },
     /// Feed what survived a quarantine back into training.
     RequestTraining,
@@ -73,7 +89,7 @@ pub fn default_rules() -> Vec<Rule> {
     vec![
         Rule {
             when: EventPattern::MissionClosed { outcome: "failed".to_string() },
-            then: BraidAction::LowerCoupling { factor: 0.90 },
+            then: BraidAction::LowerCoupling { factor: COUPLING_STEP_DOWN },
         },
         Rule { when: EventPattern::PromotionRolledBack, then: BraidAction::EnterObserveOnly },
         Rule { when: EventPattern::Quarantined, then: BraidAction::RequestTraining },
