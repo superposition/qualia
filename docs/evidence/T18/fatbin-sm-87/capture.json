@@ -1,0 +1,135 @@
+{
+  "backend": "ncu",
+  "argv": [
+    "gpu-e5293633ad869b15",
+    "--test-threads=1"
+  ],
+  "profiler_argv": [
+    "sudo",
+    "env",
+    "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+    "/usr/local/cuda/bin/ncu",
+    "--target-processes",
+    "all",
+    "--launch-count",
+    "8",
+    "--export",
+    "~/t18-capture/capture",
+    "--force-overwrite",
+    "target/release/deps/gpu-e5293633ad869b15",
+    "--test-threads=1"
+  ],
+  "returncode": 0,
+  "status": "complete",
+  "kernel_count": 8,
+  "commit": "456fdfb4d00db17c5675aca56a7c6472f32bb598",
+  "ticket": "T18 (#33), PR #207",
+  "board": {
+    "name": "Pinkie \u2014 Waveshare-carried NVIDIA Jetson Orin NX Engineering Reference Developer Kit",
+    "uname_m": "aarch64",
+    "kernel": "5.15.148-tegra",
+    "driver": "NVRM 540.4.0 (Open Kernel Module for aarch64)",
+    "cuda_toolkit": "12.9 (V12.9.41)",
+    "ncu": "2025.2.0.0 (build 35613519) public-release",
+    "compute_capability": "8.7",
+    "ld_library_path": "/usr/local/cuda-12.9/compat"
+  },
+  "build": {
+    "command": "CUDAARCHS=87-real NVCC=/usr/local/cuda/bin/nvcc cargo test -p qualia-cuda --features cuda --release --offline --no-run",
+    "rustc": "1.94.0 (4a4ef493e 2026-03-02)",
+    "cudarc": "0.19.9",
+    "rustflags": "-C target-feature=+fp16",
+    "fatbins": {
+      "action_score": 14472,
+      "belief_couple": 7792,
+      "belief_update": 43888,
+      "cognition_update": 45744,
+      "costmap_stats": 3832,
+      "evidence_layout": 3064,
+      "perception_voxel": 5624,
+      "smoke": 3064
+    },
+    "fatbin_targets": "sm_87 only (cuobjdump --list-elf)"
+  },
+  "harness": {
+    "tests": 8,
+    "passed": 8,
+    "failed": 0,
+    "wall_seconds": 20.17,
+    "line": "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.17s"
+  },
+  "kernel_time_us_total": 39319.17,
+  "launches": [
+    {
+      "id": 0,
+      "kernel": "action_score",
+      "duration": "97.12",
+      "duration_unit": "us"
+    },
+    {
+      "id": 1,
+      "kernel": "belief_couple",
+      "duration": "23.33",
+      "duration_unit": "us"
+    },
+    {
+      "id": 2,
+      "kernel": "belief_update",
+      "duration": "13.00",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 3,
+      "kernel": "cognition_update",
+      "duration": "12.96",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 4,
+      "kernel": "cognition_update",
+      "duration": "12.94",
+      "duration_unit": "ms"
+    },
+    {
+      "id": 5,
+      "kernel": "cognition_patch",
+      "duration": "16.26",
+      "duration_unit": "us"
+    },
+    {
+      "id": 6,
+      "kernel": "costmap_stats",
+      "duration": "20.83",
+      "duration_unit": "us"
+    },
+    {
+      "id": 7,
+      "kernel": "perception_voxel",
+      "duration": "261.63",
+      "duration_unit": "us"
+    }
+  ],
+  "runs": [],
+  "files": {
+    "kernels.csv": {
+      "bytes": 2461,
+      "sha256": "97d66620bbac6cf1c26748960770a313c612df1ec9fb09a0ffdd5b6a445c11cb"
+    },
+    "kernels.json": {
+      "bytes": 12709,
+      "sha256": "07baa0e7bf6ab51cff91eb647074781703926973c019cd39e6eb1463bb26f8c4"
+    },
+    "metrics.csv": {
+      "bytes": 76589,
+      "sha256": "10d64d2adf9ea3a5a390b875b6cc269933369b49e8bd53f0c816610fe0f8c063"
+    },
+    "capture.ncu-rep": {
+      "bytes": 598551,
+      "sha256": "459226bde65caad1f29893ebb6578f95ebf3f4008acc490778a0ece9bfd592bd"
+    },
+    "ncu-run.log": {
+      "bytes": 1411,
+      "sha256": "c4de6ba17fb9113052052d6ebf748b62589c3f76ff8a7265edbdef213bbf22f7"
+    }
+  }
+}
