@@ -21,7 +21,7 @@ Consequences:
 ## D-002 — Licence
 
 Apache-2.0 with a `NOTICE` carrying the Leash MIT notice and the Male CNS CC-BY attribution. Guarded
-in CI by `.github/workflows/notice-check.yml`.
+by `.github/scripts/notice-check.sh`.
 
 ## D-004 — Dependency pins forced by the toolchain
 

@@ -4,7 +4,7 @@ flowchart TD
   C --> D[work: tests first]
   D --> E[open PR, description starts with braid block]
   E --> F[comment breadcrumb: state review]
-  F --> G{review passes?}
+  F --> G{three reviewers approve?}
   G -- yes --> H[merge, close ticket, status:done]
   G -- no --> D
   C -. "agent dies" .-> X[label resume]
