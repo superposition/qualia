@@ -7,7 +7,7 @@
 
 use crate::client::{BraidSnapshot, BraidState, DriftReport};
 use crate::views::belief::BeliefView;
-use crate::views::evidence::EvidenceView;
+use crate::views::evidence::{EvidenceView, DEFAULT_EVIDENCE_ROOT};
 use crate::views::telemetry::TelemetryView;
 use crate::views::world::WorldView;
 use crate::Connection;
@@ -18,9 +18,6 @@ use crate::Connection;
 /// a fixture needs a name to draw, and this is that name, not a default the
 /// binary would use.
 pub const FIXTURE_SHM_REGION: &str = "qualia";
-
-/// Evidence root used when the fixture is the source.
-pub const FIXTURE_EVIDENCE_ROOT: &str = "artifacts/mcap";
 
 /// One coherent poll: everything `render_view` needs except the selected tab.
 #[derive(Debug, Clone, PartialEq)]
@@ -50,7 +47,7 @@ impl Sample {
             belief: BeliefView::unattached(region.clone(), format!("agent unreachable: {reason}")),
             world: WorldView::unattached(region, format!("agent unreachable: {reason}")),
             evidence: EvidenceView {
-                root: FIXTURE_EVIDENCE_ROOT.to_owned(),
+                root: DEFAULT_EVIDENCE_ROOT.to_owned(),
                 error: Some(format!("agent unreachable: {reason}")),
                 ..EvidenceView::default()
             },

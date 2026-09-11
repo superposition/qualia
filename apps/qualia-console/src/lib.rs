@@ -17,8 +17,11 @@
 //!   `http://127.0.0.1:8080` — source 2's household-subnet default and source
 //!   4's twelve hard-coded hosts are the counter-example;
 //! - no subnet autodiscovery, no TLS-insecure default — source 2;
-//! - the four snapshot states in the crate's `tests/snapshots.rs` are named
-//!   degraded states driven by a committed fixture — source 3;
+//! - the five snapshot states in the crate's `tests/snapshots.rs` are named
+//!   states, four driven by a committed fixture and one by a fresh region —
+//!   source 3;
+//! - the telemetry runner set is the stack manifest's, not a list beside it —
+//!   source 1's avoid;
 //! - assertions are accessible labels, not pixels alone — source 3;
 //! - `GET /braid` is polled off the UI thread through a command/message channel
 //!   — source 2;
@@ -31,6 +34,7 @@ pub mod client;
 pub mod poller;
 pub mod sample;
 mod shm_sample;
+pub mod stack;
 pub mod views;
 
 pub use client::{agent_url, fixture, BraidSnapshot, BraidState, DriftReport};

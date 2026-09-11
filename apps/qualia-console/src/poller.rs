@@ -77,12 +77,15 @@ fn worker(
     samples: &Sender<Sample>,
 ) {
     let evidence_root = crate::views::evidence::evidence_root();
+    // The stack's runner set is a deployment fact, not a per-poll one: read the
+    // manifest once and hold it for the life of the poller.
+    let sensing = crate::stack::load_sensing_runner_names();
     let mut evidence = EvidenceScan::default();
 
     loop {
         let observed_at_ns = now_ns();
         let region = shm_sample::region_name();
-        let shm = shm_sample::sample(region.as_deref());
+        let shm = shm_sample::sample(&region, &sensing);
 
         let sample = match source.fetch() {
             Ok(snapshot) => Sample {
@@ -93,7 +96,7 @@ fn worker(
                 belief: shm.belief,
                 world: shm.world,
                 telemetry: shm.telemetry,
-                evidence: evidence.refresh(evidence_root.as_deref(), shm.ledger),
+                evidence: evidence.refresh(&evidence_root, shm.ledger),
             },
             Err(reason) => {
                 // The fallback is the committed fixture source; if even that

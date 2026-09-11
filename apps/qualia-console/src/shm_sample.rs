@@ -10,11 +10,17 @@ use crate::views::evidence::LedgerRow;
 use crate::views::telemetry::TelemetryView;
 use crate::views::world::WorldView;
 
-/// The region name, from the environment, never a source literal.
-pub fn region_name() -> Option<String> {
+/// The arena every region-opening runner and the default manifest name
+/// (`config/stack-manifest.default.json` `shared_memory.name`;
+/// `runners/lidar/src/lib.rs` `DEFAULT_SHM_NAME`).
+pub const DEFAULT_SHM_NAME: &str = "/qualia_body";
+
+/// The region name, from the environment, defaulting to the stack's arena.
+pub fn region_name() -> String {
     std::env::var("QUALIA_SHM_NAME")
         .ok()
         .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| DEFAULT_SHM_NAME.to_owned())
 }
 
 /// The three panel readings plus the ledger, or one reason they are absent.
@@ -37,26 +43,29 @@ fn unavailable(region: Option<String>, reason: String) -> ShmSample {
     }
 }
 
-/// Attach to `region_name` and read the belief, world, telemetry and ledger.
-pub fn sample(region_name: Option<&str>) -> ShmSample {
-    let Some(name) = region_name else {
-        return unavailable(None, "QUALIA_SHM_NAME is unset".to_owned());
-    };
-
-    match ShmRegion::open(name) {
-        Ok(region) => ShmSample {
+/// Attach to `region` and read the belief, world, telemetry and ledger.
+///
+/// `sensing` is the sensing runner set the stack manifest declares, or the
+/// reason it could not be read; the telemetry rows are exactly that set, and a
+/// manifest that cannot be read is named without blanking the other panels.
+pub fn sample(region: &str, sensing: &Result<Vec<String>, String>) -> ShmSample {
+    match ShmRegion::open(region) {
+        Ok(region_handle) => ShmSample {
             belief: BeliefView {
-                region: Some(name.to_owned()),
-                ..BeliefView::sample(&region)
+                region: Some(region.to_owned()),
+                ..BeliefView::sample(&region_handle)
             },
             world: WorldView {
-                region: Some(name.to_owned()),
-                ..WorldView::sample(&region)
+                region: Some(region.to_owned()),
+                ..WorldView::sample(&region_handle)
             },
-            telemetry: TelemetryView::sample(&region),
-            ledger: LedgerRow::sample(&region),
+            telemetry: match sensing {
+                Ok(runner_names) => TelemetryView::sample(&region_handle, runner_names),
+                Err(reason) => TelemetryView::unattached(format!("stack manifest: {reason}")),
+            },
+            ledger: LedgerRow::sample(&region_handle),
             error: None,
         },
-        Err(error) => unavailable(Some(name.to_owned()), error.to_string()),
+        Err(error) => unavailable(Some(region.to_owned()), error.to_string()),
     }
 }

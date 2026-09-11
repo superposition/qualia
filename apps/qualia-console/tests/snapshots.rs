@@ -1,4 +1,5 @@
-//! The four named states, driven by the committed fixture.
+//! The named states: four driven by the committed fixture, one by a fresh
+//! region the test creates.
 //!
 //! `docs/frontend-lessons.md` (source 3) is the reason this file exists before
 //! the views grew: image snapshots of named degraded states, driven from a
@@ -11,12 +12,24 @@
 
 mod support;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use egui_kittest::{kittest::Queryable, Harness};
 use qualia_console::views::evidence::EvidenceView;
+use qualia_console::views::world::WorldView;
 use qualia_console::{fixture, ConsoleState, Sample, View};
+use qualia_shm::ShmRegion;
 use support::{healthy, ms_after_promotion};
 
 const VIEWPORT: [f32; 2] = [1280.0, 820.0];
+
+static NEXT_REGION: AtomicU64 = AtomicU64::new(0);
+
+/// Unique per run, so a region left behind by a killed run is never attached.
+fn region_name(tag: &str) -> String {
+    let index = NEXT_REGION.fetch_add(1, Ordering::Relaxed);
+    format!("/qualia_console_snap_{}_{}_{}", std::process::id(), tag, index)
+}
 
 fn state(view: View, sample: Sample) -> ConsoleState {
     let mut state = ConsoleState::from_sample(sample, "http://127.0.0.1:8080");
@@ -113,4 +126,28 @@ fn evidence_empty() {
     harness.get_by_label("ledger empty");
 
     harness.snapshot("evidence_empty");
+}
+
+#[test]
+fn world_fresh() {
+    // A region the console attaches to but nobody has written still renders
+    // its three absent arms: no fix, not published, not published.
+    let name = region_name("world");
+    let region = ShmRegion::create(&name).expect("create region");
+    let fixture = fixture();
+    let now = ms_after_promotion(&fixture, 20);
+    let mut sample = healthy(&fixture, now);
+    sample.world = WorldView {
+        region: Some(name),
+        ..WorldView::sample(&region)
+    };
+
+    let mut harness = harness(state(View::World, sample));
+    harness.run();
+
+    harness.get_by_label("pose: no fix");
+    harness.get_by_label("map: not published");
+    harness.get_by_label("voxels: not published");
+
+    harness.snapshot("world_fresh");
 }

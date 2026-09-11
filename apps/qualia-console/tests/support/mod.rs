@@ -5,9 +5,11 @@
 //! the agent, so the readings below are scaffolding, not a fallback the binary
 //! can reach. Nothing here opens a socket or touches the region.
 
-use qualia_console::sample::{FIXTURE_EVIDENCE_ROOT, FIXTURE_SHM_REGION};
+use qualia_console::sample::FIXTURE_SHM_REGION;
 use qualia_console::views::belief::{BeliefReading, BeliefView};
-use qualia_console::views::evidence::{EvidenceView, LedgerRow, SegmentReading};
+use qualia_console::views::evidence::{
+    EvidenceView, LedgerRow, SegmentReading, DEFAULT_EVIDENCE_ROOT,
+};
 use qualia_console::views::telemetry::{FrameReading, SensingRunner, TelemetryView};
 use qualia_console::views::world::{MapReading, PoseReading, WorldView};
 use qualia_console::{BraidSnapshot, Connection, Sample};
@@ -62,14 +64,18 @@ pub fn healthy(fixture: &BraidSnapshot, observed_at_ns: u64) -> Sample {
 
     let telemetry = TelemetryView {
         frames: vec![
-            FrameReading::published(SensingRunner::Lidar, "720 points", base_ns + 3_000_000),
             FrameReading::published(
-                SensingRunner::Camera,
+                SensingRunner::Lidar.runner_name(),
+                "720 points",
+                base_ns + 3_000_000,
+            ),
+            FrameReading::published(
+                SensingRunner::Camera.runner_name(),
                 "640x480 luma 0.42±0.11",
                 base_ns + 2_500_000,
             ),
             FrameReading::published(
-                SensingRunner::Vslam,
+                SensingRunner::Vslam.runner_name(),
                 "180 features, 12 keyframes, confidence 0.88",
                 base_ns + 2_200_000,
             ),
@@ -78,9 +84,9 @@ pub fn healthy(fixture: &BraidSnapshot, observed_at_ns: u64) -> Sample {
     };
 
     let evidence = EvidenceView {
-        root: FIXTURE_EVIDENCE_ROOT.to_owned(),
+        root: DEFAULT_EVIDENCE_ROOT.to_owned(),
         segments: vec![SegmentReading {
-            path: format!("{FIXTURE_EVIDENCE_ROOT}/{}.mcap", braid.session_id),
+            path: format!("{DEFAULT_EVIDENCE_ROOT}/{}.mcap", braid.session_id),
             byte_length: 4_194_304,
             channels: vec![
                 qualia_mcap::ChannelInventory {

@@ -64,7 +64,8 @@ impl LedgerRow {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EvidenceView {
-    /// The directory scanned for `*.mcap`, from `QUALIA_EVIDENCE_DIR`.
+    /// The directory scanned for `*.mcap`, from `QUALIA_EVIDENCE_DIR` or
+    /// [`DEFAULT_EVIDENCE_ROOT`].
     pub root: String,
     pub segments: Vec<SegmentReading>,
     pub quarantined: Vec<String>,
@@ -78,9 +79,19 @@ impl EvidenceView {
     }
 }
 
-/// The evidence directory, from the environment, never a source literal.
-pub fn evidence_root() -> Option<PathBuf> {
-    std::env::var_os("QUALIA_EVIDENCE_DIR").map(PathBuf::from)
+/// The evidence root the console scans when `QUALIA_EVIDENCE_DIR` is unset.
+///
+/// No manifest, runner or ticket names an evidence directory yet
+/// (`runners/arena-recorder` is a stub), so this is the console's own documented
+/// convenience: the fixture root and the live default are the same one literal.
+pub const DEFAULT_EVIDENCE_ROOT: &str = "artifacts/mcap";
+
+/// The evidence directory, from the environment or [`DEFAULT_EVIDENCE_ROOT`].
+pub fn evidence_root() -> PathBuf {
+    std::env::var_os("QUALIA_EVIDENCE_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_EVIDENCE_ROOT))
 }
 
 /// One candidate file, with the size and modification time its inventory
@@ -111,16 +122,7 @@ pub struct EvidenceScan {
 
 impl EvidenceScan {
     /// The evidence view for `root`, inventorying only what changed.
-    pub fn refresh(&mut self, root: Option<&Path>, ledger: Vec<LedgerRow>) -> EvidenceView {
-        let Some(root) = root else {
-            return EvidenceView {
-                root: String::new(),
-                ledger,
-                error: Some("QUALIA_EVIDENCE_DIR is unset".to_owned()),
-                ..EvidenceView::default()
-            };
-        };
-
+    pub fn refresh(&mut self, root: &Path, ledger: Vec<LedgerRow>) -> EvidenceView {
         match candidate_stamps(root) {
             Ok(stamps) => {
                 if !self.scanned || self.fingerprint.as_ref() != Some(&stamps) {
@@ -227,10 +229,7 @@ pub fn render(ui: &mut Ui, state: &ConsoleState) {
     let view = &state.evidence;
     ui.heading("Evidence");
 
-    match view.root.is_empty() {
-        true => ui.label("evidence root: unattached (QUALIA_EVIDENCE_DIR unset)"),
-        false => ui.label(format!("evidence root: {}", view.root)),
-    };
+    ui.label(format!("evidence root: {}", view.root));
 
     if let Some(error) = &view.error {
         ui.colored_label(

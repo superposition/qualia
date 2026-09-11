@@ -4,10 +4,26 @@
 //! keep the wire/ABI types with the client, not the widget. The structs here
 //! are owned copies — the view draws snapshots, never a live mapping.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use egui::Ui;
 use qualia_types::{PersistentMapGrid, VslamFrontendState};
 
 use crate::{format_age_ms, ConsoleState};
+
+/// A slot's publish sequence, or `None` before its first publish.
+///
+/// Every seqlocked slot reads zero until a runner publishes into it, which is
+/// what separates "nothing published yet" from a reading whose own numbers are
+/// zero. `views/telemetry.rs` gates its frames on the same rule; each World
+/// slot gates on it so an attached but never-written region renders its absent
+/// arms instead of a pose at the origin.
+fn published_seq(seq: &AtomicU64) -> Option<u64> {
+    match seq.load(Ordering::Acquire) {
+        0 => None,
+        published => Some(published),
+    }
+}
 
 /// Pose as the visual-SLAM front end publishes it.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,14 +36,15 @@ pub struct PoseReading {
 }
 
 impl PoseReading {
-    pub fn from_frontend(frontend: &VslamFrontendState) -> Self {
-        Self {
+    /// The front end's pose, or `None` until the VSLAM runner publishes one.
+    pub fn from_frontend(frontend: &VslamFrontendState) -> Option<Self> {
+        published_seq(&frontend.seq).map(|_| Self {
             x_m: frontend.pose_x_m,
             z_m: frontend.pose_z_m,
             yaw_rad: frontend.yaw_rad,
             confidence: frontend.pose_confidence,
             timestamp_ns: frontend.timestamp_ns,
-        }
+        })
     }
 }
 
@@ -44,16 +61,17 @@ pub struct MapReading {
 }
 
 impl MapReading {
-    pub fn from_grid(grid: &PersistentMapGrid) -> Self {
-        Self {
+    /// The map counters, or `None` until a runner publishes the grid.
+    pub fn from_grid(grid: &PersistentMapGrid) -> Option<Self> {
+        published_seq(&grid.seq).map(|seq| Self {
             width: grid.width,
             height: grid.height,
             resolution_m: grid.resolution_m,
             occupied_cells: grid.occupied_cells,
             observed_cells: grid.observed_cells,
-            seq: grid.seq.load(std::sync::atomic::Ordering::Acquire),
+            seq,
             last_update_ns: grid.last_update_ns,
-        }
+        })
     }
 }
 
@@ -76,17 +94,16 @@ impl WorldView {
     }
 
     /// Copy the pose, map counters and voxel sequence out of an attached region.
+    ///
+    /// Each is `None` until its own slot has been published to, so an attached
+    /// but never-written region keeps the absent arms below instead of drawing
+    /// zeroes as readings.
     pub fn sample(region: &qualia_shm::ShmRegion) -> Self {
         Self {
             region: None,
-            pose: Some(PoseReading::from_frontend(region.vslam_frontend())),
-            map: Some(MapReading::from_grid(region.map_grid())),
-            voxel_update_seq: Some(
-                region
-                    .world_voxels()
-                    .update_seq
-                    .load(std::sync::atomic::Ordering::Acquire),
-            ),
+            pose: PoseReading::from_frontend(region.vslam_frontend()),
+            map: MapReading::from_grid(region.map_grid()),
+            voxel_update_seq: published_seq(&region.world_voxels().update_seq),
             error: None,
         }
     }
@@ -107,7 +124,10 @@ pub fn render(ui: &mut Ui, state: &ConsoleState) {
         );
     }
 
-    if view.is_empty() {
+    // "No world data" means no source at all. An attached region whose slots
+    // are all still unpublished is not empty: it renders the three absent arms
+    // below, so the operator reads "no fix" rather than zeroes.
+    if view.error.is_some() && view.is_empty() {
         ui.label("no world data");
         return;
     }

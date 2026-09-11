@@ -14,12 +14,12 @@ name = "qualia-console"
 path = "src/main.rs"
 
 [dependencies]
-eframe = { version = "0.33", default-features = false, features = [
+eframe = { version = "=0.33.3", default-features = false, features = [
     "accesskit",
     "default_fonts",
     "wgpu",
 ] }
-egui = "0.33"
+egui = "=0.33.3"
 qualia-mcap.workspace = true
 qualia-shm.workspace = true
 qualia-types.workspace = true
@@ -32,5 +32,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-egui_kittest = { version = "0.33", features = ["snapshot", "wgpu"] }
+egui_kittest = { version = "=0.33.3", features = ["snapshot", "wgpu"] }
 tempfile = "3"
