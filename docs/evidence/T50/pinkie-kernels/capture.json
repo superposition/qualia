@@ -1,0 +1,159 @@
+{
+  "backend": "ncu",
+  "capture_range": "all",
+  "argv": [
+    "./target/release/deps/gpu-dd04a78e6201dd63",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "profiler_argv": [
+    "sudo",
+    "env",
+    "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+    "/usr/local/cuda/bin/ncu",
+    "--section",
+    "LaunchStats",
+    "--section",
+    "Occupancy",
+    "--launch-count",
+    "24",
+    "--kernel-name",
+    "regex:add_one|costmap_stats|belief_update|cognition_update|cognition_patch",
+    "--metrics",
+    "gpu__time_duration.sum,sm__cycles_elapsed.avg,sm__cycles_active.avg,sm__warps_active.avg.pct_of_peak_sustained_active,sm__throughput.avg.pct_of_peak_sustained_elapsed,smsp__inst_executed.sum,l1tex__t_bytes.sum,lts__t_bytes.sum,dram__bytes.sum,launch__registers_per_thread,launch__shared_mem_per_block_static,launch__shared_mem_per_block_dynamic,launch__grid_size,launch__block_size,launch__waves_per_multiprocessor,launch__occupancy_limit_registers,launch__occupancy_limit_shared_mem,launch__occupancy_limit_warps,launch__occupancy_limit_blocks,sm__maximum_warps_per_active_cycle_pct",
+    "--csv",
+    "./target/release/deps/gpu-dd04a78e6201dd63",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "command": "./target/release/deps/gpu-dd04a78e6201dd63 --test-threads=1 --nocapture",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 13,
+  "profiler": {
+    "name": "NVIDIA Nsight Compute Command Line Profiler",
+    "version": "2025.2.0.0 (build 35613519) (public-release)",
+    "path": "/usr/local/cuda/bin/ncu",
+    "root": "sudo on the board; as the account user it prints 'Insufficient privileges to launch app for profiling' and captures nothing"
+  },
+  "board": {
+    "name": "Pinkie",
+    "ssh": "jetson@192.168.55.1",
+    "kernel": "5.15.148-tegra",
+    "device": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "driver": "540.4.0 (CUDA 12.6, cuDriverGetVersion 12060)",
+    "nvpmodel": "10W",
+    "toolkit": "CUDA 12.9.41 at /usr/local/cuda, forward-compat libcuda at /usr/local/cuda-12.9/compat (12090)",
+    "cargo": "1.94.0 (85eff7c80 2026-01-15)",
+    "rustc": "1.94.0 (4a4ef493e 2026-03-02)",
+    "gcc": "11.4.0",
+    "nsys": "absent",
+    "mage": "absent"
+  },
+  "source": {
+    "repository": "superposition/qualia",
+    "commit": "a28736fda9bf92ed5483f8247829664b40fdcc15",
+    "measured_paths": [
+      "crates/cuda",
+      "crates/types",
+      "crates/shm",
+      "kernels/"
+    ],
+    "equivalence": "the capture describes this commit (a28736f), the one the board built: for the measured paths it is byte-identical to 76a081353ddaae0a8a6ac57009a7e10f9e3897e1 (git diff a28736f 76a0813 -- crates/cuda crates/types crates/shm kernels is empty), so the five device tests, 13 launches and five kernels recorded here are a28736f's. They are not the head this branch is based on (97a50f3, the PR base): since 76a0813, crates/cuda/tests/gpu.rs grew by 155 lines (5 -> 8 device tests), crates/cuda/src/cuda_impl.rs by 417 and crates/shm/src/lib.rs by 18, and kernels/action_score.cu, kernels/belief_couple.cu and kernels/perception_voxel.cu were added. No other crate is compiled."
+  },
+  "target": {
+    "package": "qualia-cuda",
+    "features": [
+      "cuda"
+    ],
+    "test": "crates/cuda/tests/gpu.rs",
+    "artifact": "target/release/deps/gpu-dd04a78e6201dd63"
+  },
+  "build": {
+    "host": "no docker daemon on the development workstation, so Cross.toml and docker/Dockerfile.cross-aarch64 are unusable; the board builds natively",
+    "transfer": "git archive HEAD | gzip, scp to the board, untar under the account home",
+    "board_manifest_edit": "root Cargo.toml members trimmed to crates/cuda, crates/types, crates/shm and [workspace.dependencies] to the two local paths those use; cargo resolves every member and the board's offline registry cache has no tempfile",
+    "board_lock_edit": "the checked-in Cargo.lock pins serde_derive 1.0.229, absent from the board's cached index (which has 1.0.228), so it was moved aside and cargo re-locked offline against the cache",
+    "command": "cargo test -p qualia-cuda --features cuda --test gpu --no-run --release -j3 --offline",
+    "result": "Finished `release` profile [optimized] target(s) in 39.38s"
+  },
+  "environment": {
+    "LD_LIBRARY_PATH": "/usr/local/cuda-12.9/compat",
+    "why": "CUDA forward-compatibility libcuda (driver version 12090). The board's toolkit is newer than its driver: NVRTC 12.9 emits PTX ISA 8.8 and the stock driver 540.4 JIT ceiling is PTX ISA 8.5, so cuModuleLoadData fails with CUDA_ERROR_UNSUPPORTED_PTX_VERSION (222). Probed directly: PTX 8.5 loads, 8.6 and 8.8 return 222 on the stock driver and 0 through the compat libcuda"
+  },
+  "runs": [
+    {
+      "label": "base",
+      "clock_control": "base (ncu default)",
+      "profiler_argv": [
+        "sudo",
+        "env",
+        "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+        "/usr/local/cuda/bin/ncu",
+        "--section",
+        "LaunchStats",
+        "--section",
+        "Occupancy",
+        "--launch-count",
+        "24",
+        "--kernel-name",
+        "regex:add_one|costmap_stats|belief_update|cognition_update|cognition_patch",
+        "--metrics",
+        "gpu__time_duration.sum,sm__cycles_elapsed.avg,sm__cycles_active.avg,sm__warps_active.avg.pct_of_peak_sustained_active,sm__throughput.avg.pct_of_peak_sustained_elapsed,smsp__inst_executed.sum,l1tex__t_bytes.sum,lts__t_bytes.sum,dram__bytes.sum,launch__registers_per_thread,launch__shared_mem_per_block_static,launch__shared_mem_per_block_dynamic,launch__grid_size,launch__block_size,launch__waves_per_multiprocessor,launch__occupancy_limit_registers,launch__occupancy_limit_shared_mem,launch__occupancy_limit_warps,launch__occupancy_limit_blocks,sm__maximum_warps_per_active_cycle_pct",
+        "--csv",
+        "./target/release/deps/gpu-dd04a78e6201dd63",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0,
+      "tests": {
+        "passed": 5,
+        "failed": 0,
+        "harness_seconds": 49.69
+      },
+      "launches": 13,
+      "kernel_time_ns": 39182176
+    },
+    {
+      "label": "none",
+      "clock_control": "none (--clock-control none)",
+      "note": "repeat with the clock lock released, to show the durations are not an artefact of ncu's default base-clock control",
+      "profiler_argv": [
+        "sudo",
+        "env",
+        "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+        "/usr/local/cuda/bin/ncu",
+        "--clock-control",
+        "none",
+        "--section",
+        "LaunchStats",
+        "--section",
+        "Occupancy",
+        "--launch-count",
+        "24",
+        "--kernel-name",
+        "regex:add_one|costmap_stats|belief_update|cognition_update|cognition_patch",
+        "--metrics",
+        "gpu__time_duration.sum,sm__cycles_elapsed.avg,sm__cycles_active.avg,sm__warps_active.avg.pct_of_peak_sustained_active,sm__throughput.avg.pct_of_peak_sustained_elapsed,smsp__inst_executed.sum,l1tex__t_bytes.sum,lts__t_bytes.sum,dram__bytes.sum,launch__registers_per_thread,launch__shared_mem_per_block_static,launch__shared_mem_per_block_dynamic,launch__grid_size,launch__block_size,launch__waves_per_multiprocessor,launch__occupancy_limit_registers,launch__occupancy_limit_shared_mem,launch__occupancy_limit_warps,launch__occupancy_limit_blocks,sm__maximum_warps_per_active_cycle_pct",
+        "--csv",
+        "./target/release/deps/gpu-dd04a78e6201dd63",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0,
+      "tests": {
+        "passed": 5,
+        "failed": 0,
+        "harness_seconds": 48.36
+      },
+      "launches": 13,
+      "kernel_time_ns": 39181760
+    }
+  ],
+  "unavailable_metrics": {
+    "dram__bytes.sum": "n/a on the Tegra driver; no DRAM counter is exposed, so a bandwidth-bound claim cannot be settled on this board"
+  },
+  "serial_gpu": "each run is bounded by --launch-count 24 and each started only after the previous one finished; the host 4090 was not used by this work. The board was not exclusively held: other agents were building and running there in the same window, which is why the two runs are reported as agreeing (belief_update spread 0.21 % across five captures in the session) rather than as an undisturbed measurement",
+  "no_display_devices_touched": "no adapter was disabled, enabled or restarted, and no driver was reinstalled (D-012)"
+}
