@@ -6,8 +6,9 @@
 //! later consumer reads — the pointer the registry left on disk and the braid's
 //! own view — never the loop's internals.
 //!
-//! `coupling_scale_is_bounded` (step 30) shares this file; step 32 adds the
-//! loop's failure paths.
+//! `coupling_scale_is_bounded` (step 30) shares this file, and step 32's
+//! `training_job_is_not_submitted_without_sealed_mcap` adds the loop's refusal
+//! path.
 
 use qualia_braid::improvement::{
     verify_and_promote, ImprovementConfig, ImprovementLoop, PromotionOutcome, QueueError,
@@ -122,6 +123,65 @@ fn sealed_evidence_asks_for_one_bounded_training_job() {
     );
     assert_eq!(queue.finish(), Some(job));
     assert!(queue.in_flight().is_none());
+}
+
+/// Step 32's test: a mission that closes with no sealed evidence in it asks for
+/// no training job. Closing a mission is never itself the submission — not even
+/// for a seal the session deferred while the mission was open.
+#[test]
+fn training_job_is_not_submitted_without_sealed_mcap() {
+    let temp = tempfile::tempdir().unwrap();
+    let improvement = ImprovementLoop::new(config(temp.path()));
+    let mut state = BraidState::default();
+
+    // The session opens a mission; the mission event itself submits nothing.
+    observe(
+        &mut state,
+        &BraidEvent::MissionOpened {
+            mission_id: "mission-1".to_string(),
+        },
+    )
+    .unwrap();
+    assert_eq!(state.open_missions, 1);
+
+    // The mission closes with no evidence in it: there is nothing to train on,
+    // so the loop submits nothing.
+    let closed = BraidEvent::MissionClosed {
+        mission_id: "mission-1".to_string(),
+        outcome: "completed".to_string(),
+    };
+    assert!(
+        improvement.on_event(&state, &closed).is_none(),
+        "a mission that closes with no sealed evidence emits no training job"
+    );
+    observe(&mut state, &closed).unwrap();
+    assert_eq!(state.open_missions, 0);
+
+    // A seal that arrived while the mission was open waits, and the close does
+    // not pick it up: a job follows a seal under a closed session, never a
+    // close.
+    let sealed = BraidEvent::EvidenceSealed {
+        sha256: "9f".repeat(32),
+    };
+    let open = BraidState {
+        open_missions: 1,
+        ..Default::default()
+    };
+    assert!(
+        improvement.on_event(&open, &sealed).is_none(),
+        "a seal is deferred while the mission is open"
+    );
+    assert!(
+        improvement.on_event(&open, &closed).is_none(),
+        "closing the mission does not submit the deferred seal"
+    );
+
+    // The same digest under the closed session is a job, so the refusals above
+    // are missing evidence and not a loop that never submits at all.
+    let job = improvement
+        .on_event(&state, &sealed)
+        .expect("a seal under the closed session trains");
+    assert_eq!(job.checkpoint_id, "cnn-9f9f9f9f9f9f");
 }
 
 /// A checkpoint manifest whose held-out numbers tie the flat baseline instead
