@@ -14,7 +14,7 @@ owned by one ticket per wave.
 | 5 | T37–T43 | Journal and mark. |
 | 6 | T28–T29 | End-to-end runs, alone at the end. |
 
-A wave ends when every ticket in it is `status:done` or `status:blocked` with a filled `blocked_on:`,
+A wave ends when every ticket in it is `status:done` or `status:blocked` with a filled `blocked_on:`, every ticket's artifact has been exercised on Pinkie per the definition of done in [`agents.md`](agents.md),
 **and** each epic the wave completed has a live journal entry:
 
 ```bash
