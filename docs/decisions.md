@@ -21,7 +21,7 @@ Consequences:
 ## D-002 — Licence
 
 Apache-2.0 with a `NOTICE` carrying the Leash MIT notice and the Male CNS CC-BY attribution. Guarded
-in CI by `.github/workflows/notice-check.yml`.
+by `.github/scripts/notice-check.sh`.
 
 ## D-004 — Dependency pins forced by the toolchain
 
@@ -55,7 +55,50 @@ The plan says the psi geometry is authored "in the journal repo". `superposition
 each other or from a second copy; the two sites receive the inlined geometry and the favicon in
 ticket T41.
 
+## D-008 — Runner operator logs are interface
+
+Runner log lines (`qualia-pose: pose_seq=…`, `qualia-lidar: scan ok`, …) are operator-visible output:
+the contract pass checks them line for line against the reference, and operators and the journal read
+them. They stay byte-identical to the reference even where a label (`tx`, `weight`, `keyframes`) uses
+vocabulary the re-authored internals no longer share.
+
+`scripts/provenance_check.py` is the arbiter of copied text — it measures code runs and prose runs,
+and a single-line format string is below its thresholds. Ticket #91 does not list the log lines among
+the things its rewrite changes, and the lidar scrub (#137) treated the same question the same way.
+C25's clean-room request to re-author the two `qualia-pose:` format strings is declined on this basis;
+the composition-order finding in #135 stands.
+
+## D-009 — Emitted values are interface
+
+A rewrite keeps every value the binary emits, publishes or writes observable — log text (D-008), the
+defaults it seeds (world directives, offline scene and object names), the codes and kinds it publishes
+(thought kinds, exposure labels), stderr diagnostics, and the fields it leaves unset — identical to the
+reference. Re-authoring concerns internals: names, structure, control flow, comments. A rewrite that
+re-words an emitted value, drops a diagnostic, or starts writing a field the reference leaves zero is a
+contract change, and the contract pass requests it back.
+
+Established by the C35 vision (#144) and C34 camera (#151) reviews on 2026-09-11: both had re-authored
+values with no consumer-visible justification, and the tickets name only crate internals as the subject
+of the rewrite.
+
+## D-010 — The deploy target "Pinkie" is attached to the dev host
+
+Pinkie is the Jetson Orin NX Engineering Reference Developer Kit (aarch64, L4T R36.4.7, CUDA 12.9,
+6 cores, ~3.6 GiB RAM visible, 161 GiB free on `/`) that carries the robot's software: Leash runs there
+(`leash` listening on :8000) with llama.cpp serving on :8080. It is the machine the plan calls "the
+Orin Nano" and the place the stack is actually used.
+
+Access from the dev host: Pinkie presents as a USB composite device — `UsbNcm Host Device` at
+`192.168.55.100/24` with the board at `192.168.55.1`, plus a serial console on `COM3` (both NVIDIA
+gadget interfaces, VID 0955). `ssh -i ~/.ssh/qualia_jetson_ed25519 jetson@192.168.55.1` works; the
+account password is `jetson`.
+
+Development stays on the 4090 host; deployment is a cross-build (`docker/Dockerfile.cross-aarch64`,
+`Cross.toml`) or a native aarch64 build on the board itself. Kernels are developed and verified on the
+4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`).
+
 ## D-003 — Repository
+
 
 Public repository is `superposition/qualia`. The former private repository is
 `superposition/qualia-private` (archived). The plan's `specdog/qualia` owner is **not** used:

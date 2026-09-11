@@ -3,68 +3,94 @@
 //! This is the only process that turns a world goal into wheel motion. Each
 //! tick it maps the shared body region, reads the newest pose and lidar scan,
 //! resolves the active [`NavGoal`] into left/right wheel speeds and writes one
-//! JSON frame to the serial link. Every tick also records one
+//! newline-terminated JSON frame to the serial link. Each tick also records one
 //! [`AppliedActionSnapshot`] interval — what was requested, what the safety
 //! arbitration allowed and what actually reached the wire — so the ledger can
 //! replay the decisions that produced the motion.
 //!
-//! Safety gates, applied in precedence order: the estop file, a stale pose, a
-//! stale lidar scan, an inactive goal, a blocked front arc, a stalled goal and
-//! arrival. When the runner is disarmed the serial link is never written and
-//! the published interval carries zero applied speed plus
-//! [`ACTION_SAFETY_DISARMED`]; when a write fails the interval carries
-//! [`ACTION_SAFETY_TRANSPORT_ERROR`] instead. The runner holds zero speed while
+//! Safety gates, in precedence order: the estop file, a stale pose, a stale
+//! lidar scan, an inactive goal, a blocked front arc, a stalled goal and
+//! arrival. A disarmed runner never writes the link; its published interval
+//! carries zero applied speed plus [`ACTION_SAFETY_DISARMED`]. A failed write
+//! carries [`ACTION_SAFETY_TRANSPORT_ERROR`]. The runner holds zero speed while
 //! armed at startup, and it never fails to start because a sensor is quiet.
 
 use qualia_shm::ShmRegion;
 use qualia_types::{
-    AppliedActionSnapshot, LidarScanSnapshot, NavGoal, NavPose, ACTION_AUTHORITY_QUALIA_DRIVE,
-    ACTION_SAFETY_COLLISION_CLAMP, ACTION_SAFETY_DISARMED, ACTION_SAFETY_ESTOP,
-    ACTION_SAFETY_GOAL_INACTIVE, ACTION_SAFETY_GOAL_REACHED, ACTION_SAFETY_PROGRESS_STALL,
-    ACTION_SAFETY_STALE_LIDAR, ACTION_SAFETY_STALE_POSE, ACTION_SAFETY_TRANSPORT_ERROR,
-    LIDAR_MAX_POINTS,
+    AppliedActionSnapshot, LidarScanSnapshot, NavGoal, NavPose, LIDAR_MAX_POINTS,
+    ACTION_AUTHORITY_QUALIA_DRIVE, ACTION_SAFETY_COLLISION_CLAMP, ACTION_SAFETY_DISARMED,
+    ACTION_SAFETY_ESTOP, ACTION_SAFETY_GOAL_INACTIVE, ACTION_SAFETY_GOAL_REACHED,
+    ACTION_SAFETY_PROGRESS_STALL, ACTION_SAFETY_STALE_LIDAR, ACTION_SAFETY_STALE_POSE,
+    ACTION_SAFETY_TRANSPORT_ERROR,
 };
 use serialport::SerialPort;
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
 
+// Serial link and shared-region defaults.
 const DEFAULT_SHM_NAME: &str = "/qualia_body";
 const DEFAULT_PORT: &str = "/dev/ttyTHS1";
 const DEFAULT_BAUD: u32 = 115_200;
 const DEFAULT_TICK_MS: u64 = 100;
+
+// A pose or scan older than this is not trustworthy for motion.
 const POSE_STALE_NS: u64 = 1_500_000_000;
 const LIDAR_STALE_NS: u64 = 1_500_000_000;
+
+// Control law.
 const GOAL_REACHED_M: f32 = 0.25;
 const MAX_WHEEL_CMD: f32 = 0.34;
 const MAX_TURN_CMD: f32 = 0.20;
 const HEADING_GAIN: f32 = 0.75;
 const FORWARD_GAIN: f32 = 0.45;
 const ROTATE_IN_PLACE_RAD: f32 = 0.85;
+
+// Front-sector stop and flank-turn geometry.
 const FRONT_STOP_DIST_M: f32 = 0.48;
 const FRONT_ARC_RAD: f32 = 0.35;
 const SIDE_CLEAR_ARC_INNER_RAD: f32 = 0.40;
 const SIDE_CLEAR_ARC_OUTER_RAD: f32 = 1.20;
 const BLOCKED_TURN_CMD: f32 = 0.16;
+
+// Latching stop and stall watchdog.
 const ESTOP_FILE: &str = "/tmp/qualia-estop";
 const PROGRESS_TIMEOUT_SECS: u64 = 5;
 const MIN_PROGRESS_M: f32 = 0.10;
 
-/// Steering and progress limits, each overridable from the environment so a
+/// How far a point sits from the body centre before the runner trusts it: the
+/// sensor reports its own housing as a very close return.
+const LIDAR_BLIND_SPOT_M: f32 = 0.05;
+/// Flank distance assumed when no reading exists on that side, so the clearer
+/// side always wins a comparison.
+const OPEN_FLANK_M: f32 = 10.0;
+/// Progress is measured against the closest approach so far; this much slack
+/// absorbs pose noise before the runner calls it a stall.
+const STALL_SLACK_M: f32 = 0.01;
+const LIDAR_SNAPSHOT_TRIES: usize = 8;
+const SERIAL_TIMEOUT_MS: u64 = 50;
+const LOG_PERIOD: Duration = Duration::from_secs(1);
+
+/// Steering and progress limits. Each is overridable from the environment so a
 /// stack manifest can retune the runner without a rebuild.
 #[derive(Clone, Copy)]
 struct DriveTuning {
+    /// Distance at which the goal counts as reached.
     goal_reached_m: f32,
     max_wheel_cmd: f32,
     max_turn_cmd: f32,
     heading_gain: f32,
     forward_gain: f32,
+    /// Heading error beyond which the runner pivots instead of driving.
     rotate_in_place_rad: f32,
+    /// Front-sector stop distance and half-width.
     front_stop_dist_m: f32,
     front_arc_rad: f32,
+    /// Flank sector used to choose a turn direction.
     side_clear_arc_inner_rad: f32,
     side_clear_arc_outer_rad: f32,
     blocked_turn_cmd: f32,
+    /// Progress watchdog.
     progress_timeout_secs: u64,
     min_progress_m: f32,
 }
@@ -90,36 +116,40 @@ impl Default for DriveTuning {
 }
 
 impl DriveTuning {
+    /// Overlay every `QUALIA_DRIVE_*` override onto the compiled defaults.
     fn from_env() -> Self {
-        Self {
-            goal_reached_m: env_f32("QUALIA_DRIVE_GOAL_REACHED_M", GOAL_REACHED_M),
-            max_wheel_cmd: env_f32("QUALIA_DRIVE_MAX_WHEEL_CMD", MAX_WHEEL_CMD),
-            max_turn_cmd: env_f32("QUALIA_DRIVE_MAX_TURN_CMD", MAX_TURN_CMD),
-            heading_gain: env_f32("QUALIA_DRIVE_HEADING_GAIN", HEADING_GAIN),
-            forward_gain: env_f32("QUALIA_DRIVE_FORWARD_GAIN", FORWARD_GAIN),
-            rotate_in_place_rad: env_f32("QUALIA_DRIVE_ROTATE_IN_PLACE_RAD", ROTATE_IN_PLACE_RAD),
-            front_stop_dist_m: env_f32("QUALIA_DRIVE_FRONT_STOP_DIST_M", FRONT_STOP_DIST_M),
-            front_arc_rad: env_f32("QUALIA_DRIVE_FRONT_ARC_RAD", FRONT_ARC_RAD),
-            side_clear_arc_inner_rad: env_f32(
-                "QUALIA_DRIVE_SIDE_CLEAR_ARC_INNER_RAD",
-                SIDE_CLEAR_ARC_INNER_RAD,
-            ),
-            side_clear_arc_outer_rad: env_f32(
-                "QUALIA_DRIVE_SIDE_CLEAR_ARC_OUTER_RAD",
-                SIDE_CLEAR_ARC_OUTER_RAD,
-            ),
-            blocked_turn_cmd: env_f32("QUALIA_DRIVE_BLOCKED_TURN_CMD", BLOCKED_TURN_CMD),
-            progress_timeout_secs: env_u64(
-                "QUALIA_DRIVE_PROGRESS_TIMEOUT_SECS",
-                PROGRESS_TIMEOUT_SECS,
-            ),
-            min_progress_m: env_f32("QUALIA_DRIVE_MIN_PROGRESS_M", MIN_PROGRESS_M),
-        }
+        let mut tuning = Self::default();
+        over_f32("QUALIA_DRIVE_GOAL_REACHED_M", &mut tuning.goal_reached_m);
+        over_f32("QUALIA_DRIVE_MAX_WHEEL_CMD", &mut tuning.max_wheel_cmd);
+        over_f32("QUALIA_DRIVE_MAX_TURN_CMD", &mut tuning.max_turn_cmd);
+        over_f32("QUALIA_DRIVE_HEADING_GAIN", &mut tuning.heading_gain);
+        over_f32("QUALIA_DRIVE_FORWARD_GAIN", &mut tuning.forward_gain);
+        over_f32(
+            "QUALIA_DRIVE_ROTATE_IN_PLACE_RAD",
+            &mut tuning.rotate_in_place_rad,
+        );
+        over_f32("QUALIA_DRIVE_FRONT_STOP_DIST_M", &mut tuning.front_stop_dist_m);
+        over_f32("QUALIA_DRIVE_FRONT_ARC_RAD", &mut tuning.front_arc_rad);
+        over_f32(
+            "QUALIA_DRIVE_SIDE_CLEAR_ARC_INNER_RAD",
+            &mut tuning.side_clear_arc_inner_rad,
+        );
+        over_f32(
+            "QUALIA_DRIVE_SIDE_CLEAR_ARC_OUTER_RAD",
+            &mut tuning.side_clear_arc_outer_rad,
+        );
+        over_f32("QUALIA_DRIVE_BLOCKED_TURN_CMD", &mut tuning.blocked_turn_cmd);
+        over_f32("QUALIA_DRIVE_MIN_PROGRESS_M", &mut tuning.min_progress_m);
+        tuning.progress_timeout_secs = env_u64(
+            "QUALIA_DRIVE_PROGRESS_TIMEOUT_SECS",
+            tuning.progress_timeout_secs,
+        );
+        tuning
     }
 }
 
-/// Everything the runner reads once at startup; the keys are the runner's
-/// operational contract.
+/// Everything the runner reads once at startup; the key names below are the
+/// runner's operational contract and must not drift.
 struct DriveConfig {
     shm_name: String,
     port: String,
@@ -137,18 +167,16 @@ impl DriveConfig {
             port: env_string("QUALIA_DRIVE_PORT", DEFAULT_PORT),
             baud: env_u32("QUALIA_DRIVE_BAUD", DEFAULT_BAUD),
             tick_ms: env_u64("QUALIA_DRIVE_TICK_MS", DEFAULT_TICK_MS),
-            armed: std::env::var("QUALIA_DRIVE_ARMED")
-                .is_ok_and(|value| parse_armed(&value)),
+            armed: parse_armed(&std::env::var("QUALIA_DRIVE_ARMED").unwrap_or_default()),
             publish_action_telemetry: std::env::var("QUALIA_ACTION_TELEMETRY_OWNER")
-                .is_ok_and(|value| value == "qualia-drive"),
+                .is_ok_and(|owner| owner == "qualia-drive"),
             tuning: DriveTuning::from_env(),
         }
     }
 }
 
-/// A command is only ever written by this runner and only when armed, so the
-/// arming spelling is kept deliberately strict rather than treating any
-/// non-empty value as consent.
+/// Arming is deliberately strict: only these spellings are consent, so a
+/// typo or an empty value leaves the motors disarmed.
 fn parse_armed(value: &str) -> bool {
     matches!(value, "1" | "true" | "TRUE" | "yes" | "YES")
 }
@@ -168,7 +196,7 @@ fn main() {
     };
 
     let mut port = match serialport::new(&config.port, config.baud)
-        .timeout(Duration::from_millis(50))
+        .timeout(Duration::from_millis(SERIAL_TIMEOUT_MS))
         .open()
     {
         Ok(port) => port,
@@ -186,76 +214,35 @@ fn main() {
         config.port, config.baud, config.armed
     );
     if config.armed {
-        // Hold zero speed the moment the link is claimed, before any goal.
+        // Claim the link at zero speed before any goal can be honoured.
         let _ = send_speed(&mut *port, 0.0, 0.0);
     }
 
-    let mut progress_distance = f32::INFINITY;
-    let mut progress_started = Instant::now();
+    let mut progress = ProgressGuard::new();
     let mut last_log = Instant::now();
     let producer_epoch = now_ns();
     let mut action_sequence = 0u64;
-    let mut pending_action: Option<AppliedActionSnapshot> = None;
+    let mut pending: Option<AppliedActionSnapshot> = None;
 
     loop {
         let now = now_ns();
 
-        // Close the previous interval now that its end time is known, and
-        // publish it. A publish failure is reported, not fatal: motion has
-        // already happened and the next interval is the one that matters.
-        if let Some(mut completed) = pending_action.take() {
-            completed.interval_end_ns = now;
-            if config.publish_action_telemetry {
-                if let Err(error) = shm.applied_action().publish(completed) {
-                    eprintln!("qualia-drive: applied action publish failed: {error}");
-                }
-            } else if completed.action_sequence == 1 {
-                eprintln!(
-                    "qualia-drive: action telemetry disabled; Leash bridge remains authoritative"
-                );
-            }
+        // The previous interval's end time only exists now, so it is closed
+        // and published first. A publish failure is reported, never fatal.
+        if let Some(interval) = pending.take() {
+            finish_interval(&shm, &config, interval, now);
         }
 
-        let world = shm.world_model();
-        let pose = world.robot_pose;
-        let goal = world.nav_goal;
+        let sensors = read_sensors(&shm, config.tuning, now);
+        let stalled = progress.stalled(sensors.pose, sensors.goal, config.tuning);
 
-        let pose_fresh =
-            pose.timestamp_ns != 0 && now.saturating_sub(pose.timestamp_ns) <= POSE_STALE_NS;
-        let lidar = shm.lidar_scan().snapshot(8).ok();
-        let lidar_fresh = lidar.as_ref().is_some_and(|scan| {
-            scan.seq != 0
-                && now.saturating_sub(scan.scan_end_ns.max(scan.scan_start_ns)) <= LIDAR_STALE_NS
-        });
-        let estop = std::path::Path::new(ESTOP_FILE).exists();
-        let clearance = if pose_fresh && lidar_fresh {
-            lidar
-                .as_ref()
-                .and_then(|scan| lidar_clearance(scan, pose, config.tuning))
-        } else {
-            None
-        };
-        let obstacle_stop = clearance
-            .and_then(|reading| reading.front)
-            .is_some_and(|distance| distance <= config.tuning.front_stop_dist_m);
-
-        let goal_distance = goal_distance_m(pose, goal);
-        if goal.active != 0 && goal_distance + config.tuning.min_progress_m < progress_distance {
-            progress_distance = goal_distance;
-            progress_started = Instant::now();
-        }
-        let progress_stalled = goal.active != 0
-            && progress_distance.is_finite()
-            && progress_started.elapsed() >= Duration::from_secs(config.tuning.progress_timeout_secs)
-            && goal_distance + 0.01 >= progress_distance;
-
-        let command = if goal.active == 0 {
+        let command = if sensors.goal.active == 0 {
             DriveCommand::WheelSpeeds {
                 left: 0.0,
                 right: 0.0,
             }
         } else {
-            control_to_goal(pose, goal, config.tuning)
+            control_to_goal(sensors.pose, sensors.goal, config.tuning)
         };
         let (requested_left, requested_right) = match command {
             DriveCommand::GoalReached => (0.0, 0.0),
@@ -263,28 +250,27 @@ fn main() {
         };
 
         let decision = arbitrate(DriveInput {
-            estop,
-            pose_fresh,
-            lidar_fresh,
-            goal_active: goal.active != 0,
-            obstacle_stop,
-            progress_stalled,
+            estop: sensors.estop,
+            pose_fresh: sensors.pose_fresh,
+            lidar_fresh: sensors.lidar_fresh,
+            goal_active: sensors.goal.active != 0,
+            obstacle_stop: sensors.obstacle_stop,
+            progress_stalled: stalled,
             command,
-            clearance,
+            clearance: sensors.clearance,
             tuning: config.tuning,
         });
         if decision.clear_goal {
-            clear_goal(&shm, goal);
+            clear_goal(&shm, sensors.goal);
         }
         if decision.reset_progress {
-            progress_distance = f32::INFINITY;
-            progress_started = Instant::now();
+            progress.rearm();
         }
 
         let transport_ok = transmit(config.armed, &mut *port, decision.left, decision.right);
 
         action_sequence = action_sequence.wrapping_add(1);
-        pending_action = Some(build_action_record(
+        pending = Some(build_action_record(
             decision.state,
             config.armed,
             transport_ok,
@@ -297,23 +283,8 @@ fn main() {
             now,
         ));
 
-        if last_log.elapsed() >= Duration::from_secs(1) {
-            println!(
-                "qualia-drive: state={} left={:.3} right={:.3} pose=({:.2},{:.2},{:.1}deg) goal_active={}",
-                decision.state,
-                decision.left,
-                decision.right,
-                pose.x_m,
-                pose.z_m,
-                pose.yaw_rad.to_degrees(),
-                goal.active
-            );
-            if let Some(reading) = clearance {
-                println!(
-                    "qualia-drive: clearance front={:.3?} left={:.3?} right={:.3?}",
-                    reading.front, reading.left, reading.right
-                );
-            }
+        if last_log.elapsed() >= LOG_PERIOD {
+            log_tick(&decision, &sensors);
             last_log = Instant::now();
         }
 
@@ -321,31 +292,148 @@ fn main() {
     }
 }
 
-/// The safety bits published with one interval. The state bit and the
-/// arm/transport bits are independent: a disarmed runner still reports why it
-/// was idle, and an armed runner that failed to write reports both.
+/// One tick's coherent sensor view.
+struct Sensors {
+    pose: NavPose,
+    goal: NavGoal,
+    pose_fresh: bool,
+    lidar_fresh: bool,
+    estop: bool,
+    clearance: Option<LidarClearance>,
+    obstacle_stop: bool,
+}
+
+fn read_sensors(shm: &ShmRegion, tuning: DriveTuning, now: u64) -> Sensors {
+    let world = shm.world_model();
+    let pose = world.robot_pose;
+    let goal = world.nav_goal;
+
+    let pose_fresh =
+        pose.timestamp_ns != 0 && now.saturating_sub(pose.timestamp_ns) <= POSE_STALE_NS;
+    let scan = shm.lidar_scan().snapshot(LIDAR_SNAPSHOT_TRIES).ok();
+    let lidar_fresh = scan.as_ref().is_some_and(|scan| {
+        scan.seq != 0
+            && now.saturating_sub(scan.scan_end_ns.max(scan.scan_start_ns)) <= LIDAR_STALE_NS
+    });
+
+    let clearance = if pose_fresh && lidar_fresh {
+        scan.as_ref()
+            .and_then(|scan| lidar_clearance(scan, pose, tuning))
+    } else {
+        None
+    };
+    let obstacle_stop = clearance
+        .and_then(|reading| reading.front)
+        .is_some_and(|distance| distance <= tuning.front_stop_dist_m);
+
+    Sensors {
+        pose,
+        goal,
+        pose_fresh,
+        lidar_fresh,
+        estop: std::path::Path::new(ESTOP_FILE).exists(),
+        clearance,
+        obstacle_stop,
+    }
+}
+
+/// Tracks the closest approach to the goal and how long ago it improved. The
+/// runner is stalled when the goal has not been approached within the timeout.
+struct ProgressGuard {
+    closest_m: f32,
+    improved_at: Instant,
+}
+
+impl ProgressGuard {
+    fn new() -> Self {
+        Self {
+            closest_m: f32::INFINITY,
+            improved_at: Instant::now(),
+        }
+    }
+
+    fn rearm(&mut self) {
+        self.closest_m = f32::INFINITY;
+        self.improved_at = Instant::now();
+    }
+
+    fn stalled(&mut self, pose: NavPose, goal: NavGoal, tuning: DriveTuning) -> bool {
+        if goal.active == 0 {
+            return false;
+        }
+        let range = goal_distance_m(pose, goal);
+        if range + tuning.min_progress_m < self.closest_m {
+            self.closest_m = range;
+            self.improved_at = Instant::now();
+        }
+        self.closest_m.is_finite()
+            && self.improved_at.elapsed() >= Duration::from_secs(tuning.progress_timeout_secs)
+            && range + STALL_SLACK_M >= self.closest_m
+    }
+}
+
+/// Stamp and publish one completed interval. Without telemetry ownership the
+/// runner still says once that the Leash bridge is the record instead.
+fn finish_interval(
+    shm: &ShmRegion,
+    config: &DriveConfig,
+    mut interval: AppliedActionSnapshot,
+    now: u64,
+) {
+    interval.interval_end_ns = now;
+    if config.publish_action_telemetry {
+        if let Err(error) = shm.applied_action().publish(interval) {
+            eprintln!("qualia-drive: applied action publish failed: {error}");
+        }
+    } else if interval.action_sequence == 1 {
+        eprintln!("qualia-drive: action telemetry disabled; Leash bridge remains authoritative");
+    }
+}
+
+fn log_tick(decision: &Decision, sensors: &Sensors) {
+    println!(
+        "qualia-drive: state={} left={:.3} right={:.3} pose=({:.2},{:.2},{:.1}deg) goal_active={}",
+        decision.state,
+        decision.left,
+        decision.right,
+        sensors.pose.x_m,
+        sensors.pose.z_m,
+        sensors.pose.yaw_rad.to_degrees(),
+        sensors.goal.active
+    );
+    if let Some(reading) = sensors.clearance {
+        println!(
+            "qualia-drive: clearance front={:.3?} left={:.3?} right={:.3?}",
+            reading.front, reading.left, reading.right
+        );
+    }
+}
+
+/// The safety bits published with one interval. The navigation-state bit and
+/// the arm/link bits are independent: a disarmed runner still reports why it
+/// sat still, and an armed runner whose write failed reports both.
 fn action_safety_flags(state: &str, armed: bool, transport_ok: bool) -> u32 {
-    let mut flags = match state {
+    let reason = match state {
         "estop" => ACTION_SAFETY_ESTOP,
         "stale_pose" => ACTION_SAFETY_STALE_POSE,
         "stale_lidar" => ACTION_SAFETY_STALE_LIDAR,
+        // Standing still with no goal is expected, but it is still why.
         "idle" => ACTION_SAFETY_GOAL_INACTIVE,
         "obstacle_turn" => ACTION_SAFETY_COLLISION_CLAMP,
         "progress_stall" => ACTION_SAFETY_PROGRESS_STALL,
         "goal_reached" => ACTION_SAFETY_GOAL_REACHED,
         _ => 0,
     };
-    if !armed {
-        flags |= ACTION_SAFETY_DISARMED;
-    } else if !transport_ok {
-        flags |= ACTION_SAFETY_TRANSPORT_ERROR;
+    match (armed, transport_ok) {
+        (false, _) => reason | ACTION_SAFETY_DISARMED,
+        (true, false) => reason | ACTION_SAFETY_TRANSPORT_ERROR,
+        (true, true) => reason,
     }
-    flags
 }
 
-/// Assembles the interval record published for one tick. `clamped_*` is the
-/// post-arbitration candidate; `applied_*` is zero unless the command was both
-/// armed and accepted by the link.
+/// Assembles the interval published for one tick. `clamped_*` is the
+/// post-arbitration candidate; `applied_*` stays zero unless the command was
+/// both armed and accepted by the link.
 fn build_action_record(
     state: &str,
     armed: bool,
@@ -388,34 +476,36 @@ enum DriveCommand {
 /// Pure proportional controller: aim at the goal, ease off the forward speed
 /// while the heading error is large, and clamp both wheels.
 fn control_to_goal(pose: NavPose, goal: NavGoal, tuning: DriveTuning) -> DriveCommand {
-    let dx = goal.x_m - pose.x_m;
-    let dz = goal.z_m - pose.z_m;
-    let distance = dx.hypot(dz);
-    if distance <= tuning.goal_reached_m {
+    let offset_x = goal.x_m - pose.x_m;
+    let offset_z = goal.z_m - pose.z_m;
+    let range = offset_x.hypot(offset_z);
+    if range <= tuning.goal_reached_m {
         return DriveCommand::GoalReached;
     }
 
-    let goal_heading = dz.atan2(dx);
-    let heading_error = normalize_angle(goal_heading - pose.yaw_rad);
-    let turn = (heading_error * tuning.heading_gain).clamp(-tuning.max_turn_cmd, tuning.max_turn_cmd);
-    let forward = if heading_error.abs() < tuning.rotate_in_place_rad {
-        (distance * tuning.forward_gain).clamp(0.0, tuning.max_wheel_cmd)
+    let bearing = normalize_angle(offset_z.atan2(offset_x) - pose.yaw_rad);
+    let yaw_cmd = (bearing * tuning.heading_gain).clamp(-tuning.max_turn_cmd, tuning.max_turn_cmd);
+    let drive_cmd = if bearing.abs() < tuning.rotate_in_place_rad {
+        (range * tuning.forward_gain).clamp(0.0, tuning.max_wheel_cmd)
     } else {
         0.0
     };
 
-    let left = (forward - turn).clamp(-tuning.max_wheel_cmd, tuning.max_wheel_cmd);
-    let right = (forward + turn).clamp(-tuning.max_wheel_cmd, tuning.max_wheel_cmd);
-    DriveCommand::WheelSpeeds { left, right }
+    DriveCommand::WheelSpeeds {
+        left: (drive_cmd - yaw_cmd).clamp(-tuning.max_wheel_cmd, tuning.max_wheel_cmd),
+        right: (drive_cmd + yaw_cmd).clamp(-tuning.max_wheel_cmd, tuning.max_wheel_cmd),
+    }
 }
 
-/// Nearest obstacle distance in the front arc and on each flank, in the robot
-/// frame. A reading is a candidate only if it carries intensity and is closer
-/// than the sensor's own blind spot.
+/// Nearest usable obstacle in the front sector and on each flank, in the robot
+/// frame.
 #[derive(Clone, Copy)]
 struct LidarClearance {
+    /// Nearest return inside the front sector.
     front: Option<f32>,
+    /// Nearest return on the left flank.
     left: Option<f32>,
+    /// Nearest return on the right flank.
     right: Option<f32>,
 }
 
@@ -424,58 +514,71 @@ fn lidar_clearance(
     pose: NavPose,
     tuning: DriveTuning,
 ) -> Option<LidarClearance> {
-    let point_count = (scan.point_count as usize).min(LIDAR_MAX_POINTS);
-    let mut front: Option<f32> = None;
-    let mut left: Option<f32> = None;
-    let mut right: Option<f32> = None;
-    for point in scan.points.iter().take(point_count) {
-        if point.distance_m <= 0.05 || point.intensity == 0 {
+    let usable = (scan.point_count as usize).min(LIDAR_MAX_POINTS);
+    let mut reading = LidarClearance {
+        front: None,
+        left: None,
+        right: None,
+    };
+    for point in scan.points[..usable].iter() {
+        if point.distance_m <= LIDAR_BLIND_SPOT_M || point.intensity == 0 {
             continue;
         }
-        let rel = normalize_angle(point.angle_rad);
-        if rel.abs() <= tuning.front_arc_rad {
-            // A point behind the robot must not close the front arc even if a
-            // widened arc would otherwise reach it.
-            let world_heading = normalize_angle(point.angle_rad + pose.yaw_rad);
-            let ahead = normalize_angle(world_heading - pose.yaw_rad).cos();
-            if ahead <= 0.0 {
+        let bearing = normalize_angle(point.angle_rad);
+        if bearing.abs() <= tuning.front_arc_rad {
+            if !ahead_of(pose, point.angle_rad) {
                 continue;
             }
-            front = Some(front.map_or(point.distance_m, |v| v.min(point.distance_m)));
-            continue;
-        }
-        if (tuning.side_clear_arc_inner_rad..=tuning.side_clear_arc_outer_rad).contains(&rel) {
-            left = Some(left.map_or(point.distance_m, |v| v.min(point.distance_m)));
-        } else if (-tuning.side_clear_arc_outer_rad..=-tuning.side_clear_arc_inner_rad).contains(&rel)
+            keep_nearest(&mut reading.front, point.distance_m);
+        } else if in_sector(bearing, tuning.side_clear_arc_inner_rad, tuning.side_clear_arc_outer_rad)
         {
-            right = Some(right.map_or(point.distance_m, |v| v.min(point.distance_m)));
+            keep_nearest(&mut reading.left, point.distance_m);
+        } else if in_sector(-bearing, tuning.side_clear_arc_inner_rad, tuning.side_clear_arc_outer_rad)
+        {
+            keep_nearest(&mut reading.right, point.distance_m);
         }
     }
-    Some(LidarClearance { front, left, right })
+    Some(reading)
 }
 
-/// Rotate toward whichever flank is clearer; with no reading, prefer the left.
+/// A widened front sector must not swallow returns from behind the robot.
+fn ahead_of(pose: NavPose, bearing_rad: f32) -> bool {
+    let world_bearing = normalize_angle(bearing_rad + pose.yaw_rad);
+    normalize_angle(world_bearing - pose.yaw_rad).cos() > 0.0
+}
+
+fn in_sector(bearing_rad: f32, inner: f32, outer: f32) -> bool {
+    bearing_rad >= inner && bearing_rad <= outer
+}
+
+fn keep_nearest(slot: &mut Option<f32>, distance_m: f32) {
+    if slot.map_or(true, |current| distance_m < current) {
+        *slot = Some(distance_m);
+    }
+}
+
+/// Rotate toward whichever flank is clearer; with no reading at all, prefer
+/// the left.
 fn blocked_turn_command(clearance: Option<LidarClearance>, tuning: DriveTuning) -> f32 {
-    match clearance {
-        Some(reading) => {
-            let left = reading.left.unwrap_or(10.0);
-            let right = reading.right.unwrap_or(10.0);
-            if left >= right {
-                tuning.blocked_turn_cmd
-            } else {
-                -tuning.blocked_turn_cmd
-            }
-        }
-        None => tuning.blocked_turn_cmd,
+    let Some(LidarClearance { left, right, .. }) = clearance else {
+        return tuning.blocked_turn_cmd;
+    };
+    let left = left.unwrap_or(OPEN_FLANK_M);
+    let right = right.unwrap_or(OPEN_FLANK_M);
+    if left >= right {
+        tuning.blocked_turn_cmd
+    } else {
+        -tuning.blocked_turn_cmd
     }
 }
 
 fn goal_distance_m(pose: NavPose, goal: NavGoal) -> f32 {
     if goal.active == 0 {
-        f32::INFINITY
-    } else {
-        (goal.x_m - pose.x_m).hypot(goal.z_m - pose.z_m)
+        return f32::INFINITY;
     }
+    let offset_x = goal.x_m - pose.x_m;
+    let offset_z = goal.z_m - pose.z_m;
+    offset_x.hypot(offset_z)
 }
 
 /// One tick's arbitration inputs; keeping them in one value makes the
@@ -504,23 +607,23 @@ struct Decision {
 }
 
 fn arbitrate(input: DriveInput) -> Decision {
-    let (left, right, state, clear_goal, reset_progress) = if input.estop {
-        (0.0, 0.0, "estop", false, false)
+    let (state, left, right, clear_goal, reset_progress) = if input.estop {
+        ("estop", 0.0, 0.0, false, false)
     } else if !input.pose_fresh {
-        (0.0, 0.0, "stale_pose", false, false)
+        ("stale_pose", 0.0, 0.0, false, false)
     } else if !input.lidar_fresh {
-        (0.0, 0.0, "stale_lidar", false, false)
+        ("stale_lidar", 0.0, 0.0, false, false)
     } else if !input.goal_active {
-        (0.0, 0.0, "idle", false, true)
+        ("idle", 0.0, 0.0, false, true)
     } else if input.obstacle_stop {
         let turn = blocked_turn_command(input.clearance, input.tuning);
-        (-turn, turn, "obstacle_turn", false, false)
+        ("obstacle_turn", -turn, turn, false, false)
     } else if input.progress_stalled {
-        (0.0, 0.0, "progress_stall", true, true)
+        ("progress_stall", 0.0, 0.0, true, true)
     } else {
         match input.command {
-            DriveCommand::GoalReached => (0.0, 0.0, "goal_reached", true, true),
-            DriveCommand::WheelSpeeds { left, right } => (left, right, "tracking", false, false),
+            DriveCommand::GoalReached => ("goal_reached", 0.0, 0.0, true, true),
+            DriveCommand::WheelSpeeds { left, right } => ("tracking", left, right, false, false),
         }
     };
     Decision {
@@ -533,7 +636,7 @@ fn arbitrate(input: DriveInput) -> Decision {
 }
 
 /// The one frame the firmware expects on the wire: newline-terminated JSON
-/// with the tick, the left speed and the right speed.
+/// carrying the tick, the left speed and the right speed.
 fn speed_line(left: f32, right: f32) -> String {
     let mut line = serde_json::json!({
         "T": 1,
@@ -559,16 +662,11 @@ impl SpeedLink for dyn SerialPort + '_ {
     }
 }
 
-fn send_speed<L: SpeedLink + ?Sized>(
-    link: &mut L,
-    left: f32,
-    right: f32,
-) -> std::io::Result<()> {
+fn send_speed<L: SpeedLink + ?Sized>(link: &mut L, left: f32, right: f32) -> std::io::Result<()> {
     link.send_line(&speed_line(left, right))
 }
 
-/// Write one frame when armed, returning whether the transport accepted it.
-/// A disarmed runner never touches the link.
+/// Write one frame only while armed, returning whether the transport took it.
 fn transmit<L: SpeedLink + ?Sized>(armed: bool, link: &mut L, left: f32, right: f32) -> bool {
     if !armed {
         return false;
@@ -583,26 +681,28 @@ fn transmit<L: SpeedLink + ?Sized>(armed: bool, link: &mut L, left: f32, right: 
 }
 
 /// Deactivate the shared goal without disturbing its coordinates, and bump the
-/// nav sequence so consumers see the change.
+/// nav sequence so consumers observe the change.
 fn clear_goal(shm: &ShmRegion, goal: NavGoal) {
     let world = shm.world_model_mut();
-    world.nav_goal = NavGoal { active: 0, ..goal };
+    let deactivated = NavGoal { active: 0, ..goal };
+    world.nav_goal = deactivated;
     world.nav_seq.fetch_add(1, Ordering::AcqRel);
 }
 
 fn now_ns() -> u64 {
-    std::time::SystemTime::now()
+    let since_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+        .unwrap_or_default();
+    since_epoch.as_nanos() as u64
 }
 
 fn normalize_angle(mut angle: f32) -> f32 {
+    const FULL_TURN: f32 = std::f32::consts::TAU;
     while angle > std::f32::consts::PI {
-        angle -= 2.0 * std::f32::consts::PI;
+        angle -= FULL_TURN;
     }
     while angle < -std::f32::consts::PI {
-        angle += 2.0 * std::f32::consts::PI;
+        angle += FULL_TURN;
     }
     angle
 }
@@ -630,6 +730,13 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(default)
+}
+
+/// Overlay an f32 override in place, keeping the compiled default on a parse
+/// failure or an unset key.
+fn over_f32(name: &str, slot: &mut f32) {
+    *slot = env_f32(name, *slot);
+    let _ = slot;
 }
 
 #[cfg(test)]
@@ -792,36 +899,27 @@ mod tests {
     }
 
     #[test]
-    fn action_flags_preserve_safety_and_transport_provenance() {
-        assert_eq!(
-            action_safety_flags("obstacle_turn", false, false),
-            ACTION_SAFETY_COLLISION_CLAMP | ACTION_SAFETY_DISARMED
-        );
+    fn safety_bits_track_state_and_link_health() {
+        let cases = [
+            ("estop", ACTION_SAFETY_ESTOP),
+            ("stale_pose", ACTION_SAFETY_STALE_POSE),
+            ("stale_lidar", ACTION_SAFETY_STALE_LIDAR),
+            ("idle", ACTION_SAFETY_GOAL_INACTIVE),
+            ("obstacle_turn", ACTION_SAFETY_COLLISION_CLAMP),
+            ("progress_stall", ACTION_SAFETY_PROGRESS_STALL),
+            ("goal_reached", ACTION_SAFETY_GOAL_REACHED),
+            ("tracking", 0),
+        ];
+        for (state, expected) in cases {
+            assert_eq!(action_safety_flags(state, true, true), expected, "{state}");
+        }
+
+        let disarmed = action_safety_flags("idle", false, true);
+        assert_ne!(disarmed & ACTION_SAFETY_DISARMED, 0);
+        assert_ne!(disarmed & ACTION_SAFETY_GOAL_INACTIVE, 0, "still reports idle");
         assert_eq!(
             action_safety_flags("tracking", true, false),
             ACTION_SAFETY_TRANSPORT_ERROR
-        );
-        assert_eq!(action_safety_flags("tracking", true, true), 0);
-        assert_eq!(action_safety_flags("estop", true, true), ACTION_SAFETY_ESTOP);
-        assert_eq!(
-            action_safety_flags("idle", true, true),
-            ACTION_SAFETY_GOAL_INACTIVE
-        );
-        assert_eq!(
-            action_safety_flags("stale_pose", true, true),
-            ACTION_SAFETY_STALE_POSE
-        );
-        assert_eq!(
-            action_safety_flags("stale_lidar", true, true),
-            ACTION_SAFETY_STALE_LIDAR
-        );
-        assert_eq!(
-            action_safety_flags("progress_stall", true, true),
-            ACTION_SAFETY_PROGRESS_STALL
-        );
-        assert_eq!(
-            action_safety_flags("goal_reached", true, true),
-            ACTION_SAFETY_GOAL_REACHED
         );
     }
 

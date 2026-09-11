@@ -21,14 +21,14 @@ fn inspect_prints_the_published_scan_and_grid() {
         &shm,
         &[
             DevicePoint {
-                angle_deg: 0.0,
-                distance_mm: 1000,
-                intensity: 50,
+                bearing_deg: 0.0,
+                range_mm: 1000,
+                signal: 50,
             },
             DevicePoint {
-                angle_deg: 90.0,
-                distance_mm: 2000,
-                intensity: 7,
+                bearing_deg: 90.0,
+                range_mm: 2000,
+                signal: 7,
             },
         ],
     );
