@@ -390,7 +390,7 @@ extern "C" fn signal_handler(_signal: libc::c_int) {
 mod tests {
     use super::*;
 
-    const AGENT_PASSTHROUGH: [&str; 9] = [
+    const AGENT_PASSTHROUGH: [&str; 11] = [
         "QUALIA_REPLICA_ID",
         "QUALIA_REPLICA_ROLE",
         "QUALIA_REPLICA_DISPLAY_NAME",
@@ -400,6 +400,8 @@ mod tests {
         "QUALIA_SYNC_PEER_POLL_MS",
         "QUALIA_SYNC_PEER_PAGE_LIMIT",
         "QUALIA_SYNC_ACCEPT_INVALID_CERTS",
+        "QUALIA_LEASH_BASE_URL",
+        "QUALIA_LEASH_OPERATOR_TOKEN_FILE",
     ];
 
     #[test]
@@ -449,6 +451,36 @@ mod tests {
         assert_eq!(
             env.get("QUALIA_FLY_PRIOR_PATH").map(String::as_str),
             Some("")
+        );
+    }
+
+    /// The stack contract points the agent at the board's own Leash. A
+    /// household subnet baked into the manifest is the front-end lesson the
+    /// ticket cites (`docs/frontend-lessons.md`), so the default must stay
+    /// loopback and must be overridable from the operator's shell.
+    #[test]
+    fn embedded_manifest_defaults_the_agent_to_the_local_leash() {
+        let env = stack_env(DEFAULT_MANIFEST).expect("default manifest has an env block");
+        let base_url = env
+            .get("QUALIA_LEASH_BASE_URL")
+            .expect("the stack contract names the Leash base URL");
+        assert_eq!(base_url, "http://127.0.0.1:8000");
+        assert!(
+            !base_url.contains("192.168."),
+            "the manifest must not bake a household address in: {base_url}"
+        );
+        let manifest = parse_stack_manifest(DEFAULT_MANIFEST).expect("default manifest parses");
+        let agent = manifest
+            .runners
+            .iter()
+            .find(|runner| runner.name == "qualia-agent")
+            .expect("the agent is part of the default stack");
+        assert!(
+            agent
+                .env_passthrough
+                .iter()
+                .any(|entry| entry == "QUALIA_LEASH_BASE_URL"),
+            "the operator's Leash override must reach the agent"
         );
     }
 

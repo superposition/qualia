@@ -44,17 +44,18 @@ pub struct MissionBrokerEndpoint {
     pub token_file: PathBuf,
 }
 
-/// Where Leash accepts operator authority, when it is configured.
+/// Where Leash accepts a forwarded proposal or a stop, when it is configured.
 ///
-/// The mission broker hands bounded missions to Leash through this endpoint.
-/// The client belongs to the Leash-forwarding ticket; this build only records
-/// the configuration so the wiring has one documented home.
+/// The base URL is the contract the stack manifest and the runbooks name; the
+/// operator token file is only needed to forward a navigation proposal, because
+/// Leash's goal route carries the operator's label. A stop needs no token, so an
+/// agent configured with the base URL alone can still be stopped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeashEndpoint {
     /// `QUALIA_LEASH_BASE_URL`, trailing slashes trimmed.
     pub base_url: String,
-    /// `QUALIA_LEASH_OPERATOR_TOKEN_FILE`.
-    pub operator_token_file: PathBuf,
+    /// `QUALIA_LEASH_OPERATOR_TOKEN_FILE`, when the operator supplies one.
+    pub operator_token_file: Option<PathBuf>,
 }
 
 /// The replica identity this process advertises to its peers.
@@ -251,10 +252,11 @@ fn mission_broker_from_env() -> Option<MissionBrokerEndpoint> {
 
 fn leash_from_env() -> Option<LeashEndpoint> {
     let base_url = trimmed_base_url("QUALIA_LEASH_BASE_URL")?;
-    let operator_token_file = std::env::var_os("QUALIA_LEASH_OPERATOR_TOKEN_FILE")?;
+    let operator_token_file =
+        std::env::var_os("QUALIA_LEASH_OPERATOR_TOKEN_FILE").map(PathBuf::from);
     Some(LeashEndpoint {
         base_url,
-        operator_token_file: PathBuf::from(operator_token_file),
+        operator_token_file,
     })
 }
 
