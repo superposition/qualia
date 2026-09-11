@@ -1,5 +1,5 @@
 {
-  "measured_at_utc": "2026-09-11T05:47:00Z",
+  "measured_at_utc": "2026-09-11",
   "tool": "scripts/provenance_check.py",
   "tool_introduced_at": "144bb6d",
   "reference": "the private engine checkout, read-only (its path is deliberately not recorded here)",

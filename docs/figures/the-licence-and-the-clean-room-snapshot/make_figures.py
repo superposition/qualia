@@ -1,78 +1,55 @@
 #!/usr/bin/env python3
 """Figures for the journal entry `the-licence-and-the-clean-room-snapshot`.
 
-Two figures, both written from `provenance.json` (the recorded output of the
-repository's own `scripts/provenance_check.py`) and from the committed licence
-files:
-
-    provenance-check.svg   a chart: what the private reference and this tree
+    provenance-check.svg   a chart: what this tree and the private reference
                            have in common, and how much of it is identical
     licence-flow.svg       a diagram: the clean-room boundary, the three
                            attribution sources fanning into NOTICE, and the CI
                            gate that keeps them there
 
+Data: `provenance.json`, recorded from this repository's own
+`scripts/provenance_check.py` in two runs (the commit that introduced the check,
+and the head of `main` when the entry was written).
+
 Run:  python make_figures.py
-The SVG output is deterministic for a given matplotlib version: metadata dates
-are suppressed and a hash salt is fixed, so two runs produce the same bytes.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
+import sys
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
 
-BG = "#101217"
-INK = "#edf0f5"
-GREEN = "#91dbba"
-LAVENDER = "#c9b2ff"
-BLUE = "#93caff"
-SAND = "#e0a08a"
-RULE = "#2a3140"
-MUTED = "#8b93a7"
-SLATE = "#4a5468"
-
-MONO = ["DejaVu Sans Mono", "Consolas", "monospace"]
-
-plt.rcParams.update(
-    {
-        "font.family": "monospace",
-        "font.monospace": MONO,
-        "svg.hashsalt": "qualia-journal",
-        "figure.facecolor": BG,
-        "savefig.facecolor": BG,
-        "text.color": INK,
-        "axes.labelcolor": INK,
-        "xtick.color": MUTED,
-        "ytick.color": MUTED,
-        "axes.edgecolor": RULE,
-    }
+from _house import (  # noqa: E402
+    BLUE,
+    GREEN,
+    INK,
+    LAVENDER,
+    MUTED,
+    RULE,
+    SAND,
+    SLATE,
+    arrow,
+    box,
+    save,
+    use_style,
 )
 
-META = {"Date": None, "Creator": None}
-
-
-def save(fig, name: str) -> None:
-    for ext in ("svg", "png"):
-        fig.savefig(HERE / f"{name}.{ext}", format=ext, metadata=META, dpi=110)
-    plt.close(fig)
+use_style()
 
 
 def provenance_chart() -> None:
     runs = json.loads((HERE / "provenance.json").read_text())["runs"]
 
-    fig, ax = plt.subplots(figsize=(9.0, 3.6))
-    positions = range(len(runs))
+    fig, ax = plt.subplots(figsize=(9.0, 3.8))
     width = 0.24
 
-    for pos, run in zip(positions, runs):
+    for pos, run in enumerate(runs):
         series = [
             ("tracked files", run["tracked_files"], SLATE, pos - width),
             ("also in the reference", run["compared"], BLUE, pos),
@@ -82,7 +59,7 @@ def provenance_chart() -> None:
             ax.bar(x, value, width, color=colour, label=label if pos == 0 else None)
             ax.text(
                 x,
-                value + 3,
+                value + 4,
                 str(value),
                 ha="center",
                 va="bottom",
@@ -92,144 +69,143 @@ def provenance_chart() -> None:
             )
 
     ax.axhline(0, color=RULE, linewidth=1)
-    ax.set_xticks(list(positions))
+    ax.set_xticks([0, 1])
     ax.set_xticklabels(
         [f"{run['commit']}\n{run['tracked_files']} tracked files" for run in runs],
         fontsize=10,
     )
-    ax.set_ylim(0, 190)
+    ax.set_ylim(0, 205)
     ax.set_ylabel("files", fontsize=10)
     ax.set_title(
-        "The clean-room check: 110 files share a path with the private reference, 0 share a byte",
+        "The clean-room check: what it compared, and what it found identical",
         fontsize=12,
         color=INK,
-        pad=14,
+        pad=12,
     )
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
-    ax.legend(frameon=False, fontsize=10, labelcolor=INK, ncol=3, loc="upper left")
+    ax.legend(
+        frameon=False,
+        fontsize=10,
+        labelcolor=INK,
+        ncol=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.16),
+    )
 
     fig.text(
         0.012,
-        0.015,
-        "Source: scripts/provenance_check.py, exit 0 at both commits (provenance.json).",
+        0.02,
+        "Source: scripts/provenance_check.py, exit 0 at both commits; counts in provenance.json.",
         fontsize=9,
         color=MUTED,
     )
-    fig.subplots_adjust(left=0.065, right=0.985, top=0.83, bottom=0.24)
-    save(fig, "provenance-check")
-
-
-def box(ax, x, y, w, h, text, edge, title=None, fontsize=9.0):
-    ax.add_patch(
-        FancyBboxPatch(
-            (x, y),
-            w,
-            h,
-            boxstyle="round,pad=0.012,rounding_size=0.02",
-            linewidth=1.2,
-            edgecolor=edge,
-            facecolor="#161a24",
-        )
-    )
-    if title:
-        ax.text(x + 0.012, y + h - 0.035, title, fontsize=fontsize, color=edge, va="top", fontweight="bold")
-        ax.text(x + 0.012, y + h - 0.085, text, fontsize=fontsize - 0.7, color=INK, va="top", linespacing=1.5)
-    else:
-        ax.text(x + 0.012, y + h / 2, text, fontsize=fontsize - 0.7, color=INK, va="center", linespacing=1.5)
-
-
-def arrow(ax, start, end, colour, style="-", dashed=False, label=None, label_offset=(0.0, 0.022)):
-    ax.add_patch(
-        FancyArrowPatch(
-            start,
-            end,
-            arrowstyle="-|>",
-            mutation_scale=11,
-            linewidth=1.3,
-            color=colour,
-            linestyle="--" if dashed else style,
-            shrinkA=1,
-            shrinkB=1,
-        )
-    )
-    if label:
-        ax.text(
-            (start[0] + end[0]) / 2 + label_offset[0],
-            (start[1] + end[1]) / 2 + label_offset[1],
-            label,
-            fontsize=8.2,
-            color=colour,
-            ha="center",
-            va="center",
-            linespacing=1.4,
-        )
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.84, bottom=0.30)
+    save(fig, HERE, "provenance-check")
 
 
 def licence_flow() -> None:
-    fig, ax = plt.subplots(figsize=(9.6, 5.0))
+    fig, ax = plt.subplots(figsize=(9.6, 5.2))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    ax.text(0.015, 0.955, "What may cross, and what the licence must carry", fontsize=12.5, color=INK)
+    ax.text(0.015, 0.965, "What may cross, and what the licence must carry", fontsize=12.5, color=INK)
     ax.text(
         0.015,
-        0.915,
-        "Solid arrows are files and commands; the dashed line is the clean-room boundary.",
+        0.925,
+        "Solid arrows are files and commands. The dashed line is the clean-room boundary.",
         fontsize=9,
         color=MUTED,
     )
 
-    # Private side.
-    box(ax, 0.02, 0.62, 0.28, 0.22, "read for interfaces only:\ncrate names, public\nsignatures, wire contracts,\nSHM layout", MUTED, title="private engine checkout")
-
-    # The boundary.
-    ax.plot([0.345, 0.345], [0.10, 0.88], color=SAND, linewidth=1.6, linestyle="--")
+    # The boundary, labelled along its own length.
+    ax.plot([0.345, 0.345], [0.05, 0.90], color=SAND, linewidth=1.6, linestyle="--")
     ax.text(
-        0.352,
-        0.86,
-        "clean-room boundary\nno file is copied",
+        0.356,
+        0.47,
+        "clean-room boundary: no file is copied",
         fontsize=8.6,
         color=SAND,
-        va="top",
-        linespacing=1.5,
+        rotation=90,
+        ha="left",
+        va="center",
     )
 
-    # Public side.
-    box(ax, 0.40, 0.62, 0.27, 0.22, "every line authored here\n(license = \"Apache-2.0\")", GREEN, title="public tree")
-
-    # The proof.
+    # Top row: the two trees and the proof.
     box(
         ax,
-        0.72,
-        0.62,
-        0.26,
+        0.02,
+        0.66,
+        0.30,
+        0.20,
+        "read for interfaces only:\ncrate names, public signatures,\nwire contracts, SHM layout",
+        MUTED,
+        title="private engine checkout",
+    )
+    box(
+        ax,
+        0.42,
+        0.66,
+        0.28,
+        0.20,
+        'every line authored here\n(license = "Apache-2.0")',
+        GREEN,
+        title="public tree",
+    )
+    box(
+        ax,
+        0.76,
+        0.66,
         0.22,
-        "compared 104 files\nbyte-identical 0\nexit 0",
+        0.20,
+        "compared 110 files,\nbyte-identical 0,\nexit 0",
         BLUE,
         title="provenance_check.py",
     )
-    arrow(ax, (0.30, 0.73), (0.40, 0.73), MUTED, label="interfaces")
-    arrow(ax, (0.67, 0.73), (0.72, 0.73), BLUE)
+    arrow(ax, (0.32, 0.76), (0.42, 0.76), MUTED, label="interfaces only")
+    arrow(ax, (0.70, 0.76), (0.76, 0.76), BLUE)
 
-    # Attribution sources.
-    box(ax, 0.02, 0.30, 0.24, 0.17, "the workspace root\nwas relicensed:\nMIT -> Apache-2.0", LAVENDER)
-    box(ax, 0.02, 0.10, 0.24, 0.17, "Leash, reached over HTTP\n(MIT)\nhttps://github.com/specdog/leash", GREEN)
-    box(ax, 0.29, 0.10, 0.24, 0.17, "Male CNS connectome\n(CC-BY 4.0)\nhttps://male-cns.janelia.org", BLUE)
+    # Bottom-left: the three attribution sources.
+    box(ax, 0.02, 0.455, 0.30, 0.135, "the workspace root was\nrelicensed: MIT -> Apache-2.0", LAVENDER)
+    box(ax, 0.02, 0.285, 0.30, 0.135, "Leash over HTTP (MIT)\ngithub.com/specdog/leash", GREEN)
+    box(ax, 0.02, 0.115, 0.30, 0.135, "Male CNS connectome (CC-BY 4.0)\nmale-cns.janelia.org", BLUE)
 
-    box(ax, 0.40, 0.18, 0.29, 0.24, "three paragraphs, in order:\n\nCopyright 2026 Superposition LLC\nLeash project (MIT)\nMale CNS dataset (CC-BY 4.0)", SAND, title="NOTICE")
+    # Bottom-middle: what they must produce.
+    box(
+        ax,
+        0.44,
+        0.20,
+        0.26,
+        0.28,
+        "three paragraphs, in order:\n\nCopyright 2026 Superposition LLC\nLeash project (MIT)\nMale CNS dataset (CC-BY 4.0)",
+        SAND,
+        title="NOTICE",
+    )
+    box(
+        ax,
+        0.76,
+        0.20,
+        0.22,
+        0.28,
+        "runs on every pull request\nand every push to main:\nNOTICE and LICENSE\nnon-empty, and both\nattribution strings\npresent",
+        LAVENDER,
+        title="notice-check.yml",
+    )
 
-    box(ax, 0.72, 0.18, 0.26, 0.24, "runs on every pull request\nand every push to main:\nNOTICE and LICENSE\nnon-empty; the two\nattribution strings present", LAVENDER, title="notice-check.yml")
+    for y in (0.5225, 0.3525, 0.1825):
+        arrow(ax, (0.32, y), (0.44, 0.34), SAND)
+    arrow(ax, (0.70, 0.34), (0.76, 0.34), LAVENDER)
 
-    for y in (0.385, 0.185):
-        arrow(ax, (0.26, y), (0.40, 0.30), SAND)
-    arrow(ax, (0.53, 0.10), (0.53, 0.18), SAND)
-    arrow(ax, (0.69, 0.30), (0.72, 0.30), LAVENDER)
-
-    fig.text(0.012, 0.015, "Sources: LICENSE, NOTICE, .github/workflows/notice-check.yml, Cargo.toml.", fontsize=9, color=MUTED)
+    fig.text(
+        0.012,
+        0.015,
+        "Sources: LICENSE, NOTICE, .github/workflows/notice-check.yml, Cargo.toml.",
+        fontsize=9,
+        color=MUTED,
+    )
     fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.05)
-    save(fig, "licence-flow")
+    save(fig, HERE, "licence-flow")
 
 
 if __name__ == "__main__":
