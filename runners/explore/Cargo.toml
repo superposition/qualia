@@ -10,6 +10,8 @@ name = "qualia-explore"
 path = "src/main.rs"
 
 [dependencies]
+qualia-braid.workspace = true
+qualia-jepa.workspace = true
 qualia-types.workspace = true
 qualia-shm.workspace = true
 serde = { version = "1", features = ["derive"] }
