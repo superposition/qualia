@@ -4692,6 +4692,7 @@ dependencies = [
  "candle-nn",
  "ctrlc",
  "libc",
+ "qualia-fly-circuit",
  "qualia-jepa",
  "qualia-jepa-model",
  "qualia-shm",

@@ -12,9 +12,12 @@ path = "src/main.rs"
 default = []
 metal = ["qualia-jepa-model/metal"]
 cuda = ["qualia-jepa-model/cuda"]
+# The fly rate model, observe-only and off unless a build asks for it.
+sim = ["dep:qualia-fly-circuit", "qualia-fly-circuit/sim"]
 
 [dependencies]
 ctrlc = "3"
+qualia-fly-circuit = { workspace = true, optional = true }
 qualia-jepa = { workspace = true }
 qualia-jepa-model = { workspace = true }
 qualia-shm = { workspace = true }
