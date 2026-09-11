@@ -10,7 +10,9 @@
 //!
 //! This is deliberately *not* a Kalman or particle filter: it carries no
 //! covariance and no motion model, only the graph of registered scans. The
-//! only state published externally is [`NavPose`] in shared memory.
+//! only state published externally is [`NavPose`] in shared memory. Publishing
+//! waits for a recent belief commit, and only a belief silence past
+//! `QUALIA_BELIEF_PACE_MS * 8` lets a pose publish without one.
 //!
 //! Inputs come from the lidar runner through the seqlocked scan slot; the
 //! configured shared-memory region and poll cadence come from the environment:
@@ -18,17 +20,22 @@
 //! - `QUALIA_SHM_NAME` (default `/qualia_body`)
 //! - `QUALIA_POSE_POLL_MS` (default `20`)
 //! - `QUALIA_POSE_LOG_EVERY_UPDATES` (default `10`)
+//! - `QUALIA_BELIEF_PACE_MS` (default `250`)
 
-use qualia_shm::ShmRegion;
+use qualia_shm::{LayerReader, ShmRegion, NUM_LAYERS};
 use qualia_types::{LidarScanSnapshot, NavPose, LIDAR_MAX_POINTS};
 use std::f32::consts::PI;
 use std::process;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_SHM_NAME: &str = "/qualia_body";
 const DEFAULT_POLL_MS: u64 = 20;
 const DEFAULT_LOG_EVERY_UPDATES: u64 = 10;
+/// Default belief pace window, overridable with `QUALIA_BELIEF_PACE_MS`.
+const DEFAULT_BELIEF_PACE_MS: u64 = 250;
+/// Pace windows of belief silence after which a publisher stops waiting.
+const BELIEF_PACE_STALE_WINDOWS: u64 = 8;
 
 /// A usable scan needs at least this many returns; below it there is not enough
 /// structure to register against.
@@ -332,6 +339,8 @@ fn main() {
     let log_every =
         parse_or(std::env::var("QUALIA_POSE_LOG_EVERY_UPDATES").ok(), DEFAULT_LOG_EVERY_UPDATES)
             .max(1);
+    let belief_pace_ms =
+        parse_or(std::env::var("QUALIA_BELIEF_PACE_MS").ok(), DEFAULT_BELIEF_PACE_MS);
 
     let shm = match ShmRegion::open(&shm_name) {
         Ok(shm) => shm,
@@ -345,6 +354,7 @@ fn main() {
 
     let mut tracker = PoseTracker::new();
     let mut last_log = Instant::now();
+    let pace = BeliefPaceGate::new(belief_pace_ms, now_ns());
 
     loop {
         let Ok(scan) = shm.lidar_scan().snapshot(8) else {
@@ -352,7 +362,17 @@ fn main() {
             continue;
         };
 
-        match tracker.observe(&scan) {
+        let outcome = tracker.observe(&scan);
+        if matches!(
+            outcome,
+            ScanOutcome::Initialized { .. } | ScanOutcome::Updated(_)
+        ) {
+            if let Some(lag_ms) = pace.await_pace(&shm, poll_ms) {
+                println!("qualia-pose: belief pace: stale, publishing pose at {lag_ms} ms");
+            }
+        }
+
+        match outcome {
             ScanOutcome::Skip => {}
             ScanOutcome::Initialized {
                 pose,
@@ -403,6 +423,99 @@ fn main() {
 
         thread::sleep(Duration::from_millis(poll_ms));
     }
+}
+
+/// Wall-clock nanoseconds, matching the stamp the belief layers commit.
+fn now_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// What the belief pace gate decided about one publish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BeliefPace {
+    /// A belief commit landed inside the pace window; publish right away.
+    Fresh,
+    /// Belief is lagging but not yet stale; keep waiting for it.
+    Lagging,
+    /// Belief has been silent past the stale window; publish anyway.
+    Stale { lag_ms: u64 },
+}
+
+/// Holds a publisher back until the belief layers have committed recently.
+///
+/// A layer commits by flipping its slot's write index, so the front buffer's
+/// `timestamp_ns` is that layer's newest accepted tick, already part of the
+/// shared ABI. The gate lets a publish through as soon as some layer ticked
+/// inside `pace_ms`; if every layer has been silent for `pace_ms * 8` it stops
+/// waiting and hands back the lag it measured, so navigation degrades instead
+/// of stopping. A `pace_ms` of zero disables the gate and leaves the publisher
+/// behaving exactly as it did before the gate existed.
+struct BeliefPaceGate {
+    pace_ms: u64,
+    started_ns: u64,
+}
+
+impl BeliefPaceGate {
+    fn new(pace_ms: u64, now_ns: u64) -> Self {
+        Self {
+            pace_ms,
+            started_ns: now_ns,
+        }
+    }
+
+    /// How far the newest belief commit lags `now_ns`.
+    ///
+    /// While no layer has committed at all there is no tick to measure from,
+    /// so the lag runs from the moment the gate was created and a cold stack
+    /// still reports a real number instead of an invented one.
+    fn lag_ms(&self, newest_tick_ns: Option<u64>, now_ns: u64) -> u64 {
+        now_ns.saturating_sub(newest_tick_ns.unwrap_or(self.started_ns)) / 1_000_000
+    }
+
+    /// Classify the newest belief tick against the pace and stale windows.
+    fn classify(&self, newest_tick_ns: Option<u64>, now_ns: u64) -> BeliefPace {
+        if self.pace_ms == 0 {
+            return BeliefPace::Fresh;
+        }
+        let lag_ms = self.lag_ms(newest_tick_ns, now_ns);
+        if lag_ms < self.pace_ms {
+            BeliefPace::Fresh
+        } else if lag_ms <= self.pace_ms.saturating_mul(BELIEF_PACE_STALE_WINDOWS) {
+            BeliefPace::Lagging
+        } else {
+            BeliefPace::Stale { lag_ms }
+        }
+    }
+
+    /// Wait for belief to come inside the pace window.
+    ///
+    /// Returns `None` when a recent commit is available, or `Some(lag_ms)` when
+    /// the layers went stale and the caller should publish anyway.
+    fn await_pace(&self, shm: &ShmRegion, poll_ms: u64) -> Option<u64> {
+        loop {
+            match self.classify(newest_belief_tick_ns(shm), now_ns()) {
+                BeliefPace::Fresh => return None,
+                BeliefPace::Lagging => thread::sleep(Duration::from_millis(poll_ms.max(1))),
+                BeliefPace::Stale { lag_ms } => return Some(lag_ms),
+            }
+        }
+    }
+}
+
+/// Newest accepted belief tick across the layer slots.
+///
+/// The front buffer of a slot nobody has committed into is still zero, and
+/// zero is the ABI's "never", so it does not count as a tick.
+fn newest_belief_tick_ns(shm: &ShmRegion) -> Option<u64> {
+    (0..NUM_LAYERS)
+        .filter_map(|layer| {
+            let tick = LayerReader::new(shm.layer_slot(layer)).read().timestamp_ns;
+            (tick != 0).then_some(tick)
+        })
+        .max()
 }
 
 /// Fold an angle into `(-pi, pi]`.
@@ -720,6 +833,7 @@ fn parse_or(value: Option<String>, default: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use qualia_shm::LayerWriter;
     use qualia_types::LidarPoint;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1167,5 +1281,94 @@ mod tests {
         assert_eq!(pose._pad0, 0.0);
         assert_eq!(pose.timestamp_ns, 42_000);
         assert_eq!(region.world_model().nav_seq.load(Ordering::Acquire), 1);
+    }
+
+    /// Publish a belief tick the way a belief runner commits one: write the
+    /// back buffer, then flip the slot's index.
+    fn commit_belief(shm: &ShmRegion, layer: usize, timestamp_ns: u64) {
+        let writer = LayerWriter::new(shm.layer_slot(layer));
+        writer.back_buffer().timestamp_ns = timestamp_ns;
+        writer.publish();
+    }
+
+    #[test]
+    fn newest_belief_tick_is_the_newest_committed_layer() {
+        let shm = scratch_region("pace-layers");
+        assert_eq!(newest_belief_tick_ns(&shm), None);
+
+        commit_belief(&shm, 1, 111_000_000);
+        commit_belief(&shm, NUM_LAYERS - 1, 999_000_000);
+        assert_eq!(newest_belief_tick_ns(&shm), Some(999_000_000));
+    }
+
+    #[test]
+    fn pace_classifies_fresh_lagging_and_stale_belief() {
+        let shm = scratch_region("pace-classify");
+        let now = 5_000_000_000_000u64;
+        let gate = BeliefPaceGate::new(DEFAULT_BELIEF_PACE_MS, now);
+
+        commit_belief(&shm, 0, now - 100_000_000);
+        assert_eq!(
+            gate.classify(newest_belief_tick_ns(&shm), now),
+            BeliefPace::Fresh
+        );
+
+        // Inside the stale window the publisher waits for belief to catch up.
+        commit_belief(&shm, 0, now - 1_000_000_000);
+        assert_eq!(
+            gate.classify(newest_belief_tick_ns(&shm), now),
+            BeliefPace::Lagging
+        );
+
+        // Past pace * 8 the publisher goes ahead at the lag it measured.
+        commit_belief(&shm, 0, now - 3_000_000_000);
+        assert_eq!(
+            gate.classify(newest_belief_tick_ns(&shm), now),
+            BeliefPace::Stale { lag_ms: 3_000 }
+        );
+    }
+
+    #[test]
+    fn publishes_when_belief_lag_exceeded() {
+        let shm = scratch_region("pace-stale");
+        let stale_ms = DEFAULT_BELIEF_PACE_MS * BELIEF_PACE_STALE_WINDOWS;
+        let now = now_ns();
+        commit_belief(&shm, 0, now - (stale_ms + 1) * 1_000_000);
+
+        let gate = BeliefPaceGate::new(DEFAULT_BELIEF_PACE_MS, now);
+        let lag_ms = gate
+            .await_pace(&shm, 1)
+            .expect("belief past the stale window must not block the publisher");
+        assert!(lag_ms >= stale_ms + 1, "reported lag was {lag_ms} ms");
+    }
+
+    #[test]
+    fn cold_layers_wait_out_the_stale_window_then_publish() {
+        let shm = scratch_region("pace-cold");
+        let start = 2_000_000_000u64;
+        let gate = BeliefPaceGate::new(10, start);
+
+        assert_eq!(
+            gate.classify(newest_belief_tick_ns(&shm), start),
+            BeliefPace::Fresh
+        );
+        assert_eq!(
+            gate.classify(newest_belief_tick_ns(&shm), start + 50_000_000),
+            BeliefPace::Lagging
+        );
+        assert_eq!(
+            gate.classify(newest_belief_tick_ns(&shm), start + 90_000_000),
+            BeliefPace::Stale { lag_ms: 90 }
+        );
+    }
+
+    #[test]
+    fn zero_pace_disables_the_gate() {
+        let shm = scratch_region("pace-off");
+        let now = 1_000_000_000u64;
+        let gate = BeliefPaceGate::new(0, now);
+
+        assert_eq!(gate.classify(None, now), BeliefPace::Fresh);
+        assert_eq!(gate.await_pace(&shm, 1), None);
     }
 }
