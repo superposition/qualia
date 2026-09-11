@@ -449,9 +449,9 @@ impl FrameQuality {
     /// The one-word label the runner logs.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Blown => "blown",
-            Self::Dark => "dark",
-            Self::Flat => "flat",
+            Self::Blown => "overexposed",
+            Self::Dark => "underexposed",
+            Self::Flat => "low-contrast",
             Self::Usable => "usable",
         }
     }
@@ -552,7 +552,9 @@ impl<R: Read> MjpegFrameReader<R> {
 
     /// Returns the next complete `FF D8 ... FF D9` frame.
     ///
-    /// Fails when the frame would exceed [`MAX_SNAPSHOT_BYTES`], when the
+    /// Fails once a frame that is still incomplete has grown past
+    /// [`MAX_SNAPSHOT_BYTES`] — a frame completed within the same read that
+    /// crosses the cap is still returned, at most one read over it — when the
     /// stream ends mid-frame, or when it ends without another frame at all.
     pub fn next_frame(&mut self) -> Result<Vec<u8>, String> {
         loop {

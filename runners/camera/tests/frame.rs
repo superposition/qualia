@@ -213,3 +213,13 @@ fn exposure_classification_prefers_the_extreme_over_the_flatness() {
     assert_eq!(frame_quality(0.99, 0.0), FrameQuality::Blown);
     assert_eq!(frame_quality(0.0, 0.0), FrameQuality::Dark);
 }
+
+/// The labels are the words the operator sees in the runner log, so they are
+/// contract: the reference vocabulary, not an internal synonym.
+#[test]
+fn exposure_labels_are_the_operator_vocabulary() {
+    assert_eq!(frame_quality(0.95, 0.10).label(), "overexposed");
+    assert_eq!(frame_quality(0.05, 0.10).label(), "underexposed");
+    assert_eq!(frame_quality(0.50, 0.02).label(), "low-contrast");
+    assert_eq!(frame_quality(0.50, 0.10).label(), "usable");
+}

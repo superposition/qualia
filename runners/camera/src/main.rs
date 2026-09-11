@@ -38,22 +38,20 @@ fn main() {
     init_camera_frame(shm.camera_frame_mut());
     init_camera_preview(shm.camera_preview_mut());
 
+    let poll_ms = config.poll.as_millis();
     if let Some(url) = &config.stream_url {
         println!(
-            "qualia-camera: consuming MJPEG stream {url}, publishing at most every {}ms",
-            config.poll.as_millis()
+            "qualia-camera: consuming live MJPEG stream {url}; publishing at most every {poll_ms}ms"
         );
         run_http_mjpeg_stream(&shm, url, config.http_timeout, config.poll);
     }
 
     match &config.source {
-        SnapshotSource::File(path) => println!(
-            "qualia-camera: polling snapshot file {path} every {}ms",
-            config.poll.as_millis()
-        ),
+        SnapshotSource::File(path) => {
+            println!("qualia-camera: polling snapshot path {path} every {poll_ms}ms")
+        }
         SnapshotSource::Http { url, .. } => println!(
-            "qualia-camera: polling snapshot endpoint {url} every {}ms",
-            config.poll.as_millis()
+            "qualia-camera: polling live snapshot {url} every {poll_ms}ms; frame history is not retained"
         ),
     }
 
@@ -74,7 +72,7 @@ fn main() {
             CaptureOutcome::Unavailable(reason) | CaptureOutcome::Corrupt(reason) => {
                 failures = failures.saturating_add(1);
                 if failures == 1 || failures % 20 == 0 {
-                    eprintln!("qualia-camera: no frame (failure {failures}): {reason}");
+                    eprintln!("qualia-camera: live snapshot unavailable (failure {failures}): {reason}");
                 }
             }
         }
@@ -128,7 +126,7 @@ fn run_http_mjpeg_stream(
         {
             failures = failures.saturating_add(1);
             eprintln!(
-                "qualia-camera: MJPEG stream answered with content type {content_type:?}, not multipart/x-mixed-replace"
+                "qualia-camera: MJPEG stream returned unsupported content type {content_type:?}"
             );
             thread::sleep(RECONNECT_DELAY);
             continue;
@@ -178,7 +176,7 @@ fn run_http_mjpeg_stream(
 fn log_camera_frame(shm: &ShmRegion, seq: u64) {
     match shm.camera_frame().snapshot(SNAPSHOT_ATTEMPTS) {
         Ok(frame) => println!(
-            "qualia-camera: frame_seq={seq} source={}x{} thumbnail={}x{} luma_mean={:.3} luma_stddev={:.3} quality={}",
+            "qualia-camera: frame_seq={seq} src={}x{} thumb={}x{} luma_mean={:.3} luma_std={:.3} quality={}",
             frame.source_width,
             frame.source_height,
             frame.thumb_width,
