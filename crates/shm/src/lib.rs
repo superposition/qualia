@@ -165,10 +165,14 @@ pub const APPLIED_ACTION_HISTORY_OFFSET: usize = align_offset(
     JEPA_TELEMETRY_OFFSET + std::mem::size_of::<JepaTelemetrySlot>(),
     std::mem::align_of::<AppliedActionHistory>(),
 );
+/// The fly rate model's observe-only state follows the applied-action history.
+pub const FLY_SIM_OFFSET: usize = align_offset(
+    APPLIED_ACTION_HISTORY_OFFSET + std::mem::size_of::<AppliedActionHistory>(),
+    std::mem::align_of::<FlySimSlot>(),
+);
 /// Extent of the append-only JEPA region, from [`JEPA_REGION_OFFSET`] to its end.
-pub const JEPA_REGION_SIZE: usize = APPLIED_ACTION_HISTORY_OFFSET
-    + std::mem::size_of::<AppliedActionHistory>()
-    - JEPA_REGION_OFFSET;
+pub const JEPA_REGION_SIZE: usize =
+    FLY_SIM_OFFSET + std::mem::size_of::<FlySimSlot>() - JEPA_REGION_OFFSET;
 
 // ShmRegion: the mapped arena and its typed accessors.
 
@@ -528,6 +532,11 @@ impl ShmRegion {
     /// The JEPA runtime counters and accelerator timing snapshot.
     pub fn jepa_telemetry(&self) -> &JepaTelemetrySlot {
         unsafe { self.at(JEPA_TELEMETRY_OFFSET) }
+    }
+
+    /// The fly rate model's observe-only state snapshot.
+    pub fn fly_sim(&self) -> &FlySimSlot {
+        unsafe { self.at(FLY_SIM_OFFSET) }
     }
 
     /// Base address of the mapping.
