@@ -511,66 +511,79 @@ fn panic_text(payload: Box<dyn std::any::Any + Send>) -> String {
 }
 
 fn detect_device_name() -> String {
-    if let Ok(name) = std::env::var("QUALIA_CUDA_DEVICE_NAME") {
-        return name;
+    if let Some(label) = std::env::var("QUALIA_CUDA_DEVICE_NAME").ok() {
+        return label;
     }
-    if let Some((name, _)) = query_nvidia_smi() {
-        return name;
+    match query_nvidia_smi() {
+        Some((label, _)) => label,
+        None => board_device_name(),
     }
-    #[cfg(not(windows))]
+}
+
+/// The name to report when no probe names a GPU: the carrier board's GPU on a
+/// Jetson, the generic planner identity everywhere else.
+#[cfg(not(windows))]
+fn board_device_name() -> String {
     if Path::new("/sys/devices/platform/gpu.0/load").exists() {
-        return "Jetson Orin Nano GPU".to_string();
+        "Jetson Orin Nano GPU".to_owned()
+    } else {
+        "generic-planner".to_owned()
     }
-    "generic-planner".to_string()
+}
+
+#[cfg(windows)]
+fn board_device_name() -> String {
+    "generic-planner".to_owned()
 }
 
 fn detect_sm() -> u32 {
-    let from_env = std::env::var("QUALIA_CUDA_SM")
+    let env_sm = std::env::var("QUALIA_CUDA_SM")
         .ok()
-        .and_then(|value| value.parse().ok());
-    let from_nvidia = query_nvidia_smi().and_then(|(_, sm)| sm);
+        .and_then(|raw| raw.parse::<u32>().ok());
+    let probed_sm = query_nvidia_smi().and_then(|(_, capability)| capability);
+    env_sm
+        .or(probed_sm)
+        .or_else(board_sm)
+        .unwrap_or(0)
+}
 
-    #[cfg(not(windows))]
-    let from_board = Path::new("/sys/devices/platform/gpu.0/load")
+/// The capability implied by a Jetson carrier board, which exposes its state
+/// through a sysfs load node rather than through `nvidia-smi`.
+#[cfg(not(windows))]
+fn board_sm() -> Option<u32> {
+    Path::new("/sys/devices/platform/gpu.0/load")
         .exists()
-        .then_some(87);
+        .then_some(87)
+}
 
-    #[cfg(windows)]
-    let from_board = None;
-
-    from_env.or(from_nvidia).or(from_board).unwrap_or(0)
+#[cfg(windows)]
+fn board_sm() -> Option<u32> {
+    None
 }
 
 fn query_nvidia_smi() -> Option<(String, Option<u32>)> {
-    let output = Command::new("nvidia-smi")
-        .args(["--query-gpu=name,compute_cap", "--format=csv,noheader"])
+    let probe = Command::new("nvidia-smi")
+        .arg("--query-gpu=name,compute_cap")
+        .arg("--format=csv,noheader")
         .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let line = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .find(|line| !line.trim().is_empty())?
-        .trim()
-        .to_string();
-    let mut parts = line.split(',').map(|part| part.trim());
-    let name = parts.next()?.to_string();
-    let sm = parts.next().and_then(parse_compute_capability);
-    Some((name, sm))
+        .ok()
+        .filter(|finished| finished.status.success())?;
+    let report = String::from_utf8_lossy(&probe.stdout);
+    let row = report.lines().map(str::trim).find(|field| !field.is_empty())?;
+    let mut columns = row.split(',').map(str::trim);
+    let device = columns.next()?.to_owned();
+    let capability = columns.next().and_then(parse_compute_capability);
+    Some((device, capability))
 }
 
-fn parse_compute_capability(value: &str) -> Option<u32> {
-    let digits = value
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect::<String>();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse().ok()
+fn parse_compute_capability(text: &str) -> Option<u32> {
+    let mut digits = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+        }
     }
+    digits.parse::<u32>().ok()
 }
 
 #[derive(Debug, Deserialize)]

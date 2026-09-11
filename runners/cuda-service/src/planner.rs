@@ -102,8 +102,8 @@ pub(crate) fn plan_path(
         ));
     }
     check_grid(&request.grid)?;
-    check_pose(&request.start, request.grid.width, request.grid.depth, "start")?;
-    check_pose(&request.goal, request.grid.width, request.grid.depth, "goal")?;
+    check_pose(&request.start, &request.grid, "start")?;
+    check_pose(&request.goal, &request.grid, "goal")?;
 
     let start = Cell {
         x: request.start.cell_x,
@@ -224,15 +224,16 @@ fn risk_penalty(request: &PathPlanRequest) -> f32 {
 
 fn check_pose(
     pose: &crate::PlannerPose,
-    width: u32,
-    depth: u32,
+    grid: &PlannerGrid,
     label: &str,
 ) -> Result<(), ComputeError> {
-    if pose.cell_x < 0
-        || pose.cell_z < 0
-        || pose.cell_x >= width as i32
-        || pose.cell_z >= depth as i32
-    {
+    let cells = [pose.cell_x, pose.cell_z];
+    let extent = [grid.width as i32, grid.depth as i32];
+    let outside = cells
+        .iter()
+        .zip(extent)
+        .any(|(cell, limit)| *cell < 0 || *cell >= limit);
+    if outside {
         return Err(ComputeError::plain(
             "invalid_request",
             format!("{label} cell out of range"),
