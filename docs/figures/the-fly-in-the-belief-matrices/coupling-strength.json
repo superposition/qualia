@@ -1,0 +1,43 @@
+{
+  "schema": "qualia.coupling-figures.v1",
+  "note": "The two graphs the entry's coupling numbers come from, and the capture the three new kernels come from. Each is a committed artifact of this tree; `make_figures.py` re-decodes the graph and re-folds the CSR before it draws, so the figures cannot say a factor the data does not.",
+  "fixture": {
+    "what": "the three-type, four-edge graph the coupling tests write and assert on",
+    "source": "crates/jepa/tests/prior.rs (graph()) and crates/cuda/tests/coupling.rs (prior())",
+    "rowptr": [0, 1, 3, 4],
+    "cols": [1, 1, 2, 0],
+    "weights": [3, 5, 2, 4],
+    "applied": 1.75,
+    "asserted": "crates/cuda/tests/coupling.rs::coupling_applies_the_prior_by_type_strength asserts 1.0, 0.5, 0.25 and 1.75; the same total is the entry's 4090 figure"
+  },
+  "artifact": {
+    "what": "the committed connectome prior the deployment loads",
+    "manifest": "assets/brain/prior/manifest.json",
+    "graph": "assets/brain/prior/graph.bin",
+    "source_sha256": "bbb291afb22e8a0648efd57476d2b8768c718168950e0a7c330566ed666a494c",
+    "applied": 2.787878787878788,
+    "mean_per_type": 0.5575757575757576,
+    "read_by": "runners/explore/src/main.rs (PlannerBeliefRiskContext::from_prior) reads the mean as uncertainty_weight"
+  },
+  "capture": {
+    "what": "the RTX 4090 capture that first contains the three kernels this epic added",
+    "path": "docs/evidence/T16/three-kernels/kernels.csv",
+    "readme": "docs/evidence/T16/three-kernels/README.md",
+    "launches": 16,
+    "kernels": 8,
+    "total_us": 4892.893,
+    "new_kernels": ["belief_couple", "action_score", "perception_voxel"],
+    "baseline": {
+      "path": "docs/evidence/baseline-2026-09-11/kernels.csv",
+      "launches": 13,
+      "kernels": 5,
+      "total_us": 4784.753
+    }
+  },
+  "sources": [
+    "crates/jepa/src/prior.rs (CouplingPrior::couple: in-strength normalised by the peak)",
+    "crates/jepa/tests/prior.rs, crates/cuda/tests/coupling.rs",
+    "assets/brain/prior/manifest.json and graph.bin",
+    "docs/evidence/T16/three-kernels/, docs/evidence/baseline-2026-09-11/"
+  ]
+}
