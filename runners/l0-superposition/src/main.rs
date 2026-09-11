@@ -12,22 +12,17 @@ const LAYER_ID: u8 = 0;
 /// The layer name the backend prints in its operator log lines.
 const LAYER_NAME: &str = "l0-superposition";
 
-/// The two backends are alternatives, not layers of one stack: each has its own
-/// kernels and its own device context, and a binary that linked both would have
-/// to choose at run time what it can only choose at build time.
-#[cfg(all(feature = "cuda", feature = "metal"))]
-compile_error!("qualia-l0-superposition: the cuda and metal features are mutually exclusive");
-
-/// With neither backend there is no loop to hand the layer to.
-#[cfg(not(any(feature = "cuda", feature = "metal")))]
-compile_error!("qualia-l0-superposition: enable the cuda or the metal feature");
-
-#[cfg(all(feature = "metal", not(feature = "cuda")))]
 fn main() {
-    qualia_metal::run_layer(LAYER_ID, LAYER_NAME);
-}
-
-#[cfg(all(feature = "cuda", not(feature = "metal")))]
-fn main() {
+    // The two backends are alternatives, not layers of one stack: each has its
+    // own kernels and its own device context, and a binary that linked both
+    // would have to choose at run time what it can only choose at build time.
+    #[cfg(all(feature = "cuda", not(feature = "metal")))]
     qualia_cuda::run_layer(LAYER_ID, LAYER_NAME);
+    #[cfg(all(feature = "metal", not(feature = "cuda")))]
+    qualia_metal::run_layer(LAYER_ID, LAYER_NAME);
+    #[cfg(all(feature = "cuda", feature = "metal"))]
+    compile_error!("cuda and metal features are mutually exclusive");
+    // With neither backend there is no loop to hand the layer to.
+    #[cfg(all(not(feature = "cuda"), not(feature = "metal")))]
+    compile_error!("enable either cuda or metal feature");
 }
