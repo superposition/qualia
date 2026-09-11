@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use qualia_braid::BraidEvent;
 use qualia_mcap::{
     quarantine_partials, McapReference, McapSessionWriter, TOPIC_ACTION_APPLIED,
     TOPIC_ACTION_CLAMPED, TOPIC_ACTION_REQUESTED, TOPIC_BELIEF, TOPIC_CAMERA, TOPIC_HEALTH,
@@ -38,6 +39,8 @@ const SNAPSHOT_ATTEMPTS: usize = 8;
 /// Prior poller: per-request timeout and pause between two attempts.
 const PRIOR_TIMEOUT: Duration = Duration::from_millis(250);
 const PRIOR_INTERVAL: Duration = Duration::from_millis(500);
+/// How long a braid report may take before the recorder gives up on it.
+const BRAID_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// `schema_version` stamped into each topic's evidence document.
 const CAMERA_DOC: &str = "qualia.camera-evidence.v1";
@@ -147,7 +150,7 @@ fn run() -> Fallible {
     let running = Arc::new(AtomicBool::new(true));
     let signal = Arc::clone(&running);
     ctrlc::set_handler(move || signal.store(false, Ordering::Release))?;
-    let (priors, prior_thread) = start_prior_poller(settings.agent_url, Arc::clone(&running));
+    let (priors, prior_thread) = start_prior_poller(settings.agent_url.clone(), Arc::clone(&running));
 
     eprintln!(
         "qualia-arena-recorder: recording session={} sources={} root={}",
@@ -170,6 +173,7 @@ fn run() -> Fallible {
     }
 
     let reference = recorder.seal()?;
+    report_sealed_segment(settings.agent_url.as_deref(), &reference.sha256);
     if let (Ok(store_path), Ok(session_id)) = (
         std::env::var("QUALIA_SESSION_STORE"),
         std::env::var("QUALIA_SESSION_ID"),
@@ -740,6 +744,35 @@ impl Recorder {
         }
         Ok(())
     }
+}
+
+/// Tells the braid that a segment sealed, under the digest a reader checks it
+/// by.
+///
+/// The segment itself is the evidence strand's durable record, so this is the
+/// strand reporting a fact about a file it already owns, not a request to write
+/// one. A recorder that cannot reach the agent keeps recording: the bytes are on
+/// disk, and an undelivered report is a gap in the braid's view rather than a
+/// reason to lose evidence. Nothing is logged, so the operator lines stay the
+/// reference's whether or not an agent is listening.
+fn report_sealed_segment(agent_url: Option<&str>, sha256: &str) {
+    let Some(agent_url) = agent_url.map(str::trim).filter(|url| !url.is_empty()) else {
+        return;
+    };
+    // The agent serves TLS with the certificate it generates on first start, so
+    // the recorder cannot verify it; the URL is the operator's.
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(BRAID_TIMEOUT)
+        .build()
+    else {
+        return;
+    };
+    let event = BraidEvent::EvidenceSealed {
+        sha256: sha256.to_string(),
+    };
+    let endpoint = format!("{}/braid", agent_url.trim_end_matches('/'));
+    let _ = client.post(&endpoint).json(&event).send();
 }
 
 /// Polls the agent's belief status on its own thread so a slow agent cannot

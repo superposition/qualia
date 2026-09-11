@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 ctrlc = "3"
+qualia-braid = { workspace = true }
 qualia-mcap = { workspace = true }
 qualia-session-store = { workspace = true }
 qualia-shm = { workspace = true }

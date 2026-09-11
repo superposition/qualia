@@ -181,7 +181,7 @@ pub fn app(state: AppState) -> Router {
     let serve_dir = ServeDir::new(state.config.web_dir.clone());
 
     Router::new()
-        .route("/braid", get(braid::view_get))
+        .route("/braid", get(braid::view_get).post(braid::event_post))
         .route("/mcp", post(mcp::protocol_post))
         .route("/mcp/status", get(mcp::status_get))
         .route("/mcp/tools", get(mcp::tools_get))

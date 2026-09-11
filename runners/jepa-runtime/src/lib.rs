@@ -152,6 +152,23 @@ pub enum TickOutcome {
     GenerationSwapped { generation: u64 },
 }
 
+/// Which way the generation pointer moved when the active generation changed.
+///
+/// [`TickOutcome::GenerationSwapped`] carries the generation the pointer now
+/// names; this says whether that checkpoint had been parked by an earlier swap.
+/// A pointer that names the parked checkpoint is the stack returning to what it
+/// ran before — the parked copy is reused without touching the disk again, which
+/// is what makes an immediate rollback cheap — and it is reported as a rollback
+/// however the counter moved. Any other pointer is a generation loaded for the
+/// first time, and is reported as a promotion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerationChange {
+    /// The pointer named a checkpoint that was not the parked one.
+    Promoted,
+    /// The pointer named the checkpoint that was parked for rollback.
+    RolledBack,
+}
+
 /// One checkpoint held resident with its verified pointer.
 struct LoadedGeneration {
     pointer: GenerationPointer,
@@ -310,6 +327,7 @@ pub struct ObserveOnlyRunner {
     producer_epoch: u64,
     live: LoadedGeneration,
     parked: Option<LoadedGeneration>,
+    last_change: Option<GenerationChange>,
     last_frame: Option<SensorFrame>,
     last_key: Option<(u64, u64, u64)>,
     counters: Counters,
@@ -341,6 +359,7 @@ impl ObserveOnlyRunner {
             producer_epoch,
             live,
             parked: None,
+            last_change: None,
             last_frame: None,
             last_key: None,
             counters: Counters::default(),
@@ -381,6 +400,17 @@ impl ObserveOnlyRunner {
         }
     }
 
+    /// Which way the active generation last moved, or `None` while the pointer
+    /// has not changed since the runner was opened.
+    ///
+    /// [`ObserveOnlyRunner::tick`] answers [`TickOutcome::GenerationSwapped`] for
+    /// every swap and carries the generation it moved to; a caller that reports
+    /// the swap to the braid reads this for the direction — a pointer that named
+    /// the parked checkpoint is a rollback, any other is a promotion.
+    pub fn last_generation_change(&self) -> Option<GenerationChange> {
+        self.last_change
+    }
+
     /// Advance the runner by at most one inference.
     ///
     /// A generation change takes precedence over inference: the new pointer is
@@ -389,13 +419,14 @@ impl ObserveOnlyRunner {
     /// publishes telemetry that carries the diagnostic.
     pub fn tick(&mut self, shm: &ShmRegion, now_ns: u64) -> RuntimeResult<TickOutcome> {
         match self.reconcile_generation() {
-            Ok(true) => {
+            Ok(Some(change)) => {
+                self.last_change = Some(change);
                 self.publish_telemetry(shm, None, None)?;
                 return Ok(TickOutcome::GenerationSwapped {
                     generation: self.live.pointer.generation,
                 });
             }
-            Ok(false) => {}
+            Ok(None) => {}
             Err(error) => {
                 self.counters.dropped = self.counters.dropped.saturating_add(1);
                 self.publish_telemetry(shm, None, Some(&error.to_string()))?;
@@ -479,16 +510,17 @@ impl ObserveOnlyRunner {
 
     /// Read the pointer again and adopt an increasing generation.
     ///
-    /// Returns `true` when the active generation changed. A pointer that names
-    /// the parked checkpoint and digest is reused without touching the disk
-    /// again, which is what makes an immediate rollback cheap.
-    fn reconcile_generation(&mut self) -> RuntimeResult<bool> {
+    /// Answers which way the pointer moved, or `None` when the active
+    /// generation did not change. A pointer that names the parked checkpoint and
+    /// digest is reused without touching the disk again, which is what makes an
+    /// immediate rollback cheap.
+    fn reconcile_generation(&mut self) -> RuntimeResult<Option<GenerationChange>> {
         let next = read_generation(&self.generation_file)?;
         if next.generation == self.live.pointer.generation {
             if next != self.live.pointer {
                 return Err("active generation was mutated in place".into());
             }
-            return Ok(false);
+            return Ok(None);
         }
         if next.generation < self.live.pointer.generation {
             return Err("generation counter moved backwards".into());
@@ -502,6 +534,11 @@ impl ObserveOnlyRunner {
             }
             _ => None,
         };
+        let change = if recycled.is_some() {
+            GenerationChange::RolledBack
+        } else {
+            GenerationChange::Promoted
+        };
         let loaded = match recycled {
             Some(mut parked) => {
                 parked.pointer = next;
@@ -514,7 +551,7 @@ impl ObserveOnlyRunner {
         self.last_frame = None;
         self.last_key = None;
         self.counters.swaps = self.counters.swaps.saturating_add(1);
-        Ok(true)
+        Ok(Some(change))
     }
 
     /// Publish one scored transition into the evidence slot.
@@ -1373,6 +1410,11 @@ mod tests {
         );
         assert_eq!(runner.active_generation(), 2);
         assert_eq!(runner.active_checkpoint_id(), "gen-beta");
+        assert_eq!(
+            runner.last_generation_change(),
+            Some(GenerationChange::Promoted),
+            "a checkpoint that was not parked is a first-time load"
+        );
 
         // The parked generation is reused when the pointer names it again.
         alpha.generation = 3;
@@ -1382,6 +1424,11 @@ mod tests {
             TickOutcome::GenerationSwapped { generation: 3 }
         );
         assert_eq!(runner.active_checkpoint_id(), "gen-alpha");
+        assert_eq!(
+            runner.last_generation_change(),
+            Some(GenerationChange::RolledBack),
+            "the pointer named the checkpoint that was parked for rollback"
+        );
         assert_eq!(shm.jepa_telemetry().snapshot(8).expect("telemetry").hot_swaps, 2);
 
         // The runner never wrote outside its own slots.
