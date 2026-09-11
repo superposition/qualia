@@ -87,7 +87,7 @@ timeline window.
 | quantity | plain (untraced) | under `nsys` (mage leg) | T50's measured baseline |
 | --- | --- | --- | --- |
 | one epoch | **367.197 s** | **375.136 s** | 386.764 s |
-| per batch (epoch ÷ 1303) | **281.77 ms** | **287.87 ms** | 296.8 ms |
+| per batch (epoch ÷ 1303) | **281.81 ms** | **287.90 ms** | 296.8 ms |
 | training samples/s | **113.48** | **111.08** | 107.74 |
 | whole process | **465.983 s** | 484 s (mage command) | 506.2 s |
 
@@ -117,7 +117,7 @@ on #172: 506.2 s wall, 386.764 s epoch, 296.8 ms/batch, 107.74 samples/s):
 | quantity | T50 baseline | here, plain | here, under `nsys` | Δ plain | Δ profiled |
 | --- | --- | --- | --- | --- | --- |
 | epoch | 386.764 s | **367.197 s** | **375.136 s** | **−5.1 %** | **−3.0 %** |
-| per batch | 296.8 ms | **281.77 ms** | **287.87 ms** | **−5.1 %** | **−3.0 %** |
+| per batch | 296.8 ms | **281.81 ms** | **287.90 ms** | **−5.1 %** | **−3.0 %** |
 | samples/s | 107.74 | **113.48** | **111.08** | **+5.3 %** | **+3.1 %** |
 
 **No code on this path changed between the two heads.** `git log --oneline -- crates/jepa-model/src/train.rs`
@@ -128,21 +128,32 @@ later capture of this step must beat **367.197 s plain / 375.136 s under `nsys`*
 1303-batch count) to claim otherwise. The neighbouring set, `T30/belief-coupling`, profiles a different
 path on the board — the coupling update's kernel — and shares no number with this one.
 
+**Which baseline cell to compare.** T50's row-D evidence names `fixture/data/train1` and `bench` and no
+`nsys/train` directory, so the baseline reads as an **untraced** dev-host run; on that reading the
+like-for-like cell is **Δ plain (−5.1 %)** and the −3.0 % carries `nsys` overhead on one side only.
+The baseline's fixture is a separate instance of the same recipe (12 sessions × 4168 frames), not this
+capture's catalog, and its wall time is 506.2 s in its own summary table against 506.4 s in its command
+list — T50's discrepancy, not this capture's to fix. Per-batch cells are `epoch ÷ 1303` from the epochs
+above: 367.197 / 1303 = 281.810 ms and 375.136 / 1303 = 287.901 ms, rounded to 281.81 / 287.90.
+
 ## The CPU timeline (bounded window)
 
 The training loop makes no CUDA call, so the timeline is an `osrt` trace. Collection is a **window of
-6 s, 14 s after the launch** (`--delay=14 --duration=6`); inside it the trainer's 24 materialization
-lines appear as `write` events and the last of them, at **3 107 538 875 ns** on the trace clock, is the
-epoch's start (14 s + 3.108 s = 17.108 s into the process; the untraced leg materialized everything by
-16.242 s).
+6 s, 14 s after the launch** (`--delay=14 --duration=6`); 7 of the trainer's 24 materialization lines
+fall inside it as `write` events (the other 17 are before the window), and the **last of them completes
+at 3 107 538 875 ns** on the trace clock — the epoch's start; that write begins at 3 107 537 733 ns,
+the highest `start` in the committed export (14 s + 3.108 s = 17.108 s into the process; the untraced
+leg materialized everything by 16.242 s).
 
 | window (100 ms, trace clock) | events |
 | --- | --- |
-| 0.0–3.0 | the materialization tail: 7 `write` events (the trainer's own lines), 8 file I/O calls |
-| **3.1** | the epoch's first 100 ms: **32 `pthread_create`**, 32 `mmap64`, 32 `mprotect`, **1 286 `open64`**, 191 `statx`, 8 `read`, 6 554 `futex`, 2 `write` |
-| 3.2–6.0 | **`futex` only**, 8 399–20 112 calls per 100 ms |
+| 0.0–3.0 (buckets 0–29) | the materialization tail: **5 `write`** events and **14** file-I/O calls (`close` 3, `open64` 4, `read` 4, `statx` 3) |
+| **3.1** (bucket 31) | the boundary's last **2 `write`** events and then the epoch's own first 100 ms: **32 `pthread_create`**, 32 `mmap64`, 32 `mprotect`, **1 286 `open64`**, 191 `statx`, 8 `read`, 3 `close`, 6 554 `futex` |
+| 3.2–6.0 (buckets 32–59) | **`futex` only**, 8 399–20 112 calls per 100 ms |
 
-The whole window holds 399 669 OSRT rows. In the epoch's part (2.867 s):
+The rows are the bands, not the phases: the phase totals are in `osrt-calls.csv`, where the 7 `write`
+events span 0.376–3.108 s, so the 2 in bucket 31 are counted there too. The whole window holds 399 669
+OSRT rows. In the epoch's part (2.867 s):
 
 | api | calls | calls/s | p50 | p95 | max | summed |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -187,10 +198,11 @@ the cost is in the trainer's own printed line.
 | file | bytes | sha256 |
 | --- | --- | --- |
 | `capture.json` | 1 408 | `dd444ec82453b20b3804d6d268eb7e6be242c078dc296bf1ce6b388d8d5dc00f` |
-| `capture.sqlite` | 77 824 | `922e6aa63a44f4bd3f4f6c69324396e487efced1127e66a39cedaaf6769f8529` |
+| `capture.sqlite` | 77 824 | `bca6b0818f167a56865e0d12a1aac5d3cca713cd3c5a92650e182f4947957f43` |
 | `osrt-calls.csv` | 989 | `8ca4370c6037d315105c6ddc285f12906ce79ca214bef5ec3279a9bbb3967cbb` |
 | `timeline.csv` | 979 | `911f750dff7754875f7736c38e4451b290f957c329a8177e43d8e46632e9e713` |
 | `train-progress.txt` | 2 388 | `1ed747723fdeebebd37f9a7e584e276024b94b4eab326c9b1d791f8416674be6` |
+| `make_timeline.py` | 4 438 | the generator of the two derived tables above |
 
 `capture.json` is mage's manifest for the mage leg, with every absolute path elided to home-relative
 (the profiler's `--output=` directory in `profiler_argv`, the report directory in `error`) and the nsys
@@ -203,12 +215,17 @@ before it counts kernels. The kernel-less fact itself is in the retained export 
 no kernel. `--capture-range all` and not `cuda`, per the convention: no binary here calls
 `cudaProfilerStart`/`cudaProfilerStop`, so a `cuda` range records nothing.
 
-`capture.sqlite` is the **window** leg's exported SQLite, **trimmed**: it keeps `OSRT_API` rows up to
-the epoch's first 20 ms — 1 525 of the window's 399 669 rows, which carry the materialization tail, the
-epoch's progress writes, the topology scan and the 32 worker-thread creations — plus the `StringIds`
-rows those rows reference, `ThreadNames` and `TARGET_INFO_SESSION_START_TIME`, `VACUUM`ed from 30 658 560
-bytes. The 398 063 sustained `futex` rows that follow are **not** in the committed export; they are
-projected into `osrt-calls.csv`, the way `T50/model-step` ships its 31 565-row runtime table as
+`capture.sqlite` is the **window** leg's exported SQLite, **trimmed** to the rule: keep `OSRT_API` rows
+with `start <` the epoch's start + 20 ms; keep `ThreadNames`, `TARGET_INFO_SESSION_START_TIME`, and the
+`StringIds` rows referenced by *either* kept table (T35's precedent); `VACUUM`. That is **1 525 of the
+window's 399 669 rows** — all of the window's `open64` (1 290), `statx` (194), `read` (12), `write` (7),
+`close` (6) and the one `[Unknown]`, **11 of the 32 `pthread_create`**, **4 of the 32 `mmap64`** and
+**none of the 32 `mprotect`** (the 20 ms cut falls through the pool creation — the `pthread_create`
+rows run from +17.7 ms to +30.4 ms) — with 54 `StringIds` rows, so `ThreadNames` joins **161 of 161**
+rows to its names. The export therefore answers the phase boundary directly. It is `VACUUM`ed from the
+untrimmed export named in the table below. The 398 063 sustained `futex` rows that follow are **not** in
+the committed export; they
+are projected into `osrt-calls.csv`, the way `T50/model-step` ships its 31 565-row runtime table as
 `api-calls.csv` instead. The trace clock's zero is the start of collection, 14 s into the process;
 event timestamps are nanoseconds from it, and the epoch's start is the last `write` row. Read it with:
 
@@ -223,11 +240,21 @@ for row in con.execute(
 PY
 ```
 
-`osrt-calls.csv` is the window's full event set aggregated by phase and API — calls, total, mean, p50,
-p95, max, the phase's span and the rate — including the 398 063 `futex` rows the export does not carry.
-`timeline.csv` is the window as a timeline: one row per 100 ms bucket per API, so the top table above
-can be re-derived without opening the raw export. Both are projections of the same export, and no value
-in either is absent from it.
+`osrt-calls.csv` and `timeline.csv` are **projections of the untrimmed window export**, not of the
+committed trim: the first is the window's full event set aggregated by (phase, api) — calls, total,
+mean, nearest-rank p50/p95, max, the group's span and rate — including the 398 063 `futex` rows the
+committed export does not carry; the second counts the window per 100 ms bucket per API, which is the
+band table above. **They cannot be regenerated from the committed `capture.sqlite`** — it drops those
+rows by construction — so they are only re-derivable with the untrimmed export, which stays on the
+capturing machine (its size and sha256 are in the table below). The generator is committed beside them
+and reproduces both files byte for byte from that input:
+
+```bash
+python3 docs/evidence/T31/training-step/make_timeline.py <untrimmed capture.sqlite> \
+  docs/evidence/T31/training-step
+# 399669 OSRT rows, epoch starts at 3107537733 ns
+# wrote osrt-calls.csv (14 rows) and timeline.csv (48 rows)
+```
 
 `train-progress.txt` is the untraced leg's own output, every line stamped with seconds since the
 child's start: the 24 materialization lines, the epoch line, the calibration line and the publication
@@ -236,13 +263,15 @@ asks a capture to carry, in the trainer's emitted wording (D-008/D-009).
 
 ### Stays on the capturing machine
 
-| artifact | bytes | why it is not committed |
-| --- | --- | --- |
-| the window leg's untrimmed `capture.sqlite` | 30 658 560 | carries the 398 063 `futex` rows projected into `osrt-calls.csv` |
-| the window leg's `capture.nsys-rep` | 6 191 759 | `nsys`'s report; the committed SQLite is its export |
-| the mage leg's `capture.sqlite` / `capture.nsys-rep` | 1 003 520 / 163 773 | the same run's `cuda,nvtx` export: no kernel, no `CUPTI` table, nothing to project |
-| the three training reports and the checkpoints | ~15 MB each | the trainer's published output; their fields are quoted above and their digests named |
-| `process.log`, `nsys.log`, the fixture writer and the catalog | — | the profilers' logs and the throwaway fixture, all of which embed this machine's scratch paths; the fixture writer is quoted in §"How it was taken" |
+| artifact | bytes | sha256 | why it is not committed |
+| --- | --- | --- | --- |
+| the window leg's untrimmed `capture.sqlite` | 30 658 560 | `0c84a56c3c29d75e28fb27cd1d005e1fa18a9d714dc424a8819404e3bff9fe2e` | carries the 398 063 `futex` rows projected into `osrt-calls.csv`; the committed trim is from it |
+| the window leg's `capture.nsys-rep` | 6 191 759 | `c13132443733a2c82537824f204a06a6f1a9d12d7110a2120b2a1225746695d1` | `nsys`'s report; the committed SQLite is its export |
+| the mage leg's `capture.sqlite` | 1 003 520 | `9f1136b4d46ccb3ef1c0a9d2e51e8a06b2be63450f0138366b13fb1079ec3087` | the same run's `cuda,nvtx` export: no kernel, no `CUPTI` table, nothing to project |
+| the mage leg's `capture.nsys-rep` | 163 773 | `5a675aa00857856451c436bc9bd224f321ea4cd8e704b3e8c68f95a68e140c5b` | `nsys`'s report for the mage leg |
+| the checkpoint weights (all three legs) | ~15 MB each | `b98cbc092a1c48dbeec8e1eefe543f305feb94b4d4357efce45ecc493c5bd573` (one hash for all three) | the trainer's published checkpoint; deterministic here, so the three legs wrote the same bytes |
+| the training reports | ~3.3 KB each | `d750e0c7…` (plain), `fa5722ef…` (mage), `13916c67…` (window) | the trainer's published report, digest-named; its fields and its own digest are in the filename |
+| `process.log`, `nsys.log`, the fixture writer and the catalog | — | — | the profilers' logs and the throwaway fixture, all of which embed this machine's scratch paths; the fixture writer is quoted in §"How it was taken" |
 
 ## How it was taken
 
@@ -265,7 +294,19 @@ mage profile-exec --backend nsys --capture-range all --no-persist \
      --backend cpu --epochs 1                       # exit 1, 484 s
 
 # leg 2 — the untraced run, every emitted line timestamped (train-progress.txt)
-python3 -u -c '...' $HOME/t47t31-target/release/qualia-jepa-train … --epochs 1   # exit 1, 465.983 s
+python3 -u -c '
+import subprocess, sys, time
+p = subprocess.Popen(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                     text=True, bufsize=1)
+t0 = time.time()
+for line in p.stdout:
+    print(f"+{time.time()-t0:9.3f} {line}", end="")
+rc = p.wait()
+print(f"[exit {rc}] total {time.time()-t0:.3f} s")
+' $HOME/t47t31-target/release/qualia-jepa-train \
+     --manifest ~/t47t31-capture/datasets/jepa-dataset-b9992b24….json \
+     --checkpoint-id cnn-b9992b243b19 --output-dir ~/t47t31-capture/plain/train \
+     --backend cpu --epochs 1                       # exit 1, 465.983 s
 
 # leg 3 — the bounded timeline window (manual: mage's nsys argv is fixed at --trace=cuda,nvtx,
 # so the osrt trace is not reachable through `mage profile-exec`)
@@ -278,6 +319,13 @@ nsys profile --trace=osrt,cuda,nvtx --sample=none --cpuctxsw=none --stats=false 
      --backend cpu --epochs 1
 # nsys warns "setting --wait with --stop-on-exit false is contradictory. Ignoring --wait." and exits
 # after the export (~26 s); the app it detached keeps running and publishes report 13916c67… on its own
+
+# the committed artifacts from the three legs' outputs
+python3 make_timeline.py ~/t47t31-capture/nsys-window/capture.sqlite .   # the two CSVs
+# capture.sqlite: the trim rule in §Files, applied to the same export and VACUUMed
+sed 's#/home/superposition#~#g' ~/t47t31-capture/plain/plain.log > train-progress.txt
+# capture.json: the mage manifest with the two absolute paths elided to ~ and the nsys progress
+# text dropped from `error`
 ```
 
 The three commands ran one at a time and one build at a time (`cargo +1.98.1 build --release -j 2 -p
