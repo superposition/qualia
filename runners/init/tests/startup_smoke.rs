@@ -197,16 +197,107 @@ fn write_manifest(
     .expect("write manifest");
 }
 
-fn spawn_init(manifest: &Path, log_dir: &Path, extra_env: &[(&str, &str)]) -> Child {
+/// The supervisor inputs a test controls.
+///
+/// An ambient value for any of these changes what the supervisor does — a
+/// `RUST_LOG=debug` exported while debugging, or a stale `QUALIA_SHM_NAME`
+/// override — so every spawned supervisor is started without them and a test
+/// that wants one supplies it through `extra_env`.
+const SUPERVISOR_INPUTS: [&str; 4] = [
+    "RUST_LOG",
+    "QUALIA_SHM_NAME",
+    "QUALIA_SOCK_PATH",
+    "QUALIA_INIT_OWNER_ONLY",
+];
+
+/// Builds a supervisor command whose environment the test controls completely:
+/// the supervisor inputs above and the replica keys a probe reports are removed
+/// before `extra_env` supplies the per-test values, so the suite does not depend
+/// on the developer's shell, and the child sees exactly what the manifest and
+/// the test declare.
+fn init_command(manifest: &Path, log_dir: &Path, extra_env: &[(&str, &str)]) -> Command {
     let mut cmd = Command::new(init_exe());
+    for key in SUPERVISOR_INPUTS {
+        cmd.env_remove(key);
+    }
+    for (key, _) in PASSTHROUGH_ENV {
+        cmd.env_remove(key);
+    }
     cmd.env("QUALIA_STACK_MANIFEST", manifest)
-        .env("QUALIA_LOG_DIR", log_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .env("QUALIA_LOG_DIR", log_dir);
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
-    cmd.spawn().expect("spawn qualia-init")
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so `terminate_tree` can kill the supervisor and
+        // every probe it spawned with one signal.
+        cmd.process_group(0);
+    }
+    cmd
+}
+
+fn spawn_init(manifest: &Path, log_dir: &Path, extra_env: &[(&str, &str)]) -> InitProcess {
+    let child = init_command(manifest, log_dir, extra_env)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn qualia-init");
+    InitProcess::new(child)
+}
+
+/// A supervisor a test started, together with the children it spawned.
+///
+/// Dropping it terminates the whole stack, so an assertion that fails before
+/// the test's own `Shutdown` cannot leave the supervisor and its probes running.
+struct InitProcess {
+    child: Child,
+}
+
+impl InitProcess {
+    fn new(child: Child) -> Self {
+        Self { child }
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+}
+
+impl Drop for InitProcess {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        terminate_tree(self.child.id());
+        let _ = self.child.wait();
+    }
+}
+
+/// Terminates a supervisor and every process it started.
+///
+/// Windows has no signal a test can deliver to a whole tree, so `taskkill /T`
+/// does it; on Unix the supervisor runs in its own process group (see
+/// [`init_command`]) and a negative pid reaches its children too.
+fn terminate_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let pid = pid.to_string();
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(unix)]
+    {
+        // SAFETY: the negative pid addresses the supervisor's own process group,
+        // which `init_command` created for it.
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
 }
 
 fn wait_for_control(path: &Path, timeout: Duration) -> ControlStream {
@@ -239,15 +330,13 @@ fn wait_for_text(path: &Path, timeout: Duration) -> String {
     }
 }
 
-fn wait_for_exit(child: &mut Child, timeout: Duration) -> ExitStatus {
+fn wait_for_exit(init: &mut InitProcess, timeout: Duration) -> ExitStatus {
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(status) = child.try_wait().expect("try_wait") {
+        if let Some(status) = init.try_wait().expect("try_wait") {
             return status;
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
             panic!("qualia-init did not exit within {timeout:?}");
         }
         thread::sleep(POLL);
@@ -468,18 +557,19 @@ fn unsupported_manifest_is_refused_before_anything_is_allocated() {
     .expect("write manifest");
 
     let stderr = File::create(&stderr_path).expect("create stderr file");
-    let mut init = Command::new(init_exe())
-        .env("QUALIA_STACK_MANIFEST", &manifest)
-        .env("QUALIA_LOG_DIR", &log_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(stderr))
-        .spawn()
-        .expect("spawn qualia-init");
+    let mut init = InitProcess::new(
+        init_command(&manifest, &log_dir, &[])
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .expect("spawn qualia-init"),
+    );
 
     let status = wait_for_exit(&mut init, WAIT);
-    assert!(
-        !status.success(),
-        "an unsupported manifest must not start the stack"
+    assert_eq!(
+        status.code(),
+        Some(101),
+        "a refused manifest is a fatal startup failure, and every fatal path exits 101"
     );
     let report = fs::read_to_string(&stderr_path).expect("read init stderr");
     assert!(
@@ -494,4 +584,188 @@ fn unsupported_manifest_is_refused_before_anything_is_allocated() {
         !log_dir.exists(),
         "a refused manifest must not create the stack's log directory"
     );
+}
+
+#[test]
+fn ambient_supervisor_variables_do_not_reach_the_spawned_child() {
+    // `spawn_init` starts the supervisor from a controlled environment, so an
+    // exported `RUST_LOG=debug` — routine while debugging — or a stale
+    // `QUALIA_SHM_NAME` / `QUALIA_SOCK_PATH` / `QUALIA_INIT_OWNER_ONLY` in the
+    // developer's shell cannot change the stack this test declares. The probe
+    // reports the environment it was handed, so the whole report is pinned: the
+    // addresses come from the manifest, the log filter is the default, and no
+    // replica key is forwarded because the manifest does not declare one.
+    let scratch = Scratch::new("ambient");
+    let manifest = scratch.join("stack.json");
+    let log_dir = scratch.join("logs");
+    let socket = scratch.join("control.sock");
+    let prior_dir = scratch.join("prior");
+    let shm_name = format!("/qualia-init-ambient-{}", unique_suffix());
+    let runner = format!(
+        "qualia-ambient-probe-{}{}",
+        unique_suffix(),
+        std::env::consts::EXE_SUFFIX
+    );
+    build_probe(&scratch, &runner);
+
+    write_manifest(
+        &manifest,
+        &shm_name,
+        &socket,
+        serde_json::json!([{ "name": runner, "stdout": "null" }]),
+        serde_json::json!({
+            "QUALIA_FLY_MODE": "prior",
+            "QUALIA_FLY_PRIOR_PATH": prior_dir.to_string_lossy(),
+        }),
+    );
+
+    let mut init = spawn_init(&manifest, &log_dir, &[]);
+    let mut control = wait_for_control(&socket, WAIT);
+    let report = wait_for_text(&log_dir.join("probe.tsv"), WAIT);
+
+    let mut expected = vec![
+        "QUALIA_FLY_MODE\tprior".to_string(),
+        format!("QUALIA_FLY_PRIOR_PATH\t{}", prior_dir.to_string_lossy()),
+        format!("QUALIA_SHM_NAME\t{shm_name}"),
+        format!("QUALIA_SOCK_PATH\t{}", socket.to_string_lossy()),
+        format!("QUALIA_LOG_DIR\t{}", log_dir.to_string_lossy()),
+        "RUST_LOG\tinfo".to_string(),
+    ];
+    expected.extend(
+        PASSTHROUGH_ENV
+            .iter()
+            .map(|(key, _)| format!("{key}\t<unset>")),
+    );
+    let reported: Vec<&str> = report.lines().collect();
+    let expected: Vec<&str> = expected.iter().map(String::as_str).collect();
+    assert_eq!(
+        reported, expected,
+        "the child must see exactly what the test declared, not the shell it ran from:\n{report}"
+    );
+
+    control
+        .send(ControlMsg::Shutdown, None)
+        .expect("send shutdown");
+    let status = wait_for_exit(&mut init, WAIT);
+    assert!(status.success(), "qualia-init exited {status}");
+}
+
+/// A fatal startup failure keeps the reference's status (101) and payload: the
+/// bind failure prints the `.expect` text — no `[init]` prefix, the io error in
+/// its `Debug` form.
+#[cfg(windows)]
+#[test]
+fn busy_control_endpoint_is_refused_with_the_reference_status_and_payload() {
+    let scratch = Scratch::new("busy");
+    let held = scratch.join("held.json");
+    let refused = scratch.join("refused.json");
+    let log_dir = scratch.join("logs");
+    let socket = scratch.join("control.sock");
+    let stderr_path = scratch.join("init.stderr");
+    let shm_held = format!("/qualia-init-busy-held-{}", unique_suffix());
+    let shm_refused = format!("/qualia-init-busy-refused-{}", unique_suffix());
+    let absent = format!(
+        "qualia-never-built-{}{}",
+        unique_suffix(),
+        std::env::consts::EXE_SUFFIX
+    );
+
+    write_manifest(
+        &held,
+        &shm_held,
+        &socket,
+        serde_json::json!([{ "name": absent, "stdout": "null" }]),
+        serde_json::json!({}),
+    );
+    write_manifest(
+        &refused,
+        &shm_refused,
+        &socket,
+        serde_json::json!([{ "name": absent, "stdout": "null" }]),
+        serde_json::json!({}),
+    );
+
+    // The first supervisor owns the endpoint; a connection also parks a control
+    // reader on it. The second supervisor names the same endpoint, so its bind
+    // fails.
+    let holder = spawn_init(&held, &log_dir, &[("QUALIA_INIT_OWNER_ONLY", "1")]);
+    let _control = wait_for_control(&socket, WAIT);
+
+    let stderr = File::create(&stderr_path).expect("create stderr file");
+    let mut refused_init = InitProcess::new(
+        init_command(&refused, &log_dir, &[])
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .expect("spawn second qualia-init"),
+    );
+
+    let status = wait_for_exit(&mut refused_init, WAIT);
+    assert_eq!(
+        status.code(),
+        Some(101),
+        "the reference terminates every startup failure through its panic status"
+    );
+    let report = fs::read_to_string(&stderr_path).expect("read init stderr");
+    assert!(
+        report.contains("Failed to bind control socket: Os {"),
+        "the bind failure must keep the reference payload: {report}"
+    );
+    assert!(
+        report.contains("kind: AddrInUse"),
+        "the payload must carry the debug-formatted io error: {report}"
+    );
+    assert!(
+        !report.contains("[init] Failed to bind"),
+        "the payload must not be normalized behind the `[init]` prefix: {report}"
+    );
+
+    drop(holder);
+}
+
+#[test]
+fn dropping_the_supervisor_handle_stops_the_stack() {
+    // The guard is what keeps a failing assertion from leaking processes, so
+    // its `Drop` must terminate the supervisor *and* the probe it started: an
+    // orphaned probe would keep the heartbeat counting.
+    let scratch = Scratch::new("drop");
+    let manifest = scratch.join("stack.json");
+    let log_dir = scratch.join("logs");
+    let socket = scratch.join("control.sock");
+    let shm_name = format!("/qualia-init-drop-{}", unique_suffix());
+    let runner = format!(
+        "qualia-drop-probe-{}{}",
+        unique_suffix(),
+        std::env::consts::EXE_SUFFIX
+    );
+    build_probe(&scratch, &runner);
+
+    write_manifest(
+        &manifest,
+        &shm_name,
+        &socket,
+        serde_json::json!([{ "name": runner, "stdout": "null" }]),
+        serde_json::json!({}),
+    );
+
+    let init = spawn_init(&manifest, &log_dir, &[]);
+    let _control = wait_for_control(&socket, WAIT);
+    let beat = log_dir.join("heartbeat.txt");
+    wait_for_text(&beat, WAIT);
+
+    drop(init);
+
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let before = fs::read_to_string(&beat).expect("read heartbeat");
+        thread::sleep(Duration::from_millis(300));
+        let after = fs::read_to_string(&beat).expect("read heartbeat");
+        if before == after {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a probe outlived the supervisor handle it belonged to"
+        );
+    }
 }

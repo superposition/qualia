@@ -49,19 +49,22 @@ const TRUTHY: [&str; 5] = ["1", "true", "TRUE", "yes", "YES"];
 
 /// Cleared by a termination signal so the main loop can unwind cleanly.
 static RUNNING: AtomicBool = AtomicBool::new(true);
+/// Set by the connection thread that hears `Shutdown` or `Estop`, so the main
+/// loop can leave its wait without depending on the peer that sent it.
+static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 fn main() {
     let manifest_text = match read_manifest_text() {
         Ok(text) => text,
-        Err(err) => fatal(&err),
+        Err(err) => fatal(&format!("[init] {err}")),
     };
     let manifest = match parse_stack_manifest(&manifest_text) {
         Ok(manifest) => manifest,
-        Err(err) => fatal(&err),
+        Err(err) => fatal(&format!("[init] {err}")),
     };
     let stack_env = match stack_env(&manifest_text) {
         Ok(env) => env,
-        Err(err) => fatal(&err),
+        Err(err) => fatal(&format!("[init] {err}")),
     };
 
     let shm_name = env_or("QUALIA_SHM_NAME", &manifest.shared_memory.name);
@@ -76,7 +79,7 @@ fn main() {
     eprintln!("[init] Creating shared memory '{shm_name}'...");
     let arena = match ShmRegion::create(&shm_name) {
         Ok(arena) => arena,
-        Err(err) => fatal(&format!("Failed to create shm: {err}")),
+        Err(err) => fatal(&format!("[init] Failed to create shm: {err}")),
     };
     eprintln!(
         "[init] Shared memory created: {} MB",
@@ -86,10 +89,10 @@ fn main() {
     eprintln!("[init] Binding control socket '{sock_path}'...");
     let control = match ControlListener::bind(&sock_path) {
         Ok(control) => control,
-        Err(err) => fatal(&format!("Failed to bind control socket: {err}")),
+        Err(err) => fatal(&format!("Failed to bind control socket: {err:?}")),
     };
     if let Err(err) = ensure_log_dir(Path::new(&log_dir)) {
-        fatal(&err);
+        fatal(&format!("Failed to create log directory: {err:?}"));
     }
     install_signal_handlers();
 
@@ -116,11 +119,15 @@ fn main() {
     eprintln!("[init] Done.");
 }
 
-/// Prints `[init] <message>` and exits non-zero: the stack cannot start without
-/// whatever the message names.
+/// Terminates the supervisor when the stack cannot start without whatever the
+/// message names.
+///
+/// Every fatal path goes through the panic machinery, as the reference does:
+/// the payload reaches stderr unchanged, the arena is released while the stack
+/// unwinds, and the process exits 101. Callers pass the payload the reference
+/// emits, including its `[init]` prefix where it has one.
 fn fatal(message: &str) -> ! {
-    eprintln!("[init] {message}");
-    std::process::exit(1);
+    panic!("{message}");
 }
 
 fn banner(stack_name: &str) {
@@ -193,7 +200,8 @@ fn spawn_runners(
     log_dir: &str,
     rust_log: &str,
 ) -> Vec<(String, Child)> {
-    let self_path = std::env::current_exe().unwrap_or_else(|err| fatal(&format!("Cannot get self path: {err}")));
+    let self_path = std::env::current_exe()
+        .unwrap_or_else(|err| fatal(&format!("Cannot get self path: {err:?}")));
     let Some(bin_dir) = self_path.parent() else {
         fatal("Cannot get bin dir");
     };
@@ -224,13 +232,13 @@ fn spawn_runners(
 
         match log_stdio(log_dir, &runner.name) {
             Ok(stderr) => cmd.stderr(stderr),
-            Err(err) => fatal(&err),
+            Err(err) => fatal(&format!("runner stderr log: {err:?}")),
         };
         match runner.stdout {
             RunnerStdout::Null => cmd.stdout(Stdio::null()),
             RunnerStdout::Inherit => match log_stdio(log_dir, &runner.name) {
                 Ok(stdout) => cmd.stdout(stdout),
-                Err(err) => fatal(&err),
+                Err(err) => fatal(&format!("runner stdout log: {err:?}")),
             },
         };
 
@@ -245,20 +253,27 @@ fn spawn_runners(
     children
 }
 
-/// Blocks until the control channel delivers `Shutdown` or `Estop`, or a
+/// Waits until the control channel delivers `Shutdown` or `Estop`, or a
 /// termination signal arrives. Other control messages are for the runners.
+///
+/// Each accepted connection is read on its own thread. A peer may connect and
+/// then say nothing at all; the supervisor must still be able to hear the next
+/// caller — and to notice the `RUNNING` flag a signal clears — while that peer
+/// holds its connection open, so the loop never waits on a stream itself.
 fn watch_control(control: &ControlListener) {
-    while RUNNING.load(Ordering::Relaxed) {
+    while RUNNING.load(Ordering::Relaxed) && !STOP_REQUESTED.load(Ordering::Relaxed) {
         std::thread::sleep(CONTROL_POLL);
         let Some(mut stream) = control.try_accept() else {
             continue;
         };
-        if let Ok((msg, _)) = stream.recv() {
-            if matches!(msg, ControlMsg::Shutdown | ControlMsg::Estop) {
-                eprintln!("[init] {msg:?} received");
-                return;
+        std::thread::spawn(move || {
+            if let Ok((msg, _)) = stream.recv() {
+                if matches!(msg, ControlMsg::Shutdown | ControlMsg::Estop) {
+                    eprintln!("[init] {msg:?} received");
+                    STOP_REQUESTED.store(true, Ordering::Relaxed);
+                }
             }
-        }
+        });
     }
 }
 
