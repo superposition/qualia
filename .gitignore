@@ -1,0 +1,14 @@
+/target
+*.cubin
+*.ptx
+.DS_Store
+/artifacts
+/.qualia_tls
+/dimos
+/drone-dataset
+
+# Secrets: no environment file may be committed. Examples are the only
+# env-shaped files that belong in the tree.
+**/*.env
+!**/*.env.example
+deploy/**/camera-stream.env

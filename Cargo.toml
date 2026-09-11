@@ -1,0 +1,75 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/qualia-console",
+    "crates/braid",
+    "crates/connectome-prior",
+    "crates/cuda",
+    "crates/fly-circuit",
+    "crates/ipc",
+    "crates/jepa",
+    "crates/jepa-dataset",
+    "crates/jepa-model",
+    "crates/jepa-registry",
+    "crates/mcap-log",
+    "crates/metal",
+    "crates/rerun-bridge",
+    "crates/session-store",
+    "crates/sync-types",
+    "crates/types",
+    "crates/shm",
+    "runners/abstraction",
+    "runners/agent",
+    "runners/arena-recorder",
+    "runners/camera",
+    "runners/cli",
+    "runners/cuda-bench",
+    "runners/cuda-service",
+    "runners/cuda-smoke",
+    "runners/drive",
+    "runners/explore",
+    "runners/floor",
+    "runners/health",
+    "runners/init",
+    "runners/jepa-runtime",
+    "runners/l0-superposition",
+    "runners/l1-belief",
+    "runners/l2-belief",
+    "runners/l3-belief",
+    "runners/l4-behavior",
+    "runners/l5-behavior",
+    "runners/l6-semantic",
+    "runners/lidar",
+    "runners/map",
+    "runners/pose",
+    "runners/session",
+    "runners/vision",
+    "runners/vslam",
+    "runners/watch",
+    "studio/rust",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Superposition LLC"]
+
+[workspace.dependencies]
+qualia-braid = { path = "crates/braid" }
+qualia-connectome-prior = { path = "crates/connectome-prior" }
+qualia-fly-circuit = { path = "crates/fly-circuit" }
+qualia-jepa = { path = "crates/jepa" }
+qualia-jepa-dataset = { path = "crates/jepa-dataset" }
+qualia-jepa-model = { path = "crates/jepa-model" }
+qualia-jepa-registry = { path = "crates/jepa-registry" }
+qualia-mcap = { path = "crates/mcap-log" }
+qualia-rerun-bridge = { path = "crates/rerun-bridge" }
+qualia-session-store = { path = "crates/session-store" }
+qualia-sync-types = { path = "crates/sync-types" }
+qualia-types = { path = "crates/types" }
+qualia-shm = { path = "crates/shm" }
+qualia-ipc = { path = "crates/ipc" }
+qualia-metal = { path = "crates/metal" }
+qualia-cuda = { path = "crates/cuda" }
+rerun = { version = "0.30.2", default-features = false, features = ["sdk", "log"] }
