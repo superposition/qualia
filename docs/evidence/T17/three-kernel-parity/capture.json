@@ -1,0 +1,179 @@
+{
+  "backend": "ncu",
+  "argv": [
+    "parity-570fdcef06a98825",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "profiler_argv": [
+    "sudo",
+    "env",
+    "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+    "/usr/local/cuda/bin/ncu",
+    "--section",
+    "LaunchStats",
+    "--section",
+    "Occupancy",
+    "--launch-count",
+    "24",
+    "--kernel-name",
+    "regex:belief_couple|perception_voxel|action_score",
+    "--metrics",
+    "gpu__time_duration.sum,sm__cycles_elapsed.avg,launch__registers_per_thread,launch__shared_mem_per_block_static,launch__shared_mem_per_block_dynamic,launch__grid_size,launch__block_size",
+    "--csv",
+    "target/release/deps/parity-570fdcef06a98825",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "returncode": 0,
+  "status": "complete",
+  "kernel_count": 10,
+  "commit": "b097ecead4e2ed0216c65c0cce6bd5dfc18ba003",
+  "ticket": "T17 (#32), PR #208",
+  "board": {
+    "name": "Pinkie \u2014 Waveshare-carried Jetson Orin NX",
+    "uname_m": "aarch64",
+    "driver": "NVRM 540.4.0",
+    "cuda_toolkit": "12.9",
+    "ncu": "2025.2.0.0 (build 35613519)",
+    "compute_capability": "8.7",
+    "ld_library_path": "/usr/local/cuda-12.9/compat",
+    "kernel_path": "NVRTC at process start (this head carries no fatbin; T18's build.rs is a different branch)"
+  },
+  "build": {
+    "command": "cargo test -p qualia-cuda --features cuda --test parity --no-run --release -j3 --offline",
+    "rustc": "1.94.0 (4a4ef493e 2026-03-02)",
+    "cudarc": "0.19.9"
+  },
+  "parity": {
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "line": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s",
+    "worst_relative_error_max": 8.5214936e-08,
+    "worst_relative_error_notes": "0e0 for every belief_couple and perception_voxel case; action_score worst 8.52e-8 (fixed/terminal-goal-distance), 8.14e-8 (maximum-size at [11]), 7.98e-8 (deterministic-random at [4])"
+  },
+  "launches_per_kernel": {
+    "belief_couple": 3,
+    "perception_voxel": 3,
+    "action_score": 4
+  },
+  "launches": [
+    {
+      "id": 0,
+      "kernel": "belief_couple",
+      "block_size": "(7, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "30336",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 1,
+      "kernel": "belief_couple",
+      "block_size": "(1024, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "902528",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 2,
+      "kernel": "belief_couple",
+      "block_size": "(98, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "57152",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 3,
+      "kernel": "perception_voxel",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(48, 1, 1)",
+      "duration": "9728",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 4,
+      "kernel": "perception_voxel",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(48, 1, 1)",
+      "duration": "1046368",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 5,
+      "kernel": "perception_voxel",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(48, 1, 1)",
+      "duration": "280256",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 6,
+      "kernel": "action_score",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(2, 1, 1)",
+      "duration": "55392",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 7,
+      "kernel": "action_score",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(1, 1, 1)",
+      "duration": "6496",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 8,
+      "kernel": "action_score",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(64, 1, 1)",
+      "duration": "1222720",
+      "duration_unit": "ns"
+    },
+    {
+      "id": 9,
+      "kernel": "action_score",
+      "block_size": "(256, 1, 1)",
+      "grid_size": "(5, 1, 1)",
+      "duration": "126080",
+      "duration_unit": "ns"
+    }
+  ],
+  "reference_t16_4090_us": {
+    "belief_couple": 2.5,
+    "perception_voxel": 11.84,
+    "action_score": 10.59
+  },
+  "runs": [],
+  "files": {
+    "kernels.csv": {
+      "bytes": 5114,
+      "sha256": "d94226864b0a4020aa3a25e59d92ac2e89456ba5c9abc8cf54c395820beef667"
+    },
+    "kernels.json": {
+      "bytes": 28905,
+      "sha256": "896d128258f78653c9e60fd9c9ccb8ad9da50b6042d0d7a244237360aa2c6ca8"
+    },
+    "metrics.csv": {
+      "bytes": 65371,
+      "sha256": "0e55604945915e38b3b13af95781b0fd007a332270175f70cea058eda9b2ec78"
+    },
+    "capture.ncu-rep": {
+      "bytes": 358828,
+      "sha256": "dbef27fcbfb4568db7acf0bd8fcc033e7300c022af6c15df41415487b239c60e"
+    },
+    "kernels-base.csv": {
+      "bytes": 67511,
+      "sha256": "8918773f26a6c8f7dcc04d6ee6cf87f02e3e3ed0e89e6ab64e4a8f7df2515888"
+    },
+    "parity.log": {
+      "bytes": 1966,
+      "sha256": "40a8443719775389eadea1804bd790e855d6a121d6369ee6bb51d1dd340f7a74"
+    },
+    "ncu-export-run.log": {
+      "bytes": 2816,
+      "sha256": "74055fd10d3af30f69bceeffb5be6030053ae9b1b0a1f56b461e1c73ac56df13"
+    }
+  }
+}

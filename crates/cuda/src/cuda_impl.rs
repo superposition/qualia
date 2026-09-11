@@ -3,7 +3,9 @@
 //! Kernels are embedded as source and compiled by NVRTC at process start, so
 //! the crate carries no build-time CUDA dependency and the same binary can run
 //! on the Orin Nano (sm_87) and the development 4090 (sm_89). The device
-//! architecture is read from the adapter rather than hard-coded.
+//! architecture is read from the adapter rather than hard-coded. A build that
+//! set `CUDAARCHS` additionally carries a fatbin per kernel — see
+//! [`KERNEL_IMAGES`] — and loads that image in preference to NVRTC.
 //!
 //! `run_layer` mirrors the Metal layer loop exactly; only the dispatch calls
 //! differ, so a layer behaves identically on either backend.
@@ -26,7 +28,7 @@ use cudarc::driver::{
     CudaContext as Adapter, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig,
     PushKernelArg,
 };
-use cudarc::nvrtc::{compile_ptx_with_opts, CompileOptions};
+use cudarc::nvrtc::{compile_ptx_with_opts, CompileOptions, Ptx};
 
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
@@ -35,97 +37,77 @@ use std::time::{Duration, Instant};
 
 // ── Embedded kernel sources ──────────────────────────────────────────────────
 
-/// The belief kernel lives at the workspace root: the Metal backend compiles
-/// the same algorithm for macOS, so the ABI and the maths stay together.
+/// The kernels live at the workspace root (D-006), so the same source is
+/// embedded wherever the stack runs and the Metal backend keeps its port of
+/// the same algorithm beside it.
 const BELIEF_KERNEL: &str = include_str!("../../../kernels/belief_update.cu");
 
-const SMOKE_KERNEL: &str = r#"
-extern "C" __global__ void add_one(float* values) {
-    const unsigned int lane = threadIdx.x;
-    if (lane < 4) values[lane] += 1.0f;
-}
-"#;
+const SMOKE_KERNEL: &str = include_str!("../../../kernels/smoke.cu");
 
-const COSTMAP_KERNEL: &str = r#"
-extern "C" __global__ void costmap_stats(
-    const unsigned char* occupied,
-    const unsigned char* cost,
-    unsigned int length,
-    unsigned int* counters)
-{
-    const unsigned int cell = blockIdx.x * blockDim.x + threadIdx.x;
-    if (cell >= length) return;
+const COSTMAP_KERNEL: &str = include_str!("../../../kernels/costmap_stats.cu");
 
-    if (occupied[cell] != 0) {
-        atomicAdd(&counters[0], 1u);
-        atomicAdd(&counters[3], 1u);
-    }
-    if (cost[cell] >= 200u) {
-        atomicAdd(&counters[1], 1u);
-    }
-    atomicAdd(&counters[2], (unsigned int)cost[cell]);
-}
-"#;
+const COGNITION_KERNEL: &str = include_str!("../../../kernels/cognition_update.cu");
 
-const COGNITION_KERNEL: &str = r#"
-extern "C" __global__ void cognition_update(
-    float* state,
-    const float* lower,
-    const float* top_down,
-    float* weights,
-    float* bias,
-    const float* params)
-{
-    const unsigned int tid = threadIdx.x;
-    if (tid >= 1024) return;
-
-    __shared__ float prior_state[1024];
-    __shared__ float local_error[1024];
-
-    prior_state[tid] = state[tid];
-    __syncthreads();
-
-    float prediction = bias[tid];
-    for (unsigned int column = 0; column < 1024; ++column) {
-        prediction += weights[tid * 1024 + column] * prior_state[column];
-    }
-    local_error[tid] = fminf(10.0f, fmaxf(-10.0f, lower[tid] - prediction));
-    __syncthreads();
-
-    float transposed_grad = 0.0f;
-    for (unsigned int row = 0; row < 1024; ++row) {
-        transposed_grad += weights[row * 1024 + tid] * local_error[row];
-    }
-    const float candidate = prior_state[tid]
-        + params[2] * params[0] * transposed_grad
-        - params[2] * params[1] * (prior_state[tid] - top_down[tid]);
-    state[tid] = fminf(4.0f, fmaxf(-4.0f, candidate));
-
-    float row_step = params[3] * params[4] * params[0] * local_error[tid];
-    row_step = fminf(0.001f, fmaxf(-0.001f, row_step));
-    for (unsigned int column = 0; column < 1024; ++column) {
-        const unsigned int index = tid * 1024 + column;
-        const float moved = weights[index] + row_step * prior_state[column];
-        weights[index] = fminf(2.0f, fmaxf(-2.0f, moved));
-    }
-    bias[tid] = fminf(1.0f, fmaxf(-1.0f, bias[tid] + row_step));
-}
-
-extern "C" __global__ void cognition_patch(float* weights, unsigned int index, float delta) {
-    if (threadIdx.x == 0) {
-        weights[index] = fminf(2.0f, fmaxf(-2.0f, weights[index] + delta));
-    }
-}
-"#;
-
-/// The perception and action kernels live at the workspace root with the
-/// belief kernel (D-006), so the same source is embedded wherever the stack
-/// runs.
 const BELIEF_COUPLE_KERNEL: &str = include_str!("../../../kernels/belief_couple.cu");
 
 const PERCEPTION_VOXEL_KERNEL: &str = include_str!("../../../kernels/perception_voxel.cu");
 
 const ACTION_SCORE_KERNEL: &str = include_str!("../../../kernels/action_score.cu");
+
+// ── Embedded kernel images ───────────────────────────────────────────────────
+
+/// The build script's fatbins, one per kernel source, for the architectures
+/// `CUDAARCHS` named. An entry is empty unless the build asked for real device
+/// code; when it is not, the source is compiled by NVRTC as before.
+///
+/// This is what a target whose driver predates the toolkit's PTX ISA version
+/// needs: NVRTC emits only PTX, and a driver refuses a PTX ISA version it does
+/// not understand, while the cubin built for the device's own `sm_` loads as it
+/// stands.
+const KERNEL_IMAGES: [(&str, &[u8]); 8] = [
+    (
+        "action_score",
+        include_bytes!(concat!(env!("OUT_DIR"), "/action_score.fatbin")),
+    ),
+    (
+        "belief_couple",
+        include_bytes!(concat!(env!("OUT_DIR"), "/belief_couple.fatbin")),
+    ),
+    (
+        "belief_update",
+        include_bytes!(concat!(env!("OUT_DIR"), "/belief_update.fatbin")),
+    ),
+    (
+        "cognition_update",
+        include_bytes!(concat!(env!("OUT_DIR"), "/cognition_update.fatbin")),
+    ),
+    (
+        "costmap_stats",
+        include_bytes!(concat!(env!("OUT_DIR"), "/costmap_stats.fatbin")),
+    ),
+    (
+        "evidence_layout",
+        include_bytes!(concat!(env!("OUT_DIR"), "/evidence_layout.fatbin")),
+    ),
+    (
+        "perception_voxel",
+        include_bytes!(concat!(env!("OUT_DIR"), "/perception_voxel.fatbin")),
+    ),
+    (
+        "smoke",
+        include_bytes!(concat!(env!("OUT_DIR"), "/smoke.fatbin")),
+    ),
+];
+
+/// The fatbin the build produced for `kernel`, or `None` when the build left
+/// the source to NVRTC.
+fn embedded_image(kernel: &str) -> Option<&'static [u8]> {
+    KERNEL_IMAGES
+        .iter()
+        .find(|(name, _)| *name == kernel)
+        .map(|(_, image)| *image)
+        .filter(|image| !image.is_empty())
+}
 
 // ── Belief thought kinds ─────────────────────────────────────────────────────
 
@@ -177,23 +159,31 @@ fn ptx_architecture(capability: (i32, i32)) -> &'static str {
     chosen
 }
 
-/// Compiles one embedded kernel source for the adapter's architecture.
+/// Loads one kernel for the adapter: the shape's fatbin when the build
+/// produced one, otherwise the source compiled by NVRTC.
 fn compile_for(
     adapter: &Arc<Adapter>,
+    kernel: &str,
     source: &str,
 ) -> Result<(Arc<CudaModule>, (i32, i32)), String> {
     let capability = adapter
         .compute_capability()
         .map_err(|error| format!("CUDA capability query failed: {error:?}"))?;
-    let options = CompileOptions {
-        arch: Some(ptx_architecture(capability)),
-        ..Default::default()
+    let module = if let Some(image) = embedded_image(kernel) {
+        adapter
+            .load_module(Ptx::from_binary(image.to_vec()))
+            .map_err(|error| format!("{kernel} fatbin load failed: {error:?}"))?
+    } else {
+        let options = CompileOptions {
+            arch: Some(ptx_architecture(capability)),
+            ..Default::default()
+        };
+        let ptx = compile_ptx_with_opts(source, options)
+            .map_err(|error| format!("{kernel} NVRTC compile failed: {error:?}"))?;
+        adapter
+            .load_module(ptx)
+            .map_err(|error| format!("{kernel} PTX load failed: {error:?}"))?
     };
-    let ptx = compile_ptx_with_opts(source, options)
-        .map_err(|error| format!("NVRTC compile failed: {error:?}"))?;
-    let module = adapter
-        .load_module(ptx)
-        .map_err(|error| format!("PTX load failed: {error:?}"))?;
     Ok((module, capability))
 }
 
@@ -232,7 +222,7 @@ pub struct CudaContext {
 impl CudaContext {
     pub fn new(params: &LayerParams) -> Result<Self, String> {
         let (adapter, stream, _) = open_adapter()?;
-        let (module, _) = compile_for(&adapter, BELIEF_KERNEL)?;
+        let (module, _) = compile_for(&adapter, "belief_update", BELIEF_KERNEL)?;
         let function = module
             .load_function("belief_update")
             .map_err(|error| format!("belief_update function missing: {error:?}"))?;
@@ -331,7 +321,7 @@ pub struct SmokeContext {
 impl SmokeContext {
     pub fn new() -> Result<Self, String> {
         let (adapter, stream, _) = open_adapter()?;
-        let (module, _) = compile_for(&adapter, SMOKE_KERNEL)?;
+        let (module, _) = compile_for(&adapter, "smoke", SMOKE_KERNEL)?;
         let function = module
             .load_function("add_one")
             .map_err(|error| format!("add_one function missing: {error:?}"))?;
@@ -409,7 +399,7 @@ pub struct CostmapStatsContext {
 impl CostmapStatsContext {
     pub fn new() -> Result<Self, String> {
         let (adapter, stream, _) = open_adapter()?;
-        let (module, _) = compile_for(&adapter, COSTMAP_KERNEL)?;
+        let (module, _) = compile_for(&adapter, "costmap_stats", COSTMAP_KERNEL)?;
         let function = module
             .load_function("costmap_stats")
             .map_err(|error| format!("costmap_stats function missing: {error:?}"))?;
@@ -540,7 +530,7 @@ pub struct BeliefCoupleContext {
 impl BeliefCoupleContext {
     pub fn new() -> Result<Self, String> {
         let (adapter, stream, _) = open_adapter()?;
-        let (module, _) = compile_for(&adapter, BELIEF_COUPLE_KERNEL)?;
+        let (module, _) = compile_for(&adapter, "belief_couple", BELIEF_COUPLE_KERNEL)?;
         let function = module
             .load_function("belief_couple")
             .map_err(|error| format!("belief_couple function missing: {error:?}"))?;
@@ -671,7 +661,7 @@ pub struct PerceptionVoxelContext {
 impl PerceptionVoxelContext {
     pub fn new() -> Result<Self, String> {
         let (adapter, stream, _) = open_adapter()?;
-        let (module, _) = compile_for(&adapter, PERCEPTION_VOXEL_KERNEL)?;
+        let (module, _) = compile_for(&adapter, "perception_voxel", PERCEPTION_VOXEL_KERNEL)?;
         let function = module
             .load_function("perception_voxel")
             .map_err(|error| format!("perception_voxel function missing: {error:?}"))?;
@@ -774,7 +764,7 @@ pub struct ActionScoreContext {
 impl ActionScoreContext {
     pub fn new() -> Result<Self, String> {
         let (adapter, stream, _) = open_adapter()?;
-        let (module, _) = compile_for(&adapter, ACTION_SCORE_KERNEL)?;
+        let (module, _) = compile_for(&adapter, "action_score", ACTION_SCORE_KERNEL)?;
         let function = module
             .load_function("action_score")
             .map_err(|error| format!("action_score function missing: {error:?}"))?;
@@ -953,18 +943,7 @@ pub struct CudaCognitionStack {
 impl CudaCognitionStack {
     pub fn new() -> Result<Self, String> {
         let (adapter, stream, device_name) = open_adapter()?;
-        let capability = adapter
-            .compute_capability()
-            .map_err(|error| format!("CUDA capability query failed: {error:?}"))?;
-        let options = CompileOptions {
-            arch: Some(ptx_architecture(capability)),
-            ..Default::default()
-        };
-        let ptx = compile_ptx_with_opts(COGNITION_KERNEL, options)
-            .map_err(|error| format!("NVRTC cognition compile failed: {error:?}"))?;
-        let module = adapter
-            .load_module(ptx)
-            .map_err(|error| format!("cognition PTX load failed: {error:?}"))?;
+        let (module, capability) = compile_for(&adapter, "cognition_update", COGNITION_KERNEL)?;
         let update = module
             .load_function("cognition_update")
             .map_err(|error| format!("cognition_update function missing: {error:?}"))?;
@@ -972,8 +951,8 @@ impl CudaCognitionStack {
             .load_function("cognition_patch")
             .map_err(|error| format!("cognition_patch function missing: {error:?}"))?;
 
-        let mut layers = Vec::with_capacity(4);
-        for layer in 0..4usize {
+        let mut layers = Vec::with_capacity(crate::COGNITION_STACK_LAYERS);
+        for layer in 0..crate::COGNITION_STACK_LAYERS {
             let state = stream
                 .alloc_zeros::<f32>(STATE_DIM)
                 .map_err(|error| format!("cognition state allocation failed: {error:?}"))?;
@@ -1763,7 +1742,7 @@ mod tests {
             return;
         };
         let source = include_str!("../../../kernels/evidence_layout.cu");
-        let result = compile_for(&adapter, source);
+        let result = compile_for(&adapter, "evidence_layout", source);
         assert!(result.is_ok(), "ABI fixture failed to compile: {result:?}");
     }
 
@@ -1787,9 +1766,9 @@ mod tests {
             ("belief_couple.cu", BELIEF_COUPLE_KERNEL),
             ("perception_voxel.cu", PERCEPTION_VOXEL_KERNEL),
             ("action_score.cu", ACTION_SCORE_KERNEL),
-            ("smoke kernel", SMOKE_KERNEL),
-            ("costmap kernel", COSTMAP_KERNEL),
-            ("cognition kernel", COGNITION_KERNEL),
+            ("smoke.cu", SMOKE_KERNEL),
+            ("costmap_stats.cu", COSTMAP_KERNEL),
+            ("cognition_update.cu", COGNITION_KERNEL),
             (
                 "evidence_layout.cu",
                 include_str!("../../../kernels/evidence_layout.cu"),

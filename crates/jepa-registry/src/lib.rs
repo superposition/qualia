@@ -1545,4 +1545,71 @@ mod tests {
         fs::write(dir.join("weights.safetensors"), b"tampered bytes").unwrap();
         assert!(read_generation(&file).is_err());
     }
+
+    /// Step 22's "records a reason": a braid rollback routing ends in this
+    /// registry, and the reason it is published with is the row this registry
+    /// writes. The braid keeps no storage of its own, so the record is read back
+    /// here, where it is written.
+    #[tokio::test]
+    async fn rollback_records_the_reason_on_its_generation_row() {
+        let temp = tempfile::tempdir().unwrap();
+        let registry = CandidateRegistry::open(temp.path().join("registry.turso"))
+            .await
+            .unwrap();
+        let now = now_ms();
+        registry
+            .insert_verified(&staged_candidate(temp.path(), "checkpoint-a", 1.0, 0.8, now))
+            .await
+            .unwrap();
+        registry
+            .insert_verified(&staged_candidate(temp.path(), "checkpoint-b", 0.9, 0.7, now))
+            .await
+            .unwrap();
+        let pointer_file = temp.path().join("active-generation.json");
+        registry
+            .promote("checkpoint-a", &pointer_file, now)
+            .await
+            .unwrap();
+        let active = registry
+            .promote("checkpoint-b", &pointer_file, now + 1)
+            .await
+            .unwrap();
+        assert_eq!(active.generation, 2);
+
+        // A rollout regression is the promotion gate failing: the registry
+        // publishes the prior accepted checkpoint again, and the reason it was
+        // asked for is what an operator (or the journal) reads back.
+        let rolled_back = registry
+            .rollback(&pointer_file, now + 2, "health gate failed")
+            .await
+            .unwrap();
+        assert_eq!(rolled_back.generation, 3);
+        assert_eq!(rolled_back.checkpoint_id, "checkpoint-a");
+        assert_eq!(read_generation(&pointer_file).unwrap(), rolled_back);
+
+        let mut rows = registry
+            .connection
+            .query(
+                "SELECT reason, rollback_of FROM jepa_generations WHERE generation = 3",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows
+            .next()
+            .await
+            .unwrap()
+            .expect("the rollback generation row");
+        let reason: String = row.get(0).unwrap();
+        let rollback_of: Option<i64> = row.get(1).unwrap();
+        assert_eq!(
+            reason, "health gate failed",
+            "the reason the rollback was published with is the record"
+        );
+        assert_eq!(
+            rollback_of,
+            Some(2),
+            "and the rollback names the generation it rolled back from"
+        );
+    }
 }
