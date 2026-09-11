@@ -3,6 +3,7 @@
 //! These run without a terminal: they pin the one table that drives both the
 //! tab-bar labels and the digit keys, and the transitions the key handler calls.
 
+use qualia_types::STATE_DIM;
 use qualia_watch::view::{self, ViewMode, ViewState, VIEW_LABELS};
 
 #[test]
@@ -117,4 +118,21 @@ fn the_long_dump_panels_scroll_and_the_others_ignore_it() {
     state.scroll(5);
     assert_eq!(state.hex_scroll(), 0);
     assert_eq!(state.detail_scroll(), 0);
+}
+
+#[test]
+fn a_scroll_past_the_end_parks_on_the_last_page() {
+    // The Detail panel pages over STATE_DIM rows; Hex and Weights share the
+    // clamp, so a PgDn past the last dimension keeps the tail visible instead
+    // of blanking the panel.
+    const PAGE: usize = 20;
+    let last_page = STATE_DIM - PAGE;
+    assert_eq!(view::first_visible_row(0, STATE_DIM, PAGE), 0);
+    assert_eq!(
+        view::first_visible_row(last_page as u16, STATE_DIM, PAGE),
+        last_page
+    );
+    assert_eq!(view::first_visible_row(u16::MAX, STATE_DIM, PAGE), last_page);
+    // Content shorter than the panel never scrolls off its first row.
+    assert_eq!(view::first_visible_row(u16::MAX, PAGE - 1, PAGE), 0);
 }

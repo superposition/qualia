@@ -868,8 +868,9 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     ];
     frame.render_widget(Paragraph::new(scalars), rows[0]);
 
-    let first = app.view.detail_scroll() as usize;
-    let last = (first + rows[1].height as usize).min(STATE_DIM);
+    let visible = rows[1].height as usize;
+    let first = view::first_visible_row(app.view.detail_scroll(), STATE_DIM, visible);
+    let last = (first + visible).min(STATE_DIM);
     let mut lines = Vec::with_capacity(last.saturating_sub(first));
     for dim in first..last {
         let residual = belief.residual[dim];
@@ -927,8 +928,9 @@ fn render_hex(frame: &mut Frame, app: &App, area: Rect) {
 
     let bytes = &app.hex_bytes;
     let total_rows = bytes.len().div_ceil(HEX_ROW_BYTES);
-    let first = (app.view.hex_scroll() as usize).min(total_rows);
-    let last = (first + body_area.height as usize).min(total_rows);
+    let visible = body_area.height as usize;
+    let first = view::first_visible_row(app.view.hex_scroll(), total_rows, visible);
+    let last = (first + visible).min(total_rows);
     let mut lines = Vec::with_capacity(last - first);
     for row in first..last {
         let offset = row * HEX_ROW_BYTES;
@@ -1211,8 +1213,9 @@ fn render_weights(frame: &mut Frame, app: &App, area: Rect) {
 
     let columns = (rows[1].width as usize).saturating_sub(12).max(1).min(STATE_DIM);
     let total_rows = STATE_DIM;
-    let first = (app.view.hex_scroll() as usize).min(total_rows);
-    let last = (first + rows[1].height as usize).min(total_rows);
+    let visible = rows[1].height as usize;
+    let first = view::first_visible_row(app.view.hex_scroll(), total_rows, visible);
+    let last = (first + visible).min(total_rows);
     let scale = (stats.abs_mean * 5.0).max(0.01) as f32;
     let mut lines = Vec::with_capacity(last.saturating_sub(first));
     for row in first..last {

@@ -165,3 +165,12 @@ impl ViewState {
 fn clamp_scroll(current: u16, delta: i32) -> u16 {
     (current as i32 + delta).clamp(0, u16::MAX as i32) as u16
 }
+
+/// The first row a scrolling panel shows.
+///
+/// The offset is parked on the last page — `total_rows - visible_rows` — so a
+/// PgDn past the end of the content keeps the tail visible instead of blanking
+/// the panel. Content shorter than the panel always starts at row zero.
+pub fn first_visible_row(scroll: u16, total_rows: usize, visible_rows: usize) -> usize {
+    (scroll as usize).min(total_rows.saturating_sub(visible_rows))
+}
