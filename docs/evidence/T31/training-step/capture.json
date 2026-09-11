@@ -1,0 +1,42 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "~/t47t31-target/release/qualia-jepa-train",
+    "--manifest",
+    "~/t47t31-capture/datasets/jepa-dataset-b9992b243b197933719ad77beb8e7e459bb38f1e68d7a90c43a996bc7769ff52.json",
+    "--checkpoint-id",
+    "cnn-b9992b243b19",
+    "--output-dir",
+    "~/t47t31-capture/mage/train",
+    "--backend",
+    "cpu",
+    "--epochs",
+    "1"
+  ],
+  "profiler_argv": [
+    "/usr/local/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=~/t47t31-capture/mage/mage-nsys-ohluu939/capture",
+    "~/t47t31-target/release/qualia-jepa-train",
+    "--manifest",
+    "~/t47t31-capture/datasets/jepa-dataset-b9992b243b197933719ad77beb8e7e459bb38f1e68d7a90c43a996bc7769ff52.json",
+    "--checkpoint-id",
+    "cnn-b9992b243b19",
+    "--output-dir",
+    "~/t47t31-capture/mage/train",
+    "--backend",
+    "cpu",
+    "--epochs",
+    "1"
+  ],
+  "command": "~/t47t31-target/release/qualia-jepa-train --manifest ~/t47t31-capture/datasets/jepa-dataset-b9992b243b197933719ad77beb8e7e459bb38f1e68d7a90c43a996bc7769ff52.json --checkpoint-id cnn-b9992b243b19 --output-dir ~/t47t31-capture/mage/train --backend cpu --epochs 1",
+  "capture_range": "all",
+  "status": "failed",
+  "returncode": 1,
+  "error": "RuntimeError: nsys exited with code 1. Reports: ~/t47t31-capture/mage/mage-nsys-ohluu939"
+}
