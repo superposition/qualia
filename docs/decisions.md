@@ -246,6 +246,17 @@ live on Pinkie with ncu 2025.3.1:
 `docs/evidence/README.md` now names the details page as `metrics.csv`; the T50 capture stands with
 its `.ncu-rep` reports attached.
 
+## D-018 — The dev host cannot cross-build for the board; board builds are native
+
+Measured 2026-09-11 by both board jobs: the Docker engine is unreachable, `cross` is not installed,
+and a direct `cargo build --target aarch64-unknown-linux-gnu` dies in `ring`'s build script for want
+of `aarch64-linux-gnu-gcc`; the musl target fails the same way (`aarch64-linux-musl-gcc`). The
+"build here, run there" lane D-010 names for C11 is therefore unavailable on this host today. The
+lanes that work: **(a)** a native aarch64 build on Pinkie from a `git archive` of the head (the T50
+capture and the C39/T23/T26 legs use it; the board's crate cache is populated), and **(b)** shipping
+a host-built artifact only when it is architecture-independent. Operator action to restore the cross
+lane: install the `aarch64-unknown-linux-gnu` toolchain, start Docker, or install `cross`.
+
 ## D-003 — Repository
 
 
