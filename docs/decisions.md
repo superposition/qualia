@@ -143,6 +143,19 @@ Consequences:
 - D-011's serial-GPU rule stands (one GPU job at a time, bounded runs). Its attribution is amended:
   the session it followed was killed by the scripted device disable above, not by GPU work.
 
+## D-013 — The host guard, and the build budget it enforces
+
+`C:/tmp/resmon2.py` runs under the harness process supervisor (`hub ps`, name `resmon2`, `persist: true`)
+and samples RAM, pagefile, VRAM and build-process count every 10 s into `C:/tmp/resmon.log`. Levels:
+`PRESSURE` under 8 GiB available, `HIGH` under 4 GiB (kills the two largest rustc/cl/link processes),
+`CRITICAL` under 2 GiB (kills the four largest build processes). Killing a build costs a rebuild;
+letting the host run out of memory costs the session.
+
+The budget this enforces, stated for every agent in [`agents.md`](agents.md) §Host safety: agent builds
+use `cargo -j 4`; no workspace-wide build/test matrices; GPU work is one bounded job at a time; profiling
+happens on Pinkie. Measured 2026-09-11 with 21 agents building at once: 19.5–21.7 GiB of 63.9 GiB used
+and pagefile slack ≥ 41 GiB, so the guard is a ceiling, not a routine actor.
+
 ## D-003 — Repository
 
 

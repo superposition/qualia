@@ -100,6 +100,22 @@ If a worktree file is unreadable or filled with NUL bytes, the machine died mid-
 `git checkout -- <path>` — the content was either committed or lost with the step in flight — and say
 so in the block.
 
+## Host safety
+
+The dev host is shared by every agent and cannot be rebooted cheaply. Four rules, from
+[`decisions.md`](decisions.md) D-011/D-012/D-013:
+
+- **Never touch display devices.** No `Disable-PnpDevice`/`Enable-PnpDevice`/`pnputil` on a display
+  adapter, no driver reinstall, no profiler-permission script. The 06:10 crash was exactly this (D-012).
+- **One GPU job at a time, bounded.** `--test-threads=1`, iteration caps, no open-ended benchmarks;
+  `ncu`/`nsys` runs count. Profiling happens on Pinkie (the board), not the host.
+- **Build bounded.** `cargo ... -j 4` for agent builds; no `--workspace` build/test matrices, no
+  unbounded test loops; prefer one package at a time.
+- **Watch the guard.** `C:/tmp/resmon2.py` runs persistently (`hub ps`, name `resmon2`) and logs to
+  `C:/tmp/resmon.log`; under memory pressure it kills the largest build processes rather than let the
+  box OOM. If you see `WARN[HIGH]`/`WARN[CRITICAL]` lines, reduce your own footprint and say so in your
+  braid.
+
 ## Definition of done
 
 A ticket is done when its package builds and its tests pass on the dev host, its artifact is built for
