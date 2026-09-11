@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -428,3 +429,42 @@ fn missing_column_is_a_read_error() {
     };
     assert!(matches!(build_type_graph(&broken), Err(PriorError::Read(_))));
 }
+
+#[test]
+fn binary_rerun_is_idempotent() {
+    let fixture = fixture();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let source = synth_inputs(temp.path(), &fixture, &[]);
+    let out = temp.path().join("prior-bin");
+    let binary = env!("CARGO_BIN_EXE_qualia-connectome-prior");
+
+    let first = Command::new(binary)
+        .arg("--edges")
+        .arg(&source.edges_feather)
+        .arg("--annotations")
+        .arg(&source.annotations_feather)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("binary runs");
+    assert!(first.status.success(), "{first:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout).trim(),
+        format!("prior: 5 types, 9 edges -> {}", out.display())
+    );
+
+    let before = file_state(&out);
+    let second = Command::new(binary)
+        .arg("--edges")
+        .arg(&source.edges_feather)
+        .arg("--annotations")
+        .arg(&source.annotations_feather)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("binary runs");
+    assert!(!second.status.success());
+    assert!(String::from_utf8_lossy(&second.stderr).contains("already built"));
+    assert_eq!(file_state(&out), before);
+}
+
