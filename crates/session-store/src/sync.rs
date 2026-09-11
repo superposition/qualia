@@ -7,7 +7,7 @@
 //! ascending. Enum-valued columns are persisted in the text form produced by
 //! `qualia-sync-types`, keeping disk and memory vocabularies identical.
 
-use crate::rows::{enum_from_db_text, enum_to_db_text};
+use crate::rows::{enum_from_db_text, enum_to_db_text, hlc_order_key};
 use crate::SessionStore;
 use qualia_sync_types::{
     HlcTimestamp, ReplicaRole, ReplicaTrustState, SyncApplyStatus, SyncBody, SyncEnvelope,
@@ -111,11 +111,17 @@ pub struct SyncOpAuditSummary {
 }
 
 /// Ops that were applied, or recognized as an already-applied duplicate.
-const ACCEPTED_SYNC_OPS_SQL: &str = "SUM(CASE WHEN status IN ('applied', 'duplicate') THEN 1 ELSE 0 END)";
+///
+/// `SUM` over zero rows decodes as `NULL`, so every aggregate is coalesced:
+/// an empty — or entirely filtered-out — op log must report zero counts
+/// rather than fail while decoding.
+const ACCEPTED_SYNC_OPS_SQL: &str =
+    "COALESCE(SUM(CASE WHEN status IN ('applied', 'duplicate') THEN 1 ELSE 0 END), 0)";
 /// Ops retained for audit that never touched materialized state.
-const STORED_ONLY_SYNC_OPS_SQL: &str = "SUM(CASE WHEN status = 'stored_only' THEN 1 ELSE 0 END)";
+const STORED_ONLY_SYNC_OPS_SQL: &str =
+    "COALESCE(SUM(CASE WHEN status = 'stored_only' THEN 1 ELSE 0 END), 0)";
 /// Ops refused outright, one bucket for every rejection status.
-const REJECTED_SYNC_OPS_SQL: &str = "SUM(CASE WHEN status IN ('rejected_authority', 'blocked_lease', 'validation_failed', 'checkpoint_mismatch') THEN 1 ELSE 0 END)";
+const REJECTED_SYNC_OPS_SQL: &str = "COALESCE(SUM(CASE WHEN status IN ('rejected_authority', 'blocked_lease', 'validation_failed', 'checkpoint_mismatch') THEN 1 ELSE 0 END), 0)";
 
 /// Serialize a value destined for a `*_json` column.
 fn sql_json<T: Serialize>(value: &T) -> rusqlite::Result<String> {
@@ -504,40 +510,47 @@ impl SessionStore {
         namespace: Option<SyncNamespace>, key: Option<&str>, limit: usize,
     ) -> rusqlite::Result<Vec<SyncAppendEntryRow>> {
         let page = limit.max(1) as i64;
+        let order = hlc_order_key("timestamp_hlc");
         let rows = match (namespace, key) {
             (Some(namespace), Some(key)) => query_rows(
                 &self.connection,
-                r#"
+                &format!(
+                    r#"
                 SELECT namespace, key, entry_id, value_json, timestamp_hlc, source_op_id, replica_id
                 FROM sync_append_entries
                 WHERE namespace = ?1 AND key = ?2
-                ORDER BY timestamp_hlc ASC, entry_id ASC
+                ORDER BY {order}, entry_id ASC
                 LIMIT ?3
-                "#,
+                "#
+                ),
                 params![namespace.to_string(), key, page],
                 map_sync_append_row,
             )?,
             (Some(namespace), None) => query_rows(
                 &self.connection,
-                r#"
+                &format!(
+                    r#"
                 SELECT namespace, key, entry_id, value_json, timestamp_hlc, source_op_id, replica_id
                 FROM sync_append_entries
                 WHERE namespace = ?1
-                ORDER BY timestamp_hlc ASC, entry_id ASC
+                ORDER BY {order}, entry_id ASC
                 LIMIT ?2
-                "#,
+                "#
+                ),
                 params![namespace.to_string(), page],
                 map_sync_append_row,
             )?,
             (None, Some(_)) => Vec::new(),
             (None, None) => query_rows(
                 &self.connection,
-                r#"
+                &format!(
+                    r#"
                 SELECT namespace, key, entry_id, value_json, timestamp_hlc, source_op_id, replica_id
                 FROM sync_append_entries
-                ORDER BY timestamp_hlc ASC, entry_id ASC
+                ORDER BY {order}, entry_id ASC
                 LIMIT ?1
-                "#,
+                "#
+                ),
                 params![page],
                 map_sync_append_row,
             )?,

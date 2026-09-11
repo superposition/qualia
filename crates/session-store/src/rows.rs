@@ -42,6 +42,24 @@ pub(crate) fn enum_from_db_text<T: for<'de> Deserialize<'de>>(value: String) -> 
     })
 }
 
+/// SQLite sort key for a hybrid-logical clock stored in its unpadded
+/// `{physical_ns}:{logical}` text form.
+///
+/// `HlcTimestamp` writes both decimal components without zero padding, so
+/// comparing the raw text digit-by-digit inverts clock order as soon as the
+/// component widths differ (`"...:10"` sorts before `"...:9"`). Padding each
+/// component to its widest decimal width restores agreement with the derived
+/// `(physical_ns, logical)` order for every representable `u64`/`u32` value.
+/// The result is an `ORDER BY` fragment of two ascending terms.
+pub(crate) fn hlc_order_key(column: &str) -> String {
+    let physical = format!("substr({column}, 1, instr({column}, ':') - 1)");
+    let logical = format!("substr({column}, instr({column}, ':') + 1)");
+    format!(
+        "substr('00000000000000000000', 1, 20 - length({physical})) || {physical}, \
+         substr('0000000000', 1, 10 - length({logical})) || {logical}"
+    )
+}
+
 pub(crate) fn map_analysis_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisJobRow> {
     Ok(AnalysisJobRow {
         id: row.get(0)?,

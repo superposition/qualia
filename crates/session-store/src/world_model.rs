@@ -17,7 +17,7 @@ use qualia_sync_types::{
 use rusqlite::types::Type;
 use rusqlite::{params, OptionalExtension};
 
-use crate::rows::{enum_from_db_text, enum_to_db_text};
+use crate::rows::{enum_from_db_text, enum_to_db_text, hlc_order_key};
 use crate::SessionStore;
 
 /// Which numeric payload variant a `world_model_tensor_state` row carries.
@@ -244,74 +244,83 @@ impl SessionStore {
         limit: usize,
     ) -> rusqlite::Result<Vec<ProposalEnvelope>> {
         let limit = page_limit(limit);
+        let order = hlc_order_key("created_at_hlc");
         match (proposal_kind, status) {
             (Some(kind), Some(status)) => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT proposal_id, proposal_kind, source_replica_id, source_replica_role,
                            created_at_hlc, status, belief_weight, source_weight, mission_relevance,
                            confidence, lineage_json, body_json
                     FROM world_model_proposals
                     WHERE proposal_kind = ?1 AND status = ?2
-                    ORDER BY created_at_hlc ASC, proposal_id ASC
+                    ORDER BY {order}, proposal_id ASC
                     LIMIT ?3
-                "#;
+                "#
+                );
                 let kind_text = enum_to_db_text(&kind)?;
                 let status_text = enum_to_db_text(&status)?;
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![kind_text, status_text, limit],
                     map_world_model_proposal,
                 )
             }
             (Some(kind), None) => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT proposal_id, proposal_kind, source_replica_id, source_replica_role,
                            created_at_hlc, status, belief_weight, source_weight, mission_relevance,
                            confidence, lineage_json, body_json
                     FROM world_model_proposals
                     WHERE proposal_kind = ?1
-                    ORDER BY created_at_hlc ASC, proposal_id ASC
+                    ORDER BY {order}, proposal_id ASC
                     LIMIT ?2
-                "#;
+                "#
+                );
                 let kind_text = enum_to_db_text(&kind)?;
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![kind_text, limit],
                     map_world_model_proposal,
                 )
             }
             (None, Some(status)) => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT proposal_id, proposal_kind, source_replica_id, source_replica_role,
                            created_at_hlc, status, belief_weight, source_weight, mission_relevance,
                            confidence, lineage_json, body_json
                     FROM world_model_proposals
                     WHERE status = ?1
-                    ORDER BY created_at_hlc ASC, proposal_id ASC
+                    ORDER BY {order}, proposal_id ASC
                     LIMIT ?2
-                "#;
+                "#
+                );
                 let status_text = enum_to_db_text(&status)?;
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![status_text, limit],
                     map_world_model_proposal,
                 )
             }
             (None, None) => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT proposal_id, proposal_kind, source_replica_id, source_replica_role,
                            created_at_hlc, status, belief_weight, source_weight, mission_relevance,
                            confidence, lineage_json, body_json
                     FROM world_model_proposals
-                    ORDER BY created_at_hlc ASC, proposal_id ASC
+                    ORDER BY {order}, proposal_id ASC
                     LIMIT ?1
-                "#;
+                "#
+                );
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![limit],
                     map_world_model_proposal,
                 )
@@ -369,35 +378,40 @@ impl SessionStore {
         &self, decision_kind: Option<CoachDecisionKind>, limit: usize,
     ) -> rusqlite::Result<Vec<CoachDecision>> {
         let limit = page_limit(limit);
+        let order = hlc_order_key("created_at_hlc");
         match decision_kind {
             Some(kind) => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT decision_id, decision_kind, curator_replica_id, curator_replica_role,
                            created_at_hlc, target_proposal_ids_json, output_ids_json, reason
                     FROM world_model_decisions
                     WHERE decision_kind = ?1
-                    ORDER BY created_at_hlc ASC, decision_id ASC
+                    ORDER BY {order}, decision_id ASC
                     LIMIT ?2
-                "#;
+                "#
+                );
                 let kind_text = enum_to_db_text(&kind)?;
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![kind_text, limit],
                     map_world_model_decision,
                 )
             }
             None => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT decision_id, decision_kind, curator_replica_id, curator_replica_role,
                            created_at_hlc, target_proposal_ids_json, output_ids_json, reason
                     FROM world_model_decisions
-                    ORDER BY created_at_hlc ASC, decision_id ASC
+                    ORDER BY {order}, decision_id ASC
                     LIMIT ?1
-                "#;
+                "#
+                );
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![limit],
                     map_world_model_decision,
                 )
@@ -444,35 +458,40 @@ impl SessionStore {
         &self, canonical_kind: Option<CanonicalKind>, limit: usize,
     ) -> rusqlite::Result<Vec<CanonicalStateEnvelope>> {
         let limit = page_limit(limit);
+        let order = hlc_order_key("accepted_at_hlc");
         match canonical_kind {
             Some(kind) => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT canonical_id, canonical_kind, source_decision_id, source_proposal_ids_json,
                            accepted_at_hlc, status, body_json
                     FROM world_model_canonical
                     WHERE canonical_kind = ?1
-                    ORDER BY accepted_at_hlc ASC, canonical_id ASC
+                    ORDER BY {order}, canonical_id ASC
                     LIMIT ?2
-                "#;
+                "#
+                );
                 let kind_text = enum_to_db_text(&kind)?;
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![kind_text, limit],
                     map_world_model_canonical,
                 )
             }
             None => {
-                let sql = r#"
+                let sql = format!(
+                    r#"
                     SELECT canonical_id, canonical_kind, source_decision_id, source_proposal_ids_json,
                            accepted_at_hlc, status, body_json
                     FROM world_model_canonical
-                    ORDER BY accepted_at_hlc ASC, canonical_id ASC
+                    ORDER BY {order}, canonical_id ASC
                     LIMIT ?1
-                "#;
+                "#
+                );
                 query_rows(
                     &self.connection,
-                    sql,
+                    &sql,
                     params![limit],
                     map_world_model_canonical,
                 )
@@ -552,13 +571,16 @@ impl SessionStore {
     fn list_world_model_tensor_state<T: for<'de> serde::Deserialize<'de>>(
         &self, kind: WorldModelTensorStateKind,
     ) -> rusqlite::Result<Vec<T>> {
-        let sql = r#"
+        let order = hlc_order_key("updated_at_hlc");
+        let sql = format!(
+            r#"
             SELECT payload_json
             FROM world_model_tensor_state
             WHERE state_kind = ?1
-            ORDER BY updated_at_hlc ASC, state_key ASC
-        "#;
-        let mut statement = self.connection.prepare(sql)?;
+            ORDER BY {order}, state_key ASC
+        "#
+        );
+        let mut statement = self.connection.prepare(&sql)?;
         let payloads = statement
             .query_map(params![kind.as_str()], |row| {
                 parse_json(&row.get::<_, String>(0)?)

@@ -12,6 +12,10 @@ use qualia_session_store::{
     MissionInstanceUpsert, MissionPhaseUpsert, MissionPortfolioUpsert, OutcomeAssessmentUpsert,
     SessionStore, SessionUpsert, WorldRegionUpsert,
 };
+use qualia_sync_types::{
+    BeliefVectorState, HlcTimestamp, ReplicaRole, SyncApplyStatus, SyncBody, SyncEnvelope,
+    SyncNamespace, SyncRegisterValue, SYNC_SCHEMA_VERSION,
+};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -31,6 +35,24 @@ fn session(path: &str) -> SessionUpsert {
         status: "ready".to_string(),
         duration_sec: 12.5,
         imported_at: "2026-09-11T00:00:00Z".to_string(),
+    }
+}
+
+/// A directive register envelope, the simplest shape `insert_sync_op` accepts.
+fn register_envelope(replica_id: &str, counter: u64, hlc: HlcTimestamp) -> SyncEnvelope {
+    SyncEnvelope {
+        schema_version: SYNC_SCHEMA_VERSION.to_string(),
+        replica_id: replica_id.to_string(),
+        replica_role: ReplicaRole::Host,
+        run_id: "run-a".to_string(),
+        counter,
+        timestamp_hlc: hlc,
+        namespace: SyncNamespace::Directive,
+        key: "mode".to_string(),
+        body: SyncBody::Register(SyncRegisterValue {
+            value: serde_json::json!({"mode": "idle"}),
+            lease_duration_ms: None,
+        }),
     }
 }
 
@@ -689,4 +711,135 @@ fn merge_candidate_generation_keeps_only_pairs_over_the_thresholds() {
             .len(),
         1
     );
+}
+
+#[test]
+fn summarize_sync_ops_reports_zero_for_an_empty_or_unmatched_log() {
+    let dir = TempDir::new().expect("temp dir");
+    let store = SessionStore::open(&database_path(&dir)).expect("open");
+
+    let empty = store
+        .summarize_sync_ops(None, None, None, None)
+        .expect("an empty op log summarises to zeros");
+    assert_eq!(empty.total_ops, 0);
+    assert_eq!(empty.accepted_ops, 0);
+    assert_eq!(empty.stored_only_ops, 0);
+    assert_eq!(empty.rejected_ops, 0);
+    assert!(empty.by_replica.is_empty());
+    assert!(empty.by_namespace.is_empty());
+
+    let unmatched = store
+        .summarize_sync_ops(
+            Some(7),
+            Some(SyncNamespace::Lore),
+            Some("replica-a"),
+            Some(SyncApplyStatus::RejectedAuthority),
+        )
+        .expect("a filter matching nothing summarises to zeros");
+    assert_eq!(unmatched.total_ops, 0);
+    assert_eq!(unmatched.accepted_ops, 0);
+    assert_eq!(unmatched.stored_only_ops, 0);
+    assert_eq!(unmatched.rejected_ops, 0);
+
+    // One applied op still rolls up to one accepted op, so the zero default
+    // did not flatten the aggregates for a populated log.
+    let envelope = register_envelope("replica-a", 1, HlcTimestamp::new(1_700_000_000_000_000_000, 0));
+    store
+        .insert_sync_op(&envelope, SyncApplyStatus::Applied, "", "2026-09-11T00:00:00Z")
+        .expect("insert op");
+    let populated = store
+        .summarize_sync_ops(None, None, None, None)
+        .expect("a one-op log");
+    assert_eq!(populated.total_ops, 1);
+    assert_eq!(populated.accepted_ops, 1);
+    assert_eq!(populated.stored_only_ops, 0);
+    assert_eq!(populated.rejected_ops, 0);
+    assert_eq!(populated.by_replica.len(), 1);
+    assert_eq!(populated.by_replica[0].replica_id, "replica-a");
+    assert_eq!(populated.by_replica[0].accepted_ops, 1);
+    assert_eq!(populated.by_namespace.len(), 1);
+    assert_eq!(populated.by_namespace[0].namespace, SyncNamespace::Directive);
+    assert_eq!(populated.by_namespace[0].accepted_ops, 1);
+}
+
+#[test]
+fn list_sync_append_entries_orders_by_clock_not_by_hlc_text() {
+    let dir = TempDir::new().expect("temp dir");
+    let store = SessionStore::open(&database_path(&dir)).expect("open");
+
+    // As text, ":10" sorts before ":9", so the raw `timestamp_hlc` column
+    // yields entry-10, entry-9, entry-2; clock order is entry-9, entry-10,
+    // entry-2 because the logical counter breaks the tie by value.
+    let entries = [
+        ("entry-10", HlcTimestamp::new(1_700_000_000_000_000_000, 10)),
+        ("entry-2", HlcTimestamp::new(1_700_000_000_000_000_002, 0)),
+        ("entry-9", HlcTimestamp::new(1_700_000_000_000_000_000, 9)),
+    ];
+    for (entry_id, hlc) in entries {
+        let source_op_id = format!("op-{entry_id}");
+        store
+            .insert_sync_append_entry(
+                SyncNamespace::Lore,
+                "flight-log",
+                entry_id,
+                &serde_json::json!({"entry": entry_id}),
+                hlc,
+                &source_op_id,
+                "replica-a",
+            )
+            .expect("append entry");
+    }
+
+    let chronological = ["entry-9", "entry-10", "entry-2"];
+    let keyed = store
+        .list_sync_append_entries(Some(SyncNamespace::Lore), Some("flight-log"), 10)
+        .expect("keyed page");
+    let ids: Vec<&str> = keyed.iter().map(|row| row.entry_id.as_str()).collect();
+    assert_eq!(ids, chronological);
+
+    let by_namespace = store
+        .list_sync_append_entries(Some(SyncNamespace::Lore), None, 10)
+        .expect("namespace page");
+    let ids: Vec<&str> = by_namespace.iter().map(|row| row.entry_id.as_str()).collect();
+    assert_eq!(ids, chronological);
+
+    let unfiltered = store
+        .list_sync_append_entries(None, None, 10)
+        .expect("unfiltered page");
+    let ids: Vec<&str> = unfiltered.iter().map(|row| row.entry_id.as_str()).collect();
+    assert_eq!(ids, chronological);
+}
+
+#[test]
+fn list_world_model_belief_vectors_orders_by_clock_not_by_hlc_text() {
+    let dir = TempDir::new().expect("temp dir");
+    let store = SessionStore::open(&database_path(&dir)).expect("open");
+
+    let state = |key: &str| BeliefVectorState {
+        key: key.to_string(),
+        profile_id: "profile-a".to_string(),
+        values: Some(vec![0.25, 0.75]),
+        artifact_ref: None,
+        support_weight: 1.0,
+        source_weight: 1.0,
+        entropy: None,
+        freshness_ms: None,
+    };
+
+    // Same inverted text order as the append-log case, here through the
+    // tensor-state reader that shares the HLC sort key.
+    store
+        .upsert_world_model_belief_vector(&state("tenth"), "1700000000000000000:10")
+        .expect("upsert tenth");
+    store
+        .upsert_world_model_belief_vector(&state("ninth"), "1700000000000000000:9")
+        .expect("upsert ninth");
+
+    let keys: Vec<String> = store
+        .list_world_model_belief_vectors()
+        .expect("belief vectors")
+        .into_iter()
+        .map(|state| state.key)
+        .collect();
+    assert_eq!(keys, ["ninth", "tenth"]);
 }
