@@ -24,6 +24,7 @@ use std::error::Error;
 use std::fmt;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+use qualia_shm::{LayerReader, ShmRegion, MAX_LEDGER_ENTRIES, NUM_LAYERS};
 
 /// The wire contract for the JSON form of a [`BraidEvent`].
 pub const BRAID_EVENT_SCHEMA: &str = "qualia.braid-event.v1";
@@ -173,4 +174,73 @@ fn now_ns() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+// ── The belief clock ──────────────────────────────────────────────────
+
+/// The braid's read-only view of the belief clock.
+///
+/// Belief is already timed — `qualia-jepa-model`'s `RuntimeInput` carries
+/// `delta_seconds`, so every belief tick is stamped when it commits — and the
+/// braid does not keep a second clock of its own. It reads the two stamps the
+/// arena already holds and reports the distance between them. A
+/// [`BeliefSlot`](qualia_types::BeliefSlot) stamp is when the layers last
+/// decided; a [`LedgerEntry`](qualia_types::LedgerEntry) stamp is the row they
+/// wrote about what they did around that decision. The gap between the two
+/// newest stamps is the decision latency: the part of the loop that is waiting
+/// rather than thinking, which is what tells an operator a slow model from a
+/// stalled one.
+///
+/// The clock is a view like the rest of this crate — it borrows a mapped arena
+/// and owns nothing.
+pub struct BeliefClock<'a> {
+    region: &'a ShmRegion,
+}
+
+impl<'a> BeliefClock<'a> {
+    /// Read the belief clock out of a mapped arena.
+    pub fn new(region: &'a ShmRegion) -> Self {
+        Self { region }
+    }
+
+    /// Nanoseconds from the newest ledger row to the newest belief commit.
+    ///
+    /// Zero when either side has nothing to compare — no layer has committed a
+    /// belief and/or the ledger holds no finished row — because a latency needs
+    /// two stamps. The two sides are written by different processes, so a ledger
+    /// row that reads newer than the newest belief commit also reports zero
+    /// rather than wrapping the subtraction.
+    pub fn decision_latency_ns(&self) -> u64 {
+        match (newest_belief_ns(self.region), newest_ledger_ns(self.region)) {
+            (Some(belief_ns), Some(ledger_ns)) => belief_ns.saturating_sub(ledger_ns),
+            _ => 0,
+        }
+    }
+}
+
+/// The newest stamp any layer's front buffer carries.
+///
+/// A slot nobody has committed into still reads as zero, and zero is this ABI's
+/// "never", so such a slot does not count as a tick.
+fn newest_belief_ns(region: &ShmRegion) -> Option<u64> {
+    (0..NUM_LAYERS)
+        .filter_map(|layer| {
+            let stamp = LayerReader::new(region.layer_slot(layer)).read().timestamp_ns;
+            (stamp != 0).then_some(stamp)
+        })
+        .max()
+}
+
+/// The stamp on the newest ledger row.
+///
+/// Rows land in a ring and the header says how many have gone in, so the newest
+/// one lives at sequence `seq - 1`, modulo the ring's capacity. A slot whose
+/// stored `seq` is not the one being read is a row the writer claimed but has
+/// not finished — the same rule the watch drain follows — and a stamp of zero is
+/// no time at all, so both read as "no row yet".
+fn newest_ledger_ns(region: &ShmRegion) -> Option<u64> {
+    let seq = region.ledger_seq();
+    let newest = seq.checked_sub(1)?;
+    let entry = region.ledger_entry((newest % MAX_LEDGER_ENTRIES as u64) as usize);
+    (entry.seq == newest && entry.timestamp_ns != 0).then_some(entry.timestamp_ns)
 }

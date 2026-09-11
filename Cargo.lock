@@ -4492,6 +4492,7 @@ version = "0.1.0"
 dependencies = [
  "qualia-jepa-registry",
  "qualia-mcap",
+ "qualia-shm",
  "qualia-types",
  "serde",
  "serde_json",
