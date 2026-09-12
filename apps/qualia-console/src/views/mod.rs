@@ -9,5 +9,8 @@ pub mod belief;
 pub mod brain;
 pub mod evidence;
 pub mod mission;
+/// The HUD's reading, not a seventh view: one row per runner telemetry frame,
+/// drawn by [`crate::hud`]'s floating panels.
+pub mod stats;
 pub mod telemetry;
 pub mod world;

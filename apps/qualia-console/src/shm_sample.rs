@@ -9,6 +9,7 @@ use crate::stack::SensingSet;
 use crate::views::belief::BeliefView;
 use crate::views::brain::BrainView;
 use crate::views::evidence::LedgerRow;
+use crate::views::stats::StatsView;
 use crate::views::telemetry::TelemetryView;
 use crate::views::world::WorldView;
 
@@ -25,7 +26,8 @@ pub fn region_name() -> String {
         .unwrap_or_else(|| DEFAULT_SHM_NAME.to_owned())
 }
 
-/// The four panel readings plus the ledger, or one reason they are absent.
+/// The four panel readings plus the ledger and the runner stats, or one reason
+/// they are absent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShmSample {
     pub belief: BeliefView,
@@ -33,6 +35,10 @@ pub struct ShmSample {
     pub telemetry: TelemetryView,
     pub brain: BrainView,
     pub ledger: Vec<LedgerRow>,
+    /// The runner telemetry frames, read from the stats region beside the
+    /// arena. Independent of the arena attach: a live stats region with an
+    /// absent arena is still worth showing.
+    pub stats: StatsView,
     pub error: Option<String>,
 }
 
@@ -43,6 +49,7 @@ fn unavailable(region: Option<String>, reason: String) -> ShmSample {
         telemetry: TelemetryView::unattached(reason.clone()),
         brain: BrainView::unattached(region, reason.clone()),
         ledger: Vec::new(),
+        stats: StatsView::unattached(None, reason.clone()),
         error: Some(reason),
     }
 }
@@ -54,6 +61,10 @@ fn unavailable(region: Option<String>, reason: String) -> ShmSample {
 /// and a manifest that cannot be read is named without blanking the other
 /// panels.
 pub fn sample(region: &str, sensing: &Result<SensingSet, String>) -> ShmSample {
+    // The stats region is separate from the arena and is read whether or not
+    // the arena attaches: a producer publishing frames with no arena to attach
+    // is still something the operator wants to see.
+    let stats = StatsView::sample(region);
     match ShmRegion::open(region) {
         Ok(region_handle) => ShmSample {
             belief: BeliefView {
@@ -73,8 +84,13 @@ pub fn sample(region: &str, sensing: &Result<SensingSet, String>) -> ShmSample {
                 Err(reason) => TelemetryView::unattached(format!("stack manifest: {reason}")),
             },
             ledger: LedgerRow::sample(&region_handle),
+            stats,
             error: None,
         },
-        Err(error) => unavailable(Some(region.to_owned()), error.to_string()),
+        Err(error) => {
+            let mut sample = unavailable(Some(region.to_owned()), error.to_string());
+            sample.stats = stats;
+            sample
+        }
     }
 }

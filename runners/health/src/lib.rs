@@ -28,6 +28,10 @@ pub const TICK: Duration = Duration::from_millis(100);
 /// Bytes one [`HealthReport`] occupies on stdout.
 pub const REPORT_BYTES: usize = std::mem::size_of::<HealthReport>();
 
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-health`.
+pub const RUNNER_NAME: &str = "qualia-health";
+
 /// The region name from the environment, falling back to [`DEFAULT_SHM_NAME`].
 pub fn shm_name() -> String {
     std::env::var(SHM_NAME_ENV).unwrap_or_else(|_| DEFAULT_SHM_NAME.to_string())
@@ -71,10 +75,28 @@ pub fn write_frame(shm: &ShmRegion, out: &mut impl Write) -> std::io::Result<usi
 /// A failed write is dropped rather than fatal: the consumer may be restarting,
 /// and it must not be able to take the health runner down with it. A frame that
 /// overruns its tick starts the next one immediately.
+///
+/// The runner's own telemetry frame (ticks/s, bytes/s, the newest belief in the
+/// arena) is published beside the region it reads, so the console's HUD can show
+/// this tap the same way it shows a producer.
 pub fn stream(shm: &ShmRegion, out: &mut impl Write) {
+    let mut stats = qualia_shm::StatsWriter::attach(&shm_name(), RUNNER_NAME);
     loop {
         let start = Instant::now();
-        let _ = write_frame(shm, out);
+        let written = write_frame(shm, out);
+        if let Some(stats) = stats.as_mut() {
+            stats.tick();
+            match written {
+                Ok(bytes) => stats.add_bytes(bytes as u64),
+                Err(_) => stats.record_error(),
+            }
+            let slot = shm.layer_slot(0);
+            let belief = *LayerReader::new(slot).read();
+            stats.set_value(0, "layers", NUM_LAYERS as f32);
+            stats.set_value(1, "l0 vfe", belief.vfe);
+            stats.set_value(2, "l0 compression", belief.compression as f32);
+            stats.set_value(3, "l0 cycle us", belief.cycle_us as f32);
+        }
         let elapsed = start.elapsed();
         if elapsed < TICK {
             std::thread::sleep(TICK - elapsed);

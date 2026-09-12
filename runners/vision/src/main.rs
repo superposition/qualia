@@ -57,6 +57,10 @@ const THOUGHT_ESCALATE: u8 = 5;
 /// Layer id the runner speaks under; no belief layer owns it.
 const RUNNER_LAYER: u8 = 255;
 
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-vision`.
+const RUNNER_NAME: &str = "qualia-vision";
+
 /// Occupancy shed by every cell on each voxel update.
 const VOXEL_DECAY: u8 = 20;
 /// Smallest room dimension believed instead of falling back to a default.
@@ -989,7 +993,7 @@ fn capture_frame() -> Result<Vec<u8>, String> {
 // ---------------------------------------------------------------------------
 
 /// Offline mode: synthesise a scene from sensor statistics without a model.
-fn run_offline_loop(shm: &ShmRegion) {
+fn run_offline_loop(shm: &ShmRegion, shm_name: &str) {
     set_default_directive(shm.world_model_mut());
     shm.emit_thought(
         RUNNER_LAYER,
@@ -998,6 +1002,7 @@ fn run_offline_loop(shm: &ShmRegion) {
         "vision: offline mode, no GEMINI_API_KEY",
     );
 
+    let mut telemetry = qualia_shm::StatsWriter::attach(shm_name, RUNNER_NAME);
     let mut tick: u64 = 0;
     let mut previous_brightness = 0.0f32;
     let mut previous_objects = 0u32;
@@ -1032,6 +1037,14 @@ fn run_offline_loop(shm: &ShmRegion) {
         previous_brightness = stats.brightness;
         previous_objects = objects;
 
+        if let Some(telemetry) = telemetry.as_mut() {
+            telemetry.tick();
+            telemetry.set_value(0, "objects", objects as f32);
+            telemetry.set_value(1, "brightness", stats.brightness);
+            telemetry.set_value(2, "frames", shm.world_model().vision_frame_count as f32);
+            telemetry.set_value(3, "scene objects", response.objects.len() as f32);
+        }
+
         if tick % OFFLINE_STDERR_INTERVAL == 0 {
             eprintln!(
                 "qualia-vision: offline tick {}, {} objects, brightness={:.2}",
@@ -1063,6 +1076,7 @@ fn run_vision_loop(shm: &ShmRegion, transport: &impl Transport, config: &Config)
         .unwrap_or_else(Instant::now);
     let mut calls: u64 = 0;
     let mut budget_spent = false;
+    let mut telemetry = qualia_shm::StatsWriter::attach(&config.shm_name, RUNNER_NAME);
 
     loop {
         let elapsed = last_call.elapsed().as_secs();
@@ -1123,6 +1137,13 @@ fn run_vision_loop(shm: &ShmRegion, transport: &impl Transport, config: &Config)
         note_frame(shm);
         inject_to_senses_layer(shm, shm.world_model());
 
+        if let Some(telemetry) = telemetry.as_mut() {
+            telemetry.tick();
+            telemetry.set_value(0, "objects", shm.world_model().num_objects as f32);
+            telemetry.set_value(1, "llm calls", calls as f32);
+            telemetry.set_value(2, "frames", shm.world_model().vision_frame_count as f32);
+        }
+
         std::thread::sleep(Duration::from_millis(LOOP_PERIOD_MS));
     }
 }
@@ -1143,7 +1164,7 @@ fn main() {
     } else {
         eprintln!("qualia-vision: WARNING: GEMINI_API_KEY not set");
         eprintln!("qualia-vision: Running in offline mode — synthetic world model only");
-        run_offline_loop(&shm);
+        run_offline_loop(&shm, &config.shm_name);
     }
 }
 

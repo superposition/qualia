@@ -11,6 +11,11 @@
 
 pub use qualia_types::*;
 
+mod stats;
+pub use stats::{
+    stats_region_name_from_env, StatsRegion, StatsWriter, RUNNER_STATS_PUBLISH_INTERVAL_NS,
+};
+
 #[cfg(not(windows))]
 use std::ffi::CString;
 use std::sync::atomic::Ordering;

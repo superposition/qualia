@@ -12,6 +12,7 @@ use qualia_console::views::brain::{BrainView, CloudReading, FiringReading, PlanP
 use qualia_console::views::evidence::{
     EvidenceView, LedgerRow, SegmentReading, DEFAULT_EVIDENCE_ROOT,
 };
+use qualia_console::views::stats::StatsView;
 use qualia_console::views::telemetry::{FrameReading, SensingRunner, TelemetryView};
 use qualia_console::views::world::{MapReading, PoseReading, WorldView};
 use qualia_console::{BraidSnapshot, Connection, Sample};
@@ -193,5 +194,8 @@ pub fn healthy(fixture: &BraidSnapshot, observed_at_ns: u64) -> Sample {
         evidence,
         telemetry,
         brain,
+        // No stats region is opened in tests: the HUD draws nothing, which is
+        // what an absent region means, and no test asserts on HUD panels.
+        stats: StatsView::unattached(None, "test: no stats region".to_owned()),
     }
 }

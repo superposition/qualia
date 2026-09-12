@@ -21,7 +21,7 @@ use qualia_mcap::{
     TOPIC_JEPA, TOPIC_LIDAR, TOPIC_PLANNER, TOPIC_POSE, TOPIC_PRIOR, TOPIC_VSLAM,
 };
 use qualia_session_store::SessionStore;
-use qualia_shm::{LayerReader, ShmRegion};
+use qualia_shm::{LayerReader, ShmRegion, StatsWriter};
 use qualia_types::{
     AppliedActionSnapshot, BeliefSlot, JepaEvidencePayload, JepaTelemetryPayload,
     LidarOccupancyGridSnapshot, LidarScanSnapshot, NUM_LAYERS,
@@ -41,6 +41,10 @@ const PRIOR_TIMEOUT: Duration = Duration::from_millis(250);
 const PRIOR_INTERVAL: Duration = Duration::from_millis(500);
 /// How long a braid report may take before the recorder gives up on it.
 const BRAID_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-arena-recorder`.
+const RUNNER_NAME: &str = "qualia-arena-recorder";
 
 /// `schema_version` stamped into each topic's evidence document.
 const CAMERA_DOC: &str = "qualia.camera-evidence.v1";
@@ -160,10 +164,19 @@ fn run() -> Fallible {
     );
 
     let started = Instant::now();
+    // The recorder's own telemetry frame: capture ticks/s and how many entity
+    // sources it is sealing. A recorder with no frames still ticks, which is
+    // what tells the operator the segment is being written rather than stalled.
+    let mut telemetry = StatsWriter::attach(&sources[primary].config.shm_name, RUNNER_NAME);
     while running.load(Ordering::Acquire)
         && settings.limit.is_none_or(|limit| started.elapsed() < limit)
     {
         recorder.tick(&mut sources, &priors, now_ns())?;
+        if let Some(telemetry) = telemetry.as_mut() {
+            telemetry.tick();
+            telemetry.set_value(0, "sources", sources.len() as f32);
+            telemetry.set_value(1, "poll ms", settings.poll.as_millis() as f32);
+        }
         thread::sleep(settings.poll);
     }
 

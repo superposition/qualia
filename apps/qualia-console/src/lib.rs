@@ -37,9 +37,12 @@
 //!   `qualia-shm` — source 1.
 
 pub mod client;
+pub mod hud;
 pub mod poller;
 pub mod sample;
-mod shm_sample;
+/// The region read path, public so an evidence run (and the console's own
+/// example) samples the live arena through the same code the window does.
+pub mod shm_sample;
 pub mod stack;
 pub mod theme;
 pub mod views;
@@ -179,6 +182,14 @@ pub struct ConsoleState {
     pub evidence: views::evidence::EvidenceView,
     pub telemetry: views::telemetry::TelemetryView,
     pub brain: views::brain::BrainView,
+    /// The runner telemetry frames the HUD panels draw this poll.
+    pub hud: views::stats::StatsView,
+    /// The rate history those panels' sparklines draw; it survives a poll the
+    /// way the Brain view keeps its camera.
+    pub hud_history: views::stats::StatsHistory,
+    /// Which HUD panels are showing and where they sit, remembered between
+    /// runs by the binary (the library default is the opening cascade).
+    pub hud_layout: hud::HudLayout,
     /// The prior and its layout, read once at start-up: a poll never re-reads a
     /// graph file, and every frame shares the same owned copy.
     pub brain_assets: std::sync::Arc<views::brain::BrainAssets>,
@@ -188,7 +199,7 @@ pub struct ConsoleState {
 impl ConsoleState {
     /// A whole state from one poll, with every panel showing.
     pub fn from_sample(sample: Sample, agent_url: impl Into<String>) -> Self {
-        Self {
+        let mut state = Self {
             agent_url: agent_url.into(),
             observed_at_ns: sample.observed_at_ns,
             refresh_requested: false,
@@ -200,9 +211,14 @@ impl ConsoleState {
             evidence: sample.evidence,
             telemetry: sample.telemetry,
             brain: sample.brain,
+            hud: sample.stats,
+            hud_history: views::stats::StatsHistory::default(),
+            hud_layout: hud::HudLayout::default(),
             brain_assets: std::sync::Arc::new(views::brain::BrainAssets::load()),
             windows: WindowSet::default(),
-        }
+        };
+        state.hud_history.record(&state.hud);
+        state
     }
 
     /// Replace everything a poll produces, keeping the open panels and URL.
@@ -215,6 +231,8 @@ impl ConsoleState {
         self.world = sample.world;
         self.evidence = sample.evidence;
         self.telemetry = sample.telemetry;
+        self.hud = sample.stats;
+        self.hud_history.record(&self.hud);
         // The brain view keeps the operator's camera, its short history and the
         // markers earlier polls produced; only the readings are replaced.
         self.brain.absorb(sample.brain);
@@ -259,6 +277,15 @@ pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
         views::brain::render(ui, state)
     });
     state.windows = windows;
+
+    // The operator's HUD, additive to the views: `Ctrl+H` shows or hides the
+    // whole set from anywhere in the window, and the `HUD` menu does the same
+    // per runner.
+    if ui.input(|input| input.key_pressed(egui::Key::H) && input.modifiers.command) {
+        let on = state.hud_layout.on;
+        state.hud_layout.set_on(!on);
+    }
+    hud::render(ui.ctx(), state);
 }
 
 /// One frame of the console: panels around [`render_view`].
@@ -288,7 +315,11 @@ impl ConsoleApp {
             Box::new(client::HttpSource::new(agent_url)?),
             Box::new(client::FixtureSource::default()),
         );
-        Ok(Self { state, poller })
+        let mut app = Self { state, poller };
+        // The binary, not the library, owns the remembered layout: tests build
+        // a console state without touching the operator's file.
+        app.state.hud_layout = hud::HudLayout::load();
+        Ok(app)
     }
 }
 
@@ -302,6 +333,7 @@ impl eframe::App for ConsoleApp {
             self.state.apply(sample);
         }
         app_ui(ctx, &mut self.state);
+        self.state.hud_layout.save_if_due(now_ns());
         ctx.request_repaint_after(poller::POLL_INTERVAL);
     }
 }
