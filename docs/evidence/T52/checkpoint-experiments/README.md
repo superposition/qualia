@@ -2,8 +2,10 @@
 
 Step 1 of ticket [#225](https://github.com/superposition/qualia/issues/225) (T52): the checkpoint
 whose held-out gates pass, which parity and plan-eval need before either can run against a promoted
-model. This capture answers with seven bounded runs, the gate metrics each produced, and the one
-measurement that decides the ticket's three-way question.
+model. This capture answers with six bounded configurations — seven processes, since
+`static-e1-instr` is an instrumented re-run of `static-e1` rather than a seventh configuration —
+plus the gate metrics each produced and the one measurement that decides the ticket's three-way
+question.
 
 **The answer.** A promotion-passing checkpoint is **not producible today**, and the blocker is not
 the amount of training data or the model's size: the effective-rank gate reads the held-out
@@ -13,8 +15,11 @@ suitable fixture — the chain-4 run passes the predictive gate and occupancy ou
 calibration coverage and clamp fraction are inside the bands, and a smaller predictor brings the
 test split's calibration fully inside — but `effective_rank` sits at 1.08–1.37 against a floor of
 64 in **every** fixture and at **every** epoch count, and the encoder weights in the published
-checkpoint are **byte-identical between a one-epoch and a ten-epoch run**. The decision is recorded
-as **D-021** (`docs/decisions.md`); step 2 stays blocked on the measurement, not on data.
+checkpoint are **byte-identical between a one-epoch and a ten-epoch run**. The *decision* half of
+step 1 is therefore discharged — recorded as **D-021** (`docs/decisions.md`), which names the
+measurement the repair belongs to and which **T53 ([#228](https://github.com/superposition/qualia/issues/228))** now
+carries — while the *produce* half ("produce (or obtain) a checkpoint whose held-out gates pass")
+and step 2 are exactly what D-021 unblocks: they stay blocked on that repair, not on data.
 
 ## Host and tools
 
@@ -114,6 +119,11 @@ nll −3.274 / −0.282 / −1.219, rollout 0.219 / 0.359 / 1.443, slope 0.973, 
 .519/.920/.957, clamp 3.1e-4 — predictive **and** calibration **and** occupancy all pass; its
 validation split misses only `msr` (1.146 vs ≤ 1.1).
 
+The table is the **six configurations**. The seventh process, `static-e1-instr`, is `static-e1` run
+once more through the instrumented binary so that a refused run still yields its metrics; it has no
+row of its own because it is not a different configuration (its epoch line and refusal are identical
+to `static-e1`'s).
+
 The refusal, verbatim (`runs/static-e1/run.log`, unmodified head binary):
 
 ```text
@@ -211,15 +221,37 @@ Recorded as **D-021** in `docs/decisions.md`.
   anything above 1.37 would be fitting a band to a broken number. The fix is to make the held-out
   representation a function of training — repair the encoder/EMA wiring measured above so the
   online encoder is in the objective's gradient — and only then re-derive the band and re-run this
-  sweep. Until that lands, **no artifact this repository can publish clears the promotion gates**,
-  and the ticket's step 2 (parity and plan-eval against a promoted checkpoint) **remains blocked on
-  it**; it is not blocked on a fixture or on training time.
+  sweep. That repair is **T53 ([#228](https://github.com/superposition/qualia/issues/228))**, opened
+  from this capture and carrying this measurement and the test that must fail today; the gate
+  threshold itself is unchanged here, and no gate was edited by this PR. Until that repair lands,
+  **no artifact this repository can publish clears the promotion gates**, and the ticket's step 2
+  (parity and plan-eval against a promoted checkpoint) **remains blocked on it**; it is not blocked
+  on a fixture or on training time.
+
+## The board leg (step 4)
+
+Step 4's bar is recorded on its stated reason rather than attempted, because both limbs were already
+measured by #224 and D-018 and neither changed here:
+
+- **No aarch64 artifact of these binaries can be built on this host.** The dev-host WSL toolchain
+  has no `aarch64-unknown-linux-gnu` target, no `aarch64-linux-gnu-gcc` and no `cross`, so the
+  build dies at `rc 101` with `error[E0463]: can't find crate for 'core'` — #224's
+  `docs/evidence/T50/model-eval/` records that build line, and D-018 records the same fault. No
+  cross-build is claimed here; none was attempted.
+- **None could run on Pinkie anyway.** The board's offline registry cache carries no `candle-core`
+  and the board has no DNS to fetch one, so `qualia-jepa-train`, `qualia-jepa-parity` and
+  `qualia-jepa-plan-eval` cannot be built or run there (D-016, D-018; T50's model-eval records the
+  same prerequisite for its two binaries).
+
+The ticket's DoD states the limb exactly this way — "record the aarch64 build as the board evidence
+and state why execution on Pinkie is impossible" — and the whole capture is a dev-host 4090 capture
+for that reason: every run above ran on this host's GPU, none on the board.
 
 ## Files
 
 | file | bytes | sha256 |
 | --- | --- | --- |
-| `wave-fixture.rs` | 11106 | `73a39ed39b5b40151f2a0d8340b7cba6212ef4169609f91fe02fea3e2e75f6a3` |
+| `wave-fixture.rs` | 11191 | `13978e748fd1f69f963868a945378d0c331f2cbe8d31f8904432c6cc5eafe27c` |
 | `report_metrics.py` | 4143 | `2334f9bcf7da3c7d4e53d1ec5a06e49324b01c88451b54a041643576f039dd0f` |
 | `safetensors_diff.py` | 1127 | `f67d01998aefc7f2c2bc1731f235dc0453e7c694a86ab48deeb8cff88b7322c7` |
 | `encoder-freeze-diff.txt` | 3025 | `693c9edf426e2cbf9b6ee9ea90e2fc75ba24c4f36ea39027f87f563308303fe4` |
@@ -274,6 +306,10 @@ Weights digests: `ch4-e1` `9132e253fc81fabce572bc08b8d208a8316a2be4f74088530aefd
 cargo +1.98.1 build --release -j 2 -p qualia-jepa-dataset --bin qualia-jepa-dataset
 cargo +1.98.1 build --release -j 2 -p qualia-jepa-model --features cuda --bin qualia-jepa-train
 
+# the fixture writer: a scratch crate (scratch/Cargo.toml below) with path deps on the
+# worktree's crates/mcap-log and crates/jepa-dataset, built with the same rule
+cd scratch && cargo +1.98.1 build --release -j 2
+
 # fixtures (scratch): wave A, ch16 and ch4 as tabulated
 t52-fixture --root <root> --envs 12 --sessions 66 --frames 65   --chain 0  --profile wave
 t52-fixture --root <root> --envs 12 --sessions 1  --frames 4448 --chain 16 --profile wave
@@ -285,8 +321,35 @@ qualia-jepa-train --manifest <manifest> --checkpoint-id t52-<label> --output-dir
   --backend cuda --epochs <N> --seed 42
 ```
 
+The scratch crate is two files, both quoted here:
+
+```toml
+[package]
+name = "t52-fixture"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "t52-fixture"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+qualia-mcap = { path = "<worktree>/crates/mcap-log" }
+qualia-jepa-dataset = { path = "<worktree>/crates/jepa-dataset" }
+```
+
+`wave-fixture.rs` beside this README is that crate's `src/main.rs`. The copy that wrote the fixtures
+hashes `73a39ed39b5b40151f2a0d8340b7cba6212ef4169609f91fe02fea3e2e75f6a3`; the committed copy
+differs from it by exactly the header sentence that used to read "Lives in scratch, never in the
+repository" (now "committed beside the capture as the recipe's evidence"), because a file that is in
+the repository must not say it is not. No other byte changed, and the fixtures were generated before
+that edit.
+
+
 Three temporary instruments were added to the working tree for measurement and **reverted before
-this commit**; the tree this PR touches is documentation plus the two scratch scripts below:
+this commit**. The diff is documentation plus three scratch sources quoted here: the fixture writer
+(`wave-fixture.rs`) and the two readers below.
 
 - `crates/jepa-model/src/bin/qualia-jepa-train.rs` — five lines writing the `TrainingReport` to
   `$QUALIA_JEPA_REPORT_DUMP` before the finite-metric guard, so a refused run still yields its

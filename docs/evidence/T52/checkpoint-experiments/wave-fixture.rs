@@ -12,7 +12,8 @@
 //!   transition is both non-degenerate (the no-change baseline is wrong) and
 //!   action-conditioned (the action input carries the rate).
 //!
-//! Lives in scratch, never in the repository.
+//! Lives in scratch; committed beside the capture as the recipe's evidence, the
+//! same way T50 committed `harness-candidate.rs`.
 
 use qualia_jepa_dataset::SessionEvidence;
 use qualia_mcap::{McapSessionWriter, TOPIC_ACTION_APPLIED, TOPIC_CAMERA, TOPIC_LIDAR, TOPIC_POSE};

@@ -297,7 +297,8 @@ in ascending column order.
 
 Ticket [#225](https://github.com/superposition/qualia/issues/225) (T52) asked for the checkpoint the
 promoted end-to-end run needs, and for a choice among three ways to get one: more/different training
-data, a calibrated gate, or a smaller model. Six bounded runs on the 4090 (`docs/evidence/T52/checkpoint-experiments/`)
+data, a calibrated gate, or a smaller model. Six bounded configurations on the 4090 — seven
+processes, since one is an instrumented re-run of another — (`docs/evidence/T52/checkpoint-experiments/`)
 answer it, and the answer is not data and not capacity.
 
 **The measured basis.**
@@ -329,18 +330,24 @@ answer it, and the answer is not data and not capacity.
 **The decision.** The fix is the third option — **a calibrated gate** — with the emphasis on the
 measurement rather than the threshold: the rank gate is fed by a held-out representation the
 pipeline never trains, so its verdict is not a function of the training the pipeline performs.
-Lowering `64` to anything above `1.37` would fit a band to a broken number. More data is ruled out
-by measurement (the rank is invariant across four fixtures and across a ten-fold epoch sweep), and a
-smaller model is ruled out as the *fix* while being real for calibration (it moves the calibration
-bands, not the rank). The repair owed is the encoder/EMA wiring the probe measured — the online
-encoder must be in the objective's gradient — after which the band is re-derived and the sweep
-re-run.
+Lowering `64` to anything above `1.37` would fit a band to a broken number. No threshold moves in
+this decision; the repair it names is a code change, and it lives in **T53
+([#228](https://github.com/superposition/qualia/issues/228))**, opened from this capture with this
+measurement and the test that must fail today. More data is ruled out by measurement (the rank is
+invariant across four fixtures and across a ten-fold epoch sweep), and a smaller model is ruled out
+as the *fix* while being real for calibration (it moves the calibration bands, not the rank). The
+repair owed is the encoder/EMA wiring the probe measured — the online encoder must be in the
+objective's gradient — after which the band is re-derived and the sweep re-run.
 
 **Consequence.** No artifact this repository can publish clears the promotion gates today, so T52's
-step 2 — `qualia-jepa-parity` and `qualia-jepa-plan-eval` against a **promotion-passing** checkpoint
-— **remains blocked on that repair**, not on a fixture shape and not on training time. The parity
-and plan-eval step times themselves are already measured against a loadable candidate
-(`docs/evidence/T50/model-eval/`); what is missing is only the promoted checkpoint's provenance.
+*produce* half — "produce (or obtain) a checkpoint whose held-out gates pass" — and with it step 2,
+`qualia-jepa-parity` and `qualia-jepa-plan-eval` against a **promotion-passing** checkpoint, **remain
+blocked on that repair**; they are not blocked on a fixture shape and not on training time, and the
+decision half of step 1 is discharged by this entry. The parity and plan-eval step times themselves
+are already measured against a loadable candidate (`docs/evidence/T50/model-eval/`); what is missing
+is only the promoted checkpoint's provenance. Step 4's board limb is recorded on its stated reason
+in the capture: no aarch64 artifact can be built here (#224's `rc 101`, `error[E0463]`, D-018) and
+none can run on Pinkie (no `candle-core` in the offline cache, no DNS; D-016).
 
 ## D-003 — Repository
 
