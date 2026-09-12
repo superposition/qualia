@@ -5793,6 +5793,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-calibration"
+version = "0.1.0"
+dependencies = [
+ "qualia-leash-sensors",
+ "qualia-shm",
+ "qualia-types",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
 name = "qualia-camera"
 version = "0.1.0"
 dependencies = [
@@ -6136,6 +6149,18 @@ version = "0.1.0"
 dependencies = [
  "qualia-lidar",
  "qualia-shm",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "qualia-leash-transport"
+version = "0.1.0"
+dependencies = [
+ "qualia-leash-sensors",
+ "qualia-shm",
+ "qualia-types",
  "serde",
  "serde_json",
  "ureq",

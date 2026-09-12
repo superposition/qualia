@@ -1,0 +1,190 @@
+{
+  "channels": [
+    {
+      "max_log_time_ns": 1789195877426918080,
+      "message_count": 2997,
+      "min_log_time_ns": 1789195577590237568,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/action/applied"
+    },
+    {
+      "max_log_time_ns": 1789195877426918080,
+      "message_count": 2997,
+      "min_log_time_ns": 1789195577590237568,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/action/clamped"
+    },
+    {
+      "max_log_time_ns": 1789195877426918080,
+      "message_count": 2997,
+      "min_log_time_ns": 1789195577590237568,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/action/requested"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/belief"
+    },
+    {
+      "max_log_time_ns": 1789195877403080928,
+      "message_count": 1501,
+      "min_log_time_ns": 1789195577444214080,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/camera"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/health"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/jepa"
+    },
+    {
+      "max_log_time_ns": 1789195877451189920,
+      "message_count": 2917,
+      "min_log_time_ns": 1789195577433817568,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/lidar"
+    },
+    {
+      "max_log_time_ns": 1789195877487571296,
+      "message_count": 2917,
+      "min_log_time_ns": 1789195577505548032,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/planner"
+    },
+    {
+      "max_log_time_ns": 1789195877451189920,
+      "message_count": 2917,
+      "min_log_time_ns": 1789195577433817568,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/pose"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/prior"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/vslam"
+    }
+  ],
+  "path": "/home/jetson/t65-capture/t65-real-01/mcap/t65-real-01.mcap",
+  "schema_version": "qualia.mcap-inspection.v1",
+  "streams": [
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 120693984,
+      "max_payload_bytes": 557,
+      "max_timestamp_ns": 1789195877426918080,
+      "mean_gap_ns": 100078998,
+      "mean_payload_bytes": 556,
+      "messages": 2997,
+      "min_timestamp_ns": 1789195577590237568,
+      "p50_gap_ns": 100051104,
+      "p95_gap_ns": 104467424,
+      "payload_bytes": 1667593,
+      "topic": "/qualia/action/applied"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 120693984,
+      "max_payload_bytes": 553,
+      "max_timestamp_ns": 1789195877426918080,
+      "mean_gap_ns": 100078998,
+      "mean_payload_bytes": 552,
+      "messages": 2997,
+      "min_timestamp_ns": 1789195577590237568,
+      "p50_gap_ns": 100051104,
+      "p95_gap_ns": 104467424,
+      "payload_bytes": 1655605,
+      "topic": "/qualia/action/clamped"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 120693984,
+      "max_payload_bytes": 548,
+      "max_timestamp_ns": 1789195877426918080,
+      "mean_gap_ns": 100078998,
+      "mean_payload_bytes": 547,
+      "messages": 2997,
+      "min_timestamp_ns": 1789195577590237568,
+      "p50_gap_ns": 100051104,
+      "p95_gap_ns": 104467424,
+      "payload_bytes": 1640620,
+      "topic": "/qualia/action/requested"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 206275648,
+      "max_payload_bytes": 10980,
+      "max_timestamp_ns": 1789195877403080928,
+      "mean_gap_ns": 199972577,
+      "mean_payload_bytes": 10962,
+      "messages": 1501,
+      "min_timestamp_ns": 1789195577444214080,
+      "p50_gap_ns": 199996096,
+      "p95_gap_ns": 202218688,
+      "payload_bytes": 16454661,
+      "topic": "/qualia/camera"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 121597824,
+      "max_payload_bytes": 551505,
+      "max_timestamp_ns": 1789195877451189920,
+      "mean_gap_ns": 102886616,
+      "mean_payload_bytes": 551373,
+      "messages": 2917,
+      "min_timestamp_ns": 1789195577433817568,
+      "p50_gap_ns": 102388384,
+      "p95_gap_ns": 103030976,
+      "payload_bytes": 1608357149,
+      "topic": "/qualia/lidar"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 175397696,
+      "max_payload_bytes": 313,
+      "max_timestamp_ns": 1789195877487571296,
+      "mean_gap_ns": 102874493,
+      "mean_payload_bytes": 312,
+      "messages": 2917,
+      "min_timestamp_ns": 1789195577505548032,
+      "p50_gap_ns": 112003616,
+      "p95_gap_ns": 114800992,
+      "payload_bytes": 912133,
+      "topic": "/qualia/planner"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 121597824,
+      "max_payload_bytes": 314,
+      "max_timestamp_ns": 1789195877451189920,
+      "mean_gap_ns": 102886616,
+      "mean_payload_bytes": 311,
+      "messages": 2917,
+      "min_timestamp_ns": 1789195577433817568,
+      "p50_gap_ns": 102388384,
+      "p95_gap_ns": 103030976,
+      "payload_bytes": 908480,
+      "topic": "/qualia/pose"
+    }
+  ]
+}

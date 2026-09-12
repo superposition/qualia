@@ -1,0 +1,12 @@
+{
+  "sources": [
+    {
+      "session_id": "t65-real-01",
+      "environment_id": "pinkie-bench",
+      "condition": "bench-static",
+      "primary_entity": "pinkie",
+      "path": "/home/jetson/t65-capture/t65-real-01/mcap/t65-real-01.mcap",
+      "sha256": "03ae6b0f4d2e44970d4e47e155c50cd46c74e73b9ba847f6d4e8508b35287110"
+    }
+  ]
+}

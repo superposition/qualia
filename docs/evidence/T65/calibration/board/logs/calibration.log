@@ -1,0 +1,4 @@
+qualia-calibration: observing http://127.0.0.1:8000/mcp observe and shm /qualia_body for 8000ms
+qualia-calibration: observed camera frames=40 (640x480, thumb 64x48, luma 0.381..0.384, 5.003Hz) scans=78 (360 beams, 9.725Hz) leash_polls=78 failures=0
+qualia-calibration: calibration_id=cac618af21db53843124b949d06e78c41c7b55d91a6cfdf2862813a61760f6e2 camera=640x480 lidar=waveshare-ugv-ld06 frame=base_scan beams=360 angle_min_rad=-3.1415927 angle_increment_rad=0.017453292
+qualia-calibration: wrote /home/jetson/t65-capture/t65-real-01/calibration.json (unmeasured, named in the document: camera intrinsics, camera->lidar extrinsics, lidar mount transform)

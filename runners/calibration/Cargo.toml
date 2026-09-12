@@ -1,0 +1,19 @@
+[package]
+name = "qualia-calibration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Calibration producer — observes the live rig and emits the identity the dataset gate reads"
+
+[[bin]]
+name = "qualia-calibration"
+path = "src/main.rs"
+
+[dependencies]
+qualia-leash-sensors = { path = "../leash-sensors" }
+qualia-shm.workspace = true
+qualia-types.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ureq = "2"
