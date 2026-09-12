@@ -129,12 +129,33 @@ envelope was built, and the run exited 0. `llm_priors_ablated` is `true` with th
 reason here and `false` on the live run's status payload, i.e. exactly when a
 model produced the decision.
 
+## The proposal route is a stub, and the broker says so
+
+`GET /world-model/proposals` and `POST /world-model/decisions` are `503` stubs
+in this build (`runners/agent/src/pending.rs`, `unlanded!` → "the spatial world
+model is not available in this build"). The broker's preferred item source is
+the agent's own proposal record; when that route answers `503` it says so, names
+the missing subsystem, and does not invent an empty list. The live runs above
+therefore decided over `docs/evidence/T63/proposal-frontier-1.json` — a
+committed `world.model.v1` wire envelope, `validate_shape`-checked on the way in
+— passed with `--proposal` / `QUALIA_MISSION_BROKER_PROPOSALS`.
+
+**That file is not a live route.** Nobody should read it as evidence that the
+agent serves proposals; it is the operator's stand-in for the braid's record
+until the spatial world model lands. When it lands, the same run needs no flag
+and this file should be deleted.
+
+The same stub is why the promote's canonical state has no sink: the broker
+materializes it through `promote_proposal_to_canonical` (and records
+`canonical_id` in the decision row and the console panel), but the route that
+would carry a `CanonicalStateEnvelope` to the world model is that same `503`.
+
 ## Honest limits
 
 - The proposal the coach decided over is a file
   (`docs/evidence/T63/proposal-frontier-1.json`): the agent's own proposal
-  surface is a `503` stub in this build, and the broker reads it when it
-  answers. The file's shape is the wire envelope
+  surface is a `503` stub in this build (see the section above), and the broker
+  reads it when it answers. The file's shape is the wire envelope
   (`qualia_sync_types::ProposalEnvelope`, `world.model.v1`) and the broker
   validates it with `validate_shape` on the way in.
 - No mission reaches motion: this build has no planner and no Leash evidence
