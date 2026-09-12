@@ -1,0 +1,17 @@
+[package]
+name = "qualia-leash-transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Applied-action ledger — records the leash's acknowledged zero-speed stop with leash authority"
+
+[[bin]]
+name = "qualia-leash-transport"
+path = "src/main.rs"
+
+[dependencies]
+qualia-leash-sensors = { path = "../leash-sensors" }
+qualia-shm.workspace = true
+qualia-types.workspace = true
+serde_json = "1"
+ureq = "2"

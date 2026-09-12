@@ -31,28 +31,19 @@
 //!
 //! Exit codes: 1 cannot attach to shared memory.
 
+use qualia_leash_sensors::{
+    agent, observe, ScanSample, BASE_URL_ENV, DEFAULT_BASE_URL, DEFAULT_SHM_NAME, DEFAULT_TIMEOUT_MS,
+    SHM_NAME_ENV, TIMEOUT_MS_ENV,
+};
 use qualia_lidar::{publish_scan, summarize, DevicePoint};
 use qualia_shm::ShmRegion;
-use serde::Deserialize;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// `QUALIA_LEASH_BASE_URL`, default `http://127.0.0.1:8000`.
-pub const BASE_URL_ENV: &str = "QUALIA_LEASH_BASE_URL";
-/// `QUALIA_SHM_NAME`, default `/qualia_body`.
-pub const SHM_NAME_ENV: &str = "QUALIA_SHM_NAME";
 /// `QUALIA_LEASH_SENSORS_POLL_MS`, default `100`.
 pub const POLL_MS_ENV: &str = "QUALIA_LEASH_SENSORS_POLL_MS";
-/// `QUALIA_LEASH_SENSORS_TIMEOUT_MS`, default `2000`.
-pub const TIMEOUT_MS_ENV: &str = "QUALIA_LEASH_SENSORS_TIMEOUT_MS";
-/// The leash's HTTP root when none is named.
-pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8000";
-/// The region `qualia-init` creates when the supervisor names no other.
-pub const DEFAULT_SHM_NAME: &str = "/qualia_body";
 /// Time between two `observe` calls when none is named: 10 Hz, the LD06's rate.
 pub const DEFAULT_POLL_MS: u64 = 100;
-/// Request timeout when none is named.
-pub const DEFAULT_TIMEOUT_MS: u64 = 2_000;
 /// Published scans between summary lines once the first scan has been logged.
 pub const LOG_EVERY_SCANS: u64 = 50;
 
@@ -91,96 +82,6 @@ impl Settings {
     }
 }
 
-/// The leash's JSON-RPC reply envelope.
-#[derive(Debug, Deserialize)]
-struct Reply {
-    result: Option<ReplyResult>,
-}
-
-/// The `result` half of a JSON-RPC reply.
-#[derive(Debug, Deserialize)]
-struct ReplyResult {
-    content: Vec<Content>,
-}
-
-/// One content block of a tool result.
-#[derive(Debug, Deserialize)]
-struct Content {
-    text: Option<String>,
-}
-
-/// The `observe` tool's payload, as far as this runner reads it.
-#[derive(Debug, Deserialize)]
-struct Observe {
-    sensors: Sensors,
-}
-
-/// The sensor set the leash republishes.
-#[derive(Debug, Deserialize)]
-struct Sensors {
-    #[serde(default)]
-    range_scan: Option<RangeScan>,
-    #[serde(default)]
-    imu: Option<NamedSample>,
-    #[serde(default)]
-    odometry: Option<NamedSample>,
-}
-
-/// One sensor block: its state plus the sample when it had one.
-#[derive(Debug, Deserialize)]
-struct NamedSample {
-    #[serde(default)]
-    status: String,
-    #[serde(default)]
-    source: String,
-}
-
-impl Sensors {
-    /// One line naming every stream the leash reported, so the runner's log
-    /// carries the sensor map an operator would otherwise have to ask for.
-    fn summary(&self) -> String {
-        let stream = |name: &str, sample: &Option<NamedSample>| match sample {
-            Some(sample) if !sample.status.is_empty() && !sample.source.is_empty() => {
-                format!("{name}={}({})", sample.status, sample.source)
-            }
-            Some(_) => format!("{name}=present"),
-            None => format!("{name}=absent"),
-        };
-        format!("{} {}", stream("imu", &self.imu), stream("odometry", &self.odometry))
-    }
-}
-
-/// The ranging device's block.
-#[derive(Debug, Deserialize)]
-struct RangeScan {
-    #[serde(default)]
-    error: Option<String>,
-    #[serde(default)]
-    status: String,
-    #[serde(default)]
-    source: String,
-    #[serde(default)]
-    last_ms: u64,
-    #[serde(default)]
-    sample: Option<ScanSample>,
-}
-
-/// One assembled rotation, in the leash's units.
-#[derive(Debug, Deserialize)]
-struct ScanSample {
-    angle_min_rad: f32,
-    angle_increment_rad: f32,
-    ranges_m: Vec<Option<f32>>,
-    #[serde(default)]
-    intensities: Vec<Option<f32>>,
-    #[serde(default)]
-    frame_id: String,
-    #[serde(default)]
-    scan_rate_hz: f32,
-    #[serde(default)]
-    ts_ms: u64,
-}
-
 fn main() {
     let settings = Settings::from_env();
 
@@ -195,11 +96,7 @@ fn main() {
         }
     };
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(settings.timeout)
-        .timeout_read(settings.timeout)
-        .timeout_write(settings.timeout)
-        .build();
+    let agent = agent(settings.timeout);
 
     println!(
         "qualia-leash-sensors: subscribing to {}/mcp observe every {}ms; publishing range scans into {}",
@@ -228,7 +125,7 @@ fn main() {
                 let scan = sensors.range_scan;
                 let available = scan
                     .as_ref()
-                    .is_some_and(|scan| scan.status == "available" && scan.sample.is_some());
+                    .is_some_and(|scan| scan.is_available());
                 if available {
                     let scan = scan.expect("range scan checked above");
                     let sample = scan.sample.expect("range scan checked above");
@@ -280,41 +177,6 @@ fn main() {
     }
 }
 
-/// Calls the leash's `observe` tool once and returns its sensor set.
-///
-/// The body and the reply are carried as strings rather than through `ureq`'s
-/// JSON helpers: this workspace's `ureq` is built without its `json` feature
-/// (`ureq` 2.12's defaults are `tls` and `gzip` only), and `serde_json` is
-/// already the decoder every other JSON boundary here uses.
-fn observe(agent: &ureq::Agent, base_url: &str) -> Result<Sensors, String> {
-    let endpoint = format!("{}/mcp", base_url.trim_end_matches('/'));
-    let request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": { "name": "observe", "arguments": {} },
-    });
-    let body = serde_json::to_string(&request)
-        .map_err(|error| format!("encode observe request: {error}"))?;
-    let response = agent
-        .post(&endpoint)
-        .set("content-type", "application/json")
-        .send_string(&body)
-        .map_err(|error| format!("POST {endpoint}: {error}"))?;
-    let payload = response
-        .into_string()
-        .map_err(|error| format!("read {endpoint} reply: {error}"))?;
-    let reply: Reply =
-        serde_json::from_str(&payload).map_err(|error| format!("decode {endpoint} reply: {error}"))?;
-    let text = reply
-        .result
-        .and_then(|result| result.content.into_iter().find_map(|content| content.text))
-        .ok_or_else(|| "observe returned no content".to_string())?;
-    let observe: Observe = serde_json::from_str(&text)
-        .map_err(|error| format!("decode observe payload: {error}"))?;
-    Ok(observe.sensors)
-}
-
 /// Turns one rotation in the leash's units into the arena's device points.
 ///
 /// Every ray keeps its place in the rotation: a reading with no range, or a
@@ -363,16 +225,34 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_reading_without_a_return_keeps_its_ray() {
-        let sample = ScanSample {
-            angle_min_rad: 0.0,
-            angle_increment_rad: std::f32::consts::FRAC_PI_2,
-            ranges_m: vec![Some(1.5), None, Some(0.0), Some(f32::NAN)],
-            intensities: vec![Some(120.0), Some(5.0), Some(7.0), Some(9.0)],
+    fn sample(
+        angle_min_rad: f32,
+        angle_increment_rad: f32,
+        ranges_m: Vec<Option<f32>>,
+    ) -> ScanSample {
+        ScanSample {
+            angle_min_rad,
+            angle_increment_rad,
+            intensities: ranges_m
+                .iter()
+                .map(|range| range.map(|_| 1.0))
+                .collect(),
+            ranges_m,
             frame_id: "base_scan".to_string(),
             scan_rate_hz: 10.0,
             ts_ms: 1,
+        }
+    }
+
+    #[test]
+    fn a_reading_without_a_return_keeps_its_ray() {
+        let sample = ScanSample {
+            intensities: vec![Some(120.0), Some(5.0), Some(7.0), Some(9.0)],
+            ..sample(
+                0.0,
+                std::f32::consts::FRAC_PI_2,
+                vec![Some(1.5), None, Some(0.0), Some(f32::NAN)],
+            )
         };
         let points = device_points(&sample);
         assert_eq!(points.len(), 4);
@@ -387,15 +267,11 @@ mod tests {
 
     #[test]
     fn the_bearing_walks_by_the_increment() {
-        let sample = ScanSample {
-            angle_min_rad: -std::f32::consts::FRAC_PI_2,
-            angle_increment_rad: std::f32::consts::FRAC_PI_2,
-            ranges_m: vec![Some(1.0), Some(2.0), Some(3.0)],
-            intensities: vec![Some(1.0), Some(1.0), Some(1.0)],
-            frame_id: "base_scan".to_string(),
-            scan_rate_hz: 10.0,
-            ts_ms: 1,
-        };
+        let sample = sample(
+            -std::f32::consts::FRAC_PI_2,
+            std::f32::consts::FRAC_PI_2,
+            vec![Some(1.0), Some(2.0), Some(3.0)],
+        );
         let bearings: Vec<f32> = device_points(&sample)
             .iter()
             .map(|point| point.bearing_deg)
