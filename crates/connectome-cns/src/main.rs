@@ -320,6 +320,7 @@ fn bench(artifact: &Path, ticks: u64, warmup: u64, device: &str) -> Result<(), C
             {
                 let mut lif = qualia_connectome_cns::gpu::LifDevice::new(&incoming)
                     .map_err(CnsError::Artifact)?;
+                drop(incoming);
                 for _ in 0..warmup {
                     lif.step(&params).map_err(CnsError::Artifact)?;
                 }
@@ -658,6 +659,9 @@ fn close_loop(
     for index in &input_indices {
         input_set[*index as usize] = true;
     }
+    // The live loop now owns its population masks and incoming graph. Release
+    // the outgoing artifact before allocating CUDA memory on the shared-RAM Orin.
+    drop(loaded);
     let source_description = source.describe();
     write!(trace_writer, "# session {session}; input {source_description}\ntick,luminance,fired_input,rate_l,rate_r,command,throttle\n")
         .and_then(|()| trace_writer.flush()).map_err(|error| read_error(trace, error))?;
@@ -774,6 +778,7 @@ fn close_loop(
             {
                 let mut lif = qualia_connectome_cns::gpu::LifDevice::new(&incoming)
                     .map_err(CnsError::Artifact)?;
+                drop(incoming);
                 eprintln!("cns-loop: device {}", lif.device_name());
                 for tick in 0..ticks {
                     let camera_start = unix_ns() / 1_000_000;

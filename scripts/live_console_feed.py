@@ -1,6 +1,8 @@
 """One bounded live producer; status publication errors do not terminate it."""
 from pathlib import Path
 import argparse
+import http.server
+import threading
 import json, os, socket, struct, subprocess, sys, time
 
 
@@ -39,6 +41,8 @@ def main():
     parser.add_argument('--artifact', required=True)
     parser.add_argument('--producer', required=True)
     parser.add_argument('--runtime', required=True)
+    parser.add_argument('--listen', default='127.0.0.1')
+    parser.add_argument('--status-port', type=int)
     parser.add_argument('--duration', type=int, default=1800)
     options = parser.parse_args()
     if not 1 <= options.duration <= 1800:
@@ -47,8 +51,29 @@ def main():
     run = Path(options.runtime) / time.strftime('live-%Y%m%d-%H%M%S')
     run.mkdir(parents=True)
     server = socket.socket()
-    server.bind(('127.0.0.1', 18762))
+    server.bind((options.listen, 18762))
     server.listen(4)
+    status_server = None
+    if options.status_port is not None:
+        class StatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path != '/live-status.json':
+                    self.send_error(404); return
+                try:
+                    payload = (run / 'status.json').read_bytes()
+                except OSError:
+                    self.send_error(503); return
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                try: self.wfile.write(payload)
+                except OSError: pass
+            def log_message(self, *args): pass
+        status_server = http.server.ThreadingHTTPServer((options.listen, options.status_port), StatusHandler)
+        status_server.daemon_threads = True
+        threading.Thread(target=status_server.serve_forever, daemon=True).start()
     (run.parent / 'live-run.txt').write_text(str(run), encoding='utf8')
     server.setblocking(False)
     args = [options.producer, 'loop',
@@ -65,7 +90,7 @@ def main():
     header = None
     latest = None
     state = dict(camera=camera, producer_pid=producer.pid, bridge_pid=os.getpid(),
-                 stream='tcp://127.0.0.1:18762', state='starting', run_id=run.name, transport_attached=False, frames=0, tick=None,
+                 stream=f'tcp://{options.listen}:18762', producer_host=socket.gethostname(), state='starting', run_id=run.name, transport_attached=False, frames=0, tick=None,
                  firing=0, clients=0, max_duration_seconds=options.duration)
     last_status = 0
     fusion_reader = None
@@ -146,6 +171,9 @@ def main():
         for client in clients:
             client.close()
         server.close()
+        if status_server:
+            status_server.shutdown()
+            status_server.server_close()
         if reader:
             reader.close()
         if fusion_reader:
