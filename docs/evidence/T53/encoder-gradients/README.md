@@ -211,39 +211,100 @@ trains clears `all_gates_passed`, so there is still no promoted checkpoint to po
 
 ## The board leg
 
-**The host half is measured by this ticket.** No aarch64 artifact of these binaries can be built on
-this host: on the 1.98.1 toolchain `rustup target list --installed` carries only
-`x86_64-unknown-linux-gnu`, and `which aarch64-linux-gnu-gcc cross` finds neither on `PATH`. The build
-dies the way #224 recorded for this same package:
+**Measured on Pinkie** — the Jetson Orin NX at `jetson@192.168.55.1` (D-010): `aarch64`, Ubuntu
+22.04.5 (GLIBC 2.35), kernel `5.15.148-tegra`, driver `NVRM 540.4.0`, CUDA 12.9, 6 cores. The tree
+was head `18313c5`'s from a `git archive` (archive sha256
+`5c5feaa145375ab30e6c9c7da9de847c696f5e5045790161b8c1a2e28e8a4a66`); `1015432` differs from it only
+in this file, so the built source is the current head's source. Board3's posting on #228/#225 is the
+authority for the transcript below.
 
 ```text
-$ rustup run 1.98.1 cargo build --release -j 2 --target aarch64-unknown-linux-gnu \
-    -p qualia-jepa-model --bin qualia-jepa-train
-   Compiling cfg-if v1.0.4
-error[E0463]: can't find crate for `core`
-  |
-  = note: the `aarch64-unknown-linux-gnu` target may not be installed
-error: could not compile `cfg-if` (lib) due to 1 previous error
-# rc 101
+$ cargo fetch                                            FETCH_RC=0
+   (nothing to download: every entry in this head's lock was already in the board's registry cache, 1.7 GB)
+$ cargo search candle-core --limit 2                      # cargo on the board IS online
+candle-core = "0.11.0"
+
+$ RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 2 -p qualia-jepa-model --bins
+   Compiling candle-core v0.9.1
+   Compiling candle-nn v0.9.1
+   Compiling qualia-jepa-model v0.1.0 (/home/jetson/qualia-t53/crates/jepa-model)
+    Finished `release` profile [optimized] target(s) in 7m 19s     BUILD_RC=0
+$ ls target/release/qualia-jepa-{train,parity,plan-eval,runtime-probe}
+   2390656 parity · 2391088 plan-eval · 2018664 runtime-probe · 4501616 train   (all aarch64)
+
+$ RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 2 -p qualia-jepa-model --bins --features cuda
+    Finished `release` profile [optimized] target(s) in 5m 30s      BUILD_CUDA_RC=0
+   (candle-kernels 0.9.2 built with nvcc for sm_87, then candle-core/candle-nn 0.9.1 with the cuda feature)
 ```
 
-That is the same `rc 101`, `error[E0463]` #224 measured, and the fault `docs/decisions.md` D-018
-names for this host (no Docker engine, no `cross`, no `aarch64-linux-gnu-gcc`; the musl target fails
-the same way). No cross-build is claimed.
+and the model package **runs** on both backends — T50's row-C fixture seed `12648430`, the whole
+five-head step, native on the Orin:
 
-**The Pinkie half is not measured by this ticket.** What an earlier note — and #224's board record
-for the same bins — said, that the board's offline registry cache carries no `candle-core` and that
-the board has no DNS, is *inherited here, not reproduced*, and a board job is re-measuring it now
-(see the #225/#228 comments). Two records argue against reading it as a limit: D-018's lane (a) is a
-native aarch64 build on Pinkie from a `git archive` of the head with the board's crate cache
-populated, and D-016 already records candle-bearing crates building on the board under
-`RUSTFLAGS="-C target-feature=+fp16"`; an offline cache is copy-aroundable and an unconfigured
-network interface is not an impossibility. If the board job shows the leg is possible, this section
-is replaced with that run's output.
+```json
+$ qualia-jepa-runtime-probe --backend cpu --iterations 30 --warmup 3
+{
+  "schema_version": "qualia.jepa-runtime-probe.v1",
+  "runtime_id": "qualia.jepa.coherent-tiled-runtime.v1",
+  "backend": "cpu",
+  "iterations": 30,
+  "warmup_iterations": 3,
+  "fixture_seed": 12648430,
+  "synchronized_latency_p50_us": 3168,
+  "synchronized_latency_p95_us": 3406,
+  "synchronized_latency_max_us": 3429,
+  "outputs_finite": true,
+  "output_dimensions": [256, 256, 256, 1024, 4096]
+}
+```
 
-Every run in this capture was on the dev host's 4090. This agent has no ssh to Pinkie — the batch's
-host rules reserve the board to the board job — so the DoD's board limb is not this agent's to
-exercise here; the host limb above is recorded with its own measurement.
+```json
+$ qualia-jepa-runtime-probe --backend cuda --iterations 30 --warmup 3     # LD_LIBRARY_PATH=compat:cuda/lib64
+{
+  "schema_version": "qualia.jepa-runtime-probe.v1",
+  "runtime_id": "qualia.jepa.coherent-tiled-runtime.v1",
+  "backend": "cuda",
+  "iterations": 30,
+  "warmup_iterations": 3,
+  "fixture_seed": 12648430,
+  "synchronized_latency_p50_us": 2039,
+  "synchronized_latency_p95_us": 2221,
+  "synchronized_latency_max_us": 2235,
+  "outputs_finite": true,
+  "output_dimensions": [256, 256, 256, 1024, 4096]
+}
+```
+
+The device was really used, not skipped: `backend: cuda` with `outputs_finite: true` and no
+`skipping` line anywhere in the output, at p50 `2039 µs` against the same binary's CPU backend at
+`3168 µs` (1.55× faster on this fixture). Board artefact sizes: `qualia-jepa-runtime-probe`
+10 375 096 B with cuda (2 018 664 B without), `qualia-jepa-parity` 2 390 656 B,
+`qualia-jepa-plan-eval` 2 391 088 B, `qualia-jepa-train` 4 501 616 B, all `ELF 64-bit LSB pie
+executable, ARM aarch64`.
+
+**The earlier "no `candle-core`, no DNS" sentence is refuted by this measurement.** The board's
+registry cache was complete — `cargo fetch` had nothing to download, with 1.7 GB already cached —
+and the board does fetch: its WiFi associates-rejected against the AP
+(`wlP1p1s0: CTRL-EVENT-ASSOC-REJECT status_code=1`, both bands, BSSID-pinned and with the host's MAC
+cloned, reading the AP at 17–29 % against the host's 62 %), so the working route is a userspace
+CONNECT proxy on the host's USB-gadget link (`192.168.55.100:8085`), through which the sparse index
+resolves and cargo's own `cargo search` runs. `--offline` was not needed. The limit was the board's
+antenna, not the crate cache and not a missing network.
+
+**The host half still stands, and it is the reason the board build is native.** On this dev host the
+1.98.1 toolchain has only `x86_64-unknown-linux-gnu` installed, `which aarch64-linux-gnu-gcc cross`
+finds neither, and the cross-build dies at **rc 101**, `error[E0463]: can't find crate for 'core'` —
+the same refusal #224 recorded for this package and the fault D-018 names. That is D-018's lane (a)
+working exactly as recorded: no cross-build here, a native aarch64 build on Pinkie from a `git
+archive` of the head.
+
+**The remaining limb, named.** `qualia-jepa-parity --checkpoint <candidate-dir> --target cuda` has not
+run on the board: no candidate checkpoint exists in the tree (`assets/brain/prior` is a connectome
+prior, and `qualia-jepa-train` needs a dataset manifest the tree does not carry), so the fixture
+checkpoint the cross-lane job built is the missing piece and `ImplCrossAarch64` holds the board to run
+parity against it there. The board leg above is the package's own smoke path — build and probe — and
+the gradient measurement this ticket is about remains this capture's dev-host 4090 runs, because the
+ch4 fixture is a 0.4 GB scratch input that the board tree does not carry. The host-only statement is
+still useful for that half; the board half is now **measured**, not argued from an earlier note.
 
 ## Files
 
