@@ -41,6 +41,9 @@ extern "C" __global__ void cognition_update(
     __syncthreads();
 
     float prediction = bias[tid];
+    // Do not re-associate: ascending column order and the fmaf contraction are
+    // the twin's contract (crates/cuda/src/cpu.rs) and D-008/D-009 make the
+    // emitted bits interface.
     const float4* row4 = reinterpret_cast<const float4*>(weights + tid * 1024);
     const float4* state4 = reinterpret_cast<const float4*>(prior_state);
 #pragma unroll 4
@@ -79,6 +82,9 @@ extern "C" __global__ void cognition_update(
     // The step is row-local, but it exists only once this row's dot product has
     // completed, so the row is walked a second time; four columns at a time,
     // and the value each chunk already loaded is the value it writes.
+    // Do not re-associate: ascending column order and the fmaf contraction are
+    // the twin's contract (crates/cuda/src/cpu.rs) and D-008/D-009 make the
+    // emitted bits interface.
     float4* row4w = reinterpret_cast<float4*>(weights + tid * 1024);
 #pragma unroll 4
     for (unsigned int chunk = 0; chunk < 256; ++chunk) {

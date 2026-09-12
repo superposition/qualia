@@ -1,0 +1,9 @@
+kernel,launches,total_us,mean_us,max_us,grid_x,block_x
+badd_f32,4096,4805.1,1.17,1.41,1,1024
+"void gemv2T_kernel_val<int, int, float, float, float, float, (int)128, (int)16, (int)4, (int)4, (bool)0, (bool)0, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<float>, float>>(T13, T6, T6)",1024,4009.5,3.92,10.91,512,128
+"std::enable_if<!T7, void>::type internal::gemvx::kernel<int, int, float, float, float, float, (bool)0, (bool)1, (bool)1, (bool)0, (int)8, (bool)0, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<float>, float>>(T13)",2048,3960.7,1.93,3.14,32,16
+copy2d_f32,3072,3270.2,1.06,1.41,1,1024
+"void gemv2T_kernel_val<int, int, float, float, float, float, (int)128, (int)16, (int)2, (int)2, (bool)0, (bool)0, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<const float>, cublasGemvTensorStridedBatched<float>, float>>(T13, T6, T6)",1024,2464.0,2.41,3.62,64,128
+urelu_f32,2048,2287.5,1.12,1.19,1,1024
+bmaximum_f32,1024,2013.7,1.97,2.08,1,1024
+bminimum_f32,1024,2002.5,1.96,2.05,1,1024

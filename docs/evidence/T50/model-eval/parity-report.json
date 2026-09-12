@@ -1,0 +1,111 @@
+{
+  "schema_version": "qualia.jepa-parity-report.v1",
+  "architecture_id": "qualia.jepa.grounded-tiny-cnn.v1",
+  "runtime_id": "qualia.jepa.coherent-tiled-runtime.v1",
+  "checkpoint_id": "t50close-candidate",
+  "weights_sha256": "a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58",
+  "fixture_schema": "qualia.jepa-parity-fixture.v1",
+  "fixture_sha256": "69ed0c64c64abb68ebbbeba81d6b101fe14aaa9f960e29ffcee8793c4280a890",
+  "rollout_steps": 8,
+  "reference_backend": "cpu",
+  "target_backend": "cuda",
+  "thresholds": {
+    "rmse_max": 0.0002,
+    "max_abs_max": 0.002,
+    "cosine_min": 0.99999
+  },
+  "single_step": {
+    "evidence": {
+      "values": 1024,
+      "rmse": 1.7219152347444372e-7,
+      "max_abs": 7.152557373046875e-7,
+      "cosine": 0.9999999999999426,
+      "passes": true
+    },
+    "latent": {
+      "values": 256,
+      "rmse": 3.129879566240034e-7,
+      "max_abs": 1.430511474609375e-6,
+      "cosine": 0.9999999999999561,
+      "passes": true
+    },
+    "occupancy_logits": {
+      "values": 4096,
+      "rmse": 7.396484171192733e-7,
+      "max_abs": 2.5331974029541016e-6,
+      "cosine": 0.9999999999999263,
+      "passes": true
+    },
+    "predicted_log_variance": {
+      "values": 256,
+      "rmse": 4.80494083478858e-7,
+      "max_abs": 1.430511474609375e-6,
+      "cosine": 0.9999999999999395,
+      "passes": true
+    },
+    "predicted_mean": {
+      "values": 256,
+      "rmse": 5.062989476309031e-7,
+      "max_abs": 1.4901161193847656e-6,
+      "cosine": 0.9999999999999386,
+      "passes": true
+    }
+  },
+  "eight_step": {
+    "occupancy_logits": {
+      "values": 32768,
+      "rmse": 6.866206199693316e-6,
+      "max_abs": 0.00005340576171875,
+      "cosine": 0.999999999999885,
+      "passes": true
+    },
+    "predicted_log_variance": {
+      "values": 2048,
+      "rmse": 2.9790927833301736e-6,
+      "max_abs": 0.000025272369384765625,
+      "cosine": 0.9999999999997908,
+      "passes": true
+    },
+    "predicted_mean": {
+      "values": 2048,
+      "rmse": 4.580232495320315e-6,
+      "max_abs": 0.000030517578125,
+      "cosine": 0.9999999999999168,
+      "passes": true
+    }
+  },
+  "reference_latency": {
+    "synchronized_samples_us": [
+      311,
+      317,
+      319,
+      321,
+      326,
+      344,
+      365,
+      526,
+      11268
+    ],
+    "p50_us": 326,
+    "p95_us": 11268,
+    "max_us": 11268
+  },
+  "target_latency": {
+    "synchronized_samples_us": [
+      316,
+      330,
+      342,
+      344,
+      372,
+      389,
+      443,
+      493,
+      65954
+    ],
+    "p50_us": 372,
+    "p95_us": 65954,
+    "max_us": 65954
+  },
+  "outputs_finite": true,
+  "passes": true
+}
