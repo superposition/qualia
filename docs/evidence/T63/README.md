@@ -115,8 +115,10 @@ coach_evidence: broker http://127.0.0.1:8091 -> deepseek-chat (ok), 1 decision(s
 coach_evidence: decision coach-7328544612852748-1 promote -> proposal-frontier-corner-a · model deepseek-flash · latency 609 ms · tokens 786/148 · response cc41c98a-… · priors_ablated=false
 
 (That line is the **bounded `--ticks 30` capture run**, not the `--once` run: the `--once` run's own numbers are
-in `live-run.txt` — 449 ms, 782/139 tokens, response `9f8bbc50-…`. Both are live model calls; they are simply
-different runs, and a reader must not cross-quote them.)
+in `live-run.txt` — currently `418` ms, `786/143` tokens, response `70bb2dcb-…`, which is the run after the
+credential-presence change (#251). Earlier `--once` runs quoted in this repository are `435` ms / `775/144` /
+`14e8c6f7-…` (before #251) and `449` ms / `782/139` / `9f8bbc50-…` (the #251 run itself). All are live model
+calls; they are simply different runs, and a reader must not cross-quote them.)
 coach_evidence: mission mission-coach-7328544612852748-1 start accepted=true ack=Some(202)
 ```
 
