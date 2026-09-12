@@ -110,7 +110,7 @@ training report (`runs/<label>/report.json`, or `report-dump.json` where the wri
 | `ch16-e1` | wave ch16 | 1 | −3.246 / −1.457 / −2.033 | 3.743 / 20.69 / 1.492 | 0.898 | 1.694 | .448/.812/.877 | 0.006 | 1.120 | yes, gate false |
 | `ch4-e1` | wave ch4 | 1 | −3.362 / −1.499 / −1.246 | **0.129** / 0.152 / 1.485 | 1.430 | 1.155 | .498/.877/.930 | 7.8e-5 | 1.120 | yes, **predictive gate passes** |
 | `ch4-e10` | wave ch4 | 10 | −4.400 / −1.922 / −1.246 | **0.023** / 0.098 / 1.485 | 0.426 | 0.709 | .582/.949/.978 | 0.595 | 1.120 | yes, predictive gate passes |
-| `small-e1` | wave ch4 | 1 | −3.108 / −0.329 / −1.246 | **0.223** / 0.267 / 1.485 | 1.009 | 1.146 | .503/.891/.932 | 1.0e-4 | 1.120 | yes, **test split passes all three** |
+| `small-e1` | wave ch4 | 1 | −3.108 / −0.329 / −1.246 | **0.223** / 0.267 / 1.485 | 1.009 | 1.146 | .503/.891/.932 | 1.0e-4 | 1.120 | yes, **test split passes all three** (temporary `PREDICTOR_HIDDEN_DIM` 512 → 64, reverted) |
 
 Validation split shown for `static-e1`, `wave-e1`, `ch16-e1`, `ch4-e10` and `small-e1`; `ch4-e1`'s
 table row is the validation split and its test split is numerically the same to three digits
@@ -137,10 +137,13 @@ candidate=t52-ch4-e1 weights=…/t52-ch4-e1/weights.safetensors manifest=…/t52
 qualia-jepa-train: candidate failed held-out predictive, grounding, or calibration gates
 ```
 
-`ch4-e1`'s `manifest.json` shows `baseline_gate.passes() == true` for both splits; the trainer's
-`all_gates_passed` is false only because `effective_rank` is not part of the baseline gate but is
-required by `TrainingReport::validate_for_promotion` (`crates/jepa-model/src/lib.rs:766-769`,
-`summary_flags_hold`).
+`ch4-e1`'s `manifest.json` carries the **test** split's three metric rows in `baseline_gate` — the
+struct has no validation row (`crates/jepa-model/src/lib.rs:937-953`) — and `baseline_gate.passes()`
+is true there, as is `split_predictive_gate_passes` for **both** splits. `all_gates_passed` is
+nevertheless false for two further reasons (`crates/jepa-model/src/bin/qualia-jepa-train.rs:292-293`):
+`grounding_calibration_gate_passed` is false (slope 1.43005 on validation and 1.39492 on test, and
+`mean_standardized_squared_residual` 1.15548 and 1.11739, all outside `[0.9, 1.1]`), and
+`effective_rank.passes()` is false (1.11967 against the floor of 64).
 
 ## What the runs establish
 
@@ -227,6 +230,13 @@ Recorded as **D-021** in `docs/decisions.md`.
   **no artifact this repository can publish clears the promotion gates**, and the ticket's step 2
   (parity and plan-eval against a promoted checkpoint) **remains blocked on it**; it is not blocked
   on a fixture or on training time.
+
+**What the decision does not establish.** It does not establish that a repaired encoder clears the
+rank floor, nor that it then clears calibration: `ch4-e10` shows calibration *growing worse* with
+more training (`slope` 1.430 → 0.426, `clamp_fraction` 7.8e-5 → 0.595 over 1 → 10 epochs). The
+sweep has to be re-run on the repaired pipeline rather than assumed green. Nor does it isolate the
+mechanism: the probe measures that no gradient leaf exists for the encoder, not which detach site
+produces that — #228's test is where that gap closes.
 
 ## The board leg (step 4)
 
