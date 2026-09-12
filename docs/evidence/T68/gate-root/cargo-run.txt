@@ -1,0 +1,22 @@
+# T68 acceptance form: `cargo run --quiet -p qualia-gates -- provenance` with CARGO_TARGET_DIR outside the tree
+
+== in tree (worktree root) ==
+$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- provenance
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK
+[exit 0]
+
+== from outside the tree; cargo needs the manifest named, the gate still has no root to find ==
+$ (cwd=C:/tmp/Impl265GateRoot) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet --manifest-path C:/Users/ericm/wt/T68/Cargo.toml -p qualia-gates -- provenance
+[stderr] provenance: no repository root: no .git and no workspace Cargo.toml in C:\tmp\Impl265GateRoot or any ancestor (C:\tmp\Impl265GateRoot, C:\tmp, C:\ searched); name one with --root DIR
+[exit 2]
+
+== from outside, --root names the tree ==
+$ (cwd=C:/tmp/Impl265GateRoot) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet --manifest-path C:/Users/ericm/wt/T68/Cargo.toml -p qualia-gates -- provenance --root C:/Users/ericm/wt/T68
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK
+[exit 0]

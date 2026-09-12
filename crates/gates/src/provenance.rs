@@ -11,6 +11,12 @@
 //! * REPORT — files whose text is the reference's and is the text the base
 //!   revision already had there (EOL-IDENTICAL).
 //!
+//! The tree checked is `--root`, else the nearest ancestor of the working
+//! directory carrying the repository's own marker (`.git`, or a `Cargo.toml`
+//! with a `[workspace]` table); a root that cannot be found is an error naming
+//! what was searched, and a comparison of zero files fails, so a green cannot
+//! come from an empty input (`docs/decisions.md`, D-028).
+//!
 //! The port keeps the predicates (`code_line`, `prose_line`, `longest_run`), the
 //! thresholds (`--max-run 20`, `--max-prose-run 2`), the summary lines and the
 //! exit codes identical to the script it replaces: this gate's value is that it
@@ -36,6 +42,11 @@ pub struct ProvenanceArgs {
     /// the first of C:/qualia and /c/qualia that exists)
     pub reference: Option<String>,
 
+    /// The tree to check (default: the repository root above the working
+    /// directory, found by walking up for `.git` or the workspace Cargo.toml)
+    #[arg(long)]
+    pub root: Option<String>,
+
     /// Longest run of identical code lines allowed before it is reported
     #[arg(long = "max-run", default_value_t = 20)]
     pub max_run: usize,
@@ -59,37 +70,51 @@ fn default_reference() -> Option<String> {
         .map(str::to_string)
 }
 
-/// `os.path.realpath(os.path.join(base, rel))`, without requiring either to
-/// exist (the Python comparison is on the strings git reports).
-fn realpath_join(base: &Path, rel: &str) -> PathBuf {
-    let joined = if Path::new(rel).is_absolute() { PathBuf::from(rel) } else { base.join(rel) };
-    fs::canonicalize(&joined).unwrap_or(joined)
+/// A directory is the repository's root when it carries the repository's own
+/// marker: `.git` (a directory in a checkout, a file in a worktree) or a
+/// `Cargo.toml` with a `[workspace]` table — the workspace manifest, which a
+/// member crate's manifest is not.
+fn is_repo_root(dir: &Path) -> bool {
+    if dir.join(".git").exists() {
+        return true;
+    }
+    fs::read_to_string(dir.join("Cargo.toml"))
+        .map(|text| text.lines().any(|line| line.trim() == "[workspace]"))
+        .unwrap_or(false)
 }
 
-/// The worktree root of the repository the command is run in, falling back to
-/// the checkout holding the binary — `cwd_root()` in the script, with the
-/// executable's directory standing in for `scripts/`.
-pub fn cwd_root() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let script_root = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(PathBuf::from))
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .unwrap_or_else(|| cwd.clone());
-
-    let toplevel = git::output(&["rev-parse", "--show-toplevel"], &cwd);
-    let here_common = git::output(&["rev-parse", "--git-common-dir"], &script_root);
-    let (Some(toplevel), Some(here_common)) = (toplevel, here_common) else {
-        return script_root;
-    };
-    let toplevel = PathBuf::from(toplevel);
-    let Some(common) = git::output(&["rev-parse", "--git-common-dir"], &toplevel) else {
-        return script_root;
-    };
-    if realpath_join(&toplevel, &common) != realpath_join(&script_root, &here_common) {
-        return script_root;
+/// The tree the gate checks: the `--root` named, else the nearest ancestor of
+/// the working directory carrying the repository's own marker. There is no
+/// fallback to the directory holding the executable: with an out-of-tree
+/// `CARGO_TARGET_DIR` that directory is not the repository, so the gate would
+/// walk a tree with no tracked files and print a green that checked nothing.
+/// `Err` is the operator-facing message, naming what was searched.
+fn resolve_root(explicit: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(dir) = explicit {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let path = if Path::new(dir).is_absolute() { PathBuf::from(dir) } else { cwd.join(dir) };
+        if !path.is_dir() {
+            return Err(format!("root {} is not a directory", pytext::py_repr(dir)));
+        }
+        return Ok(path);
     }
-    toplevel
+    let Ok(cwd) = std::env::current_dir() else {
+        return Err("no repository root: the working directory is unavailable".to_string());
+    };
+    let mut searched: Vec<String> = Vec::new();
+    let mut dir = Some(cwd.as_path());
+    while let Some(candidate) = dir {
+        if is_repo_root(candidate) {
+            return Ok(candidate.to_path_buf());
+        }
+        searched.push(candidate.display().to_string());
+        dir = candidate.parent();
+    }
+    Err(format!(
+        "no repository root: no .git and no workspace Cargo.toml in {} or any ancestor ({} searched); name one with --root DIR",
+        cwd.display(),
+        searched.join(", ")
+    ))
 }
 
 /// `data` with every line ending folded to LF: identity is a property of the
@@ -189,9 +214,16 @@ fn read_lines(path: &Path) -> Vec<String> {
     pytext::splitlines(&pytext::read_text(path))
 }
 
-/// The gate. Returns the exit code: 0 holds, 1 fatal, 2 no usable reference.
+/// The gate. Returns the exit code: 0 holds, 1 a comparison was made and is
+/// fatal or nothing was compared, 2 no usable root or reference.
 pub fn run(args: &ProvenanceArgs) -> i32 {
-    let root = cwd_root();
+    let root = match resolve_root(args.root.as_deref()) {
+        Ok(root) => root,
+        Err(message) => {
+            eprintln!("provenance: {message}");
+            return 2;
+        }
+    };
     let reference = args.reference.clone().or_else(default_reference);
     let usable = reference.as_deref().is_some_and(|path| Path::new(path).is_dir());
     if !usable {
@@ -207,6 +239,7 @@ pub fn run(args: &ProvenanceArgs) -> i32 {
     // Content at the base revision is reviewed; identity with the reference
     // there is reported, and identity authored here is fatal.
     let base_rev = base_revision(&root);
+    let tracked = git::ls_files(&root);
 
     let mut checked = 0usize;
     let mut skipped_generated = 0usize;
@@ -216,7 +249,7 @@ pub fn run(args: &ProvenanceArgs) -> i32 {
     let mut over_run: Vec<(String, usize)> = Vec::new();
     let (mut worst_share, mut worst_file) = (0.0f64, String::new());
 
-    for rel in git::ls_files(&root) {
+    for rel in &tracked {
         if Path::new(&rel)
             .file_name()
             .is_some_and(|name| GENERATED.iter().any(|generated| name == *generated))
@@ -298,6 +331,24 @@ pub fn run(args: &ProvenanceArgs) -> i32 {
         worst_share,
         if worst_file.is_empty() { String::new() } else { format!(" ({worst_file})") }
     );
+
+    // A green from an empty input is worse than a red: if the root resolved but
+    // nothing was compared, `provenance: OK` is unreachable.
+    if checked == 0 {
+        let because = if tracked.is_empty() {
+            format!("{} lists no tracked files (is it a git worktree?)", root.display())
+        } else {
+            format!(
+                "{} lists {} tracked file(s) but the reference {} shares no path with it",
+                root.display(),
+                tracked.len(),
+                reference
+            )
+        };
+        eprintln!("provenance: FAIL - compared 0 authored file(s): {because}; nothing was checked");
+        return 1;
+    }
+
     prose_offences.sort_by_key(|(_, run)| std::cmp::Reverse(*run));
     for (rel, run) in &prose_offences {
         println!("PROSE RUN {run}: {rel}");

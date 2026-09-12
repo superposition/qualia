@@ -1,0 +1,29 @@
+# T68 before-fix: the silent-empty green (unmodified main 2379663)
+binary: C:/tmp/Impl265GateRoot/target/debug/qualia-gates.exe
+CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target (outside the tree)
+
+== A: out-of-tree cwd ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance
+provenance: compared 0 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 0.000
+provenance: OK
+[exit 0]
+
+== B: in-tree cwd ==
+$ (cwd=C:/Users/ericm/wt/T68) qualia-gates.exe provenance
+provenance: compared 0 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 0.000
+provenance: OK
+[exit 0]
+
+== C: figures, out-of-tree cwd, no --root ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe figures
+[stderr] figures: FAIL - docs/figures/_house.py: missing
+figures: FAIL - docs/figures: missing
+[exit 1]
+
+== D: journal, out-of-tree cwd ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe journal
+journal-gate: FAIL - 1 problem(s); the gate is not open
+[stderr] journal-gate: checklists: C:\tmp\Impl265GateRoot\docs\journal-review.md is missing
+[exit 1]
