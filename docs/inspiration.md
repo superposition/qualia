@@ -17,6 +17,17 @@ discoverable without the private code.
 
 ## `superposition/qualia` (engine checkout)
 
+- `runners/agent/src/main.rs` — inspected during the console recovery for its
+  published HTTP contracts and the startup behavior of its Leash readers.
+  A registered route and a working producer are separate acceptance checks.
+- `scripts/windows-host.ps1`, `scripts/windows-host-runner.ps1` — inspected for
+  the installed service's configuration and task lifecycle. The installed
+  runner disables its Leash connection when the remote address is empty;
+  changing a console address cannot repair that process's environment.
+- Installed release `web/public/index.html` and `web/public/main.js` — inspected
+  for the earlier operator controls, camera and spatial fields, belief sketch,
+  arena events and observation request. Their implementations were not copied.
+
 - `runners/watch/src/main.rs` — a ratatui panel and process supervisor in one binary: it spawns the
   runner set itself, reads `#[repr(C)]` state straight out of shared memory, and detects change by
   sequence number instead of by timer. Keep the supervisor and the tab-bar/content/status-bar split;

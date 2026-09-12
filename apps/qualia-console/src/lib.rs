@@ -1,12 +1,15 @@
 //! `qualia-console` — the braid's operator console.
 //!
-//! Six views over one state: the braid the agent reports on `GET /braid`, the
+//! The internal mode has six views over one state: the braid the agent reports on `GET /braid`, the
 //! belief layers in the shared region, the world the runners have mapped, the
 //! evidence MCAP has sealed, the newest frame each sensing runner published, and
 //! the fly brain — the connectome prior's firing model, the lidar cloud and the
 //! belief matrices. One native binary, no webview, no JavaScript runtime.
 //!
-//! Every design choice here traces to `docs/frontend-lessons.md`, which records
+//! `QUALIA_LEASH_BASE_URL` enables sixteen independently movable live-source
+//! dialogs, including direct robot readings and local fly input provenance.
+//!
+//! The original internal-mode design traces to `docs/frontend-lessons.md`, which records
 //! what five existing front ends taught and what they got wrong. The short
 //! version, one line per decision:
 //!
@@ -14,7 +17,7 @@
 //!   operator screens already assume;
 //! - one `View` enum, one label table, one dispatch, one module per view under
 //!   [`views`] — sources 1, 2, 3 and 4 arrived at this independently;
-//! - [`client::agent_url`] is the only address in the source, default
+//! - [`client::agent_url`] configures the internal agent address, default
 //!   `http://127.0.0.1:8080` — source 2's household-subnet default and source
 //!   4's twelve hard-coded hosts are the counter-example;
 //! - no subnet autodiscovery, no TLS-insecure default — source 2;
@@ -39,6 +42,7 @@
 pub mod client;
 pub mod hud;
 mod issues;
+pub mod robot;
 pub mod poller;
 pub mod sample;
 /// The region read path, public so an evidence run (and the console's own
@@ -334,6 +338,7 @@ pub fn app_ui(ctx: &egui::Context, state: &mut ConsoleState) {
 pub struct ConsoleApp {
     state: ConsoleState,
     poller: Poller,
+    robot: Option<robot::RobotConsole>,
 }
 
 impl ConsoleApp {
@@ -350,7 +355,7 @@ impl ConsoleApp {
             Box::new(client::HttpSource::new(agent_url)?),
             Box::new(client::FixtureSource::default()),
         );
-        let mut app = Self { state, poller };
+        let mut app = Self { state, poller, robot: robot::RobotConsole::from_env() };
         // The binary, not the library, owns the remembered layout: tests build
         // a console state without touching the operator's file.
         app.state.hud_layout = hud::HudLayout::load();
@@ -367,7 +372,11 @@ impl eframe::App for ConsoleApp {
         if let Some(sample) = self.poller.try_recv() {
             self.state.apply(sample);
         }
-        app_ui(ctx, &mut self.state);
+        if let Some(robot) = &mut self.robot {
+            robot.render(ctx, &mut self.state);
+        } else {
+            app_ui(ctx, &mut self.state);
+        }
         self.state.hud_layout.save_if_due(now_ns());
         ctx.request_repaint_after(poller::POLL_INTERVAL);
     }

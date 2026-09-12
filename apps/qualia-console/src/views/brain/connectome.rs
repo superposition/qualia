@@ -106,6 +106,8 @@ pub struct ConnectomeFrame {
     pub firing: Vec<u32>,
     /// Frames read so far.
     pub ticks_read: u64,
+    /// Local ingestion time of the last distinct producer frame.
+    pub last_advanced: Option<Instant>,
     /// The source reached its end (a recorded run) rather than failing.
     pub finished: bool,
     /// The source could not be read.
@@ -371,6 +373,7 @@ fn pump(source: &str, latest: Arc<Mutex<ConnectomeFrame>>, stop: Arc<AtomicBool>
     let mut origin_ns: Option<u64> = None;
     let mut started = Instant::now();
     let mut first_arrival: Option<Instant> = None;
+    let mut connection_frames = 0u64;
     loop {
         if stop.load(Ordering::Acquire) {
             return;
@@ -385,15 +388,14 @@ fn pump(source: &str, latest: Arc<Mutex<ConnectomeFrame>>, stop: Arc<AtomicBool>
             match TcpStream::connect(address) {
                 Ok(stream) => {
                     let _ = stream.set_nodelay(true);
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
                     Box::new(stream)
                 }
                 Err(error) => {
                     if stop.load(Ordering::Acquire) {
                         return;
                     }
-                    if fail_if_first(&latest, format!("connecting to {address}: {error}")) {
-                        return;
-                    }
+                    fail(&latest, format!("connecting to {address}: {error}; retrying"));
                     std::thread::sleep(LIVE_RETRY);
                     continue;
                 }
@@ -406,9 +408,8 @@ fn pump(source: &str, latest: Arc<Mutex<ConnectomeFrame>>, stop: Arc<AtomicBool>
                 if stop.load(Ordering::Acquire) {
                     return;
                 }
-                if fail_if_first(&latest, format!("reading the spike stream header: {error}")) {
-                    return;
-                }
+                fail(&latest, format!("reading the spike stream header: {error}"));
+                if recorded { return; }
                 std::thread::sleep(LIVE_RETRY);
                 continue;
             }
@@ -428,22 +429,30 @@ fn pump(source: &str, latest: Arc<Mutex<ConnectomeFrame>>, stop: Arc<AtomicBool>
                         }
                     }
                     let arrival = *first_arrival.get_or_insert_with(Instant::now);
+                    connection_frames += 1;
                     if let Ok(mut guard) = latest.lock() {
+                        if guard.ticks_read == 0 || (guard.tick, guard.t_ns) != (frame.tick, frame.t_ns) {
+                            guard.last_advanced = Some(Instant::now());
+                        }
                         let read = guard.ticks_read + 1;
                         guard.tick = frame.tick;
                         guard.t_ns = frame.t_ns;
                         guard.firing = frame.ids;
                         guard.ticks_read = read;
                         guard.rate_hz =
-                            read as f32 / arrival.elapsed().as_secs_f32().max(f32::EPSILON);
+                            connection_frames.saturating_sub(1) as f32 / arrival.elapsed().as_secs_f32().max(f32::EPSILON);
+                        guard.finished = false;
                         guard.error = None;
                     }
                 }
                 Ok(None) => {
                     if let Ok(mut guard) = latest.lock() {
-                        guard.finished = true;
+                        guard.finished = recorded;
+                        if !recorded { guard.error = Some("Live spike socket closed; reconnecting".into()); }
                     }
-                    return;
+                    if recorded { return; }
+                    std::thread::sleep(LIVE_RETRY);
+                    break;
                 }
                 Err(error) => {
                     if let Ok(mut guard) = latest.lock() {
@@ -464,23 +473,12 @@ fn pump(source: &str, latest: Arc<Mutex<ConnectomeFrame>>, stop: Arc<AtomicBool>
         origin_ns = None;
         started = Instant::now();
         first_arrival = None;
+        connection_frames = 0;
     }
 }
 
 fn fail(latest: &Arc<Mutex<ConnectomeFrame>>, message: String) {
     if let Ok(mut guard) = latest.lock() {
         guard.error = Some(message);
-    }
-}
-
-/// Records a failure unless frames are already arriving: a live source that
-/// drops once should not blank a panel that has data.
-fn fail_if_first(latest: &Arc<Mutex<ConnectomeFrame>>, message: String) -> bool {
-    match latest.lock() {
-        Ok(mut guard) if guard.ticks_read == 0 => {
-            guard.error = Some(message);
-            true
-        }
-        _ => false,
     }
 }

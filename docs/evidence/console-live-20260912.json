@@ -1,0 +1,31 @@
+{
+  "run": "live-20260912-174601",
+  "input_bundles": 1151,
+  "outputs": 1151,
+  "acquisition_failures": 0,
+  "first_sensor_timestamps": {
+    "imu_ts_ms": 1789249575794,
+    "lidar_ts_ms": 1789249575740,
+    "odometry_ts_ms": 1789249575794
+  },
+  "latest_sensor_timestamps": {
+    "imu_ts_ms": 1789249815447,
+    "lidar_ts_ms": 1789249815402,
+    "odometry_ts_ms": 1789249815447
+  },
+  "latest_gyro_radps": [
+    -0.01001819,
+    0.00286234,
+    0.000858702
+  ],
+  "latest_lidar_valid": 260,
+  "latest_nearest_m": 0.156,
+  "all_proposals_zero": true,
+  "nonzero_decoded_commands": 0,
+  "transport_attached": false,
+  "camera_capture_timestamp_known": false,
+  "latest_hold_reason": "measured lidar return is inside the 0.25 m clearance hold",
+  "source_directory": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\live-20260912-174601",
+  "capture_path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-review.png",
+  "capture_sha256": "77082871e5e49e28e01be56366b92d83d10b5e7cf047d8a817c756e9ab7d4748"
+}

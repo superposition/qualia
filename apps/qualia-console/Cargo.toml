@@ -20,6 +20,7 @@ eframe = { version = "=0.33.3", default-features = false, features = [
     "wgpu",
 ] }
 egui = "=0.33.3"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 qualia-connectome-stream.workspace = true
 qualia-mcap.workspace = true
 qualia-shm.workspace = true
