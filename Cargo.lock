@@ -510,6 +510,8 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "flatbuffers",
+ "lz4_flex 0.11.6",
+ "zstd",
 ]
 
 [[package]]
@@ -4359,6 +4361,15 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "lz4_flex"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
+name = "lz4_flex"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90071f8077f8e40adfc4b7fe9cd495ce316263f19e75c2211eeff3fdf475a3d9"
@@ -5816,6 +5827,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-connectome-cns"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "clap",
+ "cudarc 0.19.9",
+ "image",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
 name = "qualia-connectome-prior"
 version = "0.1.0"
 dependencies = [
@@ -6930,7 +6955,7 @@ dependencies = [
  "bytes",
  "crossbeam",
  "itertools 0.14.0",
- "lz4_flex",
+ "lz4_flex 0.12.2",
  "parking_lot",
  "re_arrow_util",
  "re_build_info",
@@ -7046,7 +7071,7 @@ dependencies = [
  "arrow",
  "http",
  "jiff",
- "lz4_flex",
+ "lz4_flex 0.12.2",
  "pin-project-lite",
  "prost",
  "prost-types",

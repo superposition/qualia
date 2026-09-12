@@ -1,0 +1,41 @@
+[package]
+name = "qualia-connectome-cns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Male CNS connectome: the released flat release imported to a verified CSR artifact, and the spiking runner that steps it"
+
+[[bin]]
+name = "qualia-connectome-cns"
+path = "src/main.rs"
+
+[features]
+# The runner's device path. Off by default so the crate builds and tests
+# without a CUDA toolkit; the CPU reference is always available.
+cuda = ["dep:cudarc"]
+
+[dependencies]
+# Same arrow the workspace already resolves (see connectome-prior's note on
+# arrow 53): the IPC reader reads the release's Feather tables. connectome-prior
+# writes uncompressed Feather because its build carried no codec; the released
+# Male CNS tables are lz4-framed and need the codec to be readable at all.
+arrow = { version = "56", features = ["ipc", "ipc_compression"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+clap = { version = "4.5", features = ["derive"] }
+# The live input path: the robot's leash serves the camera as JPEG over plain
+# HTTP (`leash serve http`), so the loop decodes what the leash serves rather
+# than opening /dev/video0 and contending with the service that owns it. Both
+# are the same crates `runners/camera` already uses.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+ureq = { version = "2", default-features = false }
+# Loaded dynamically like qualia-cuda: libcuda/libnvrtc are resolved at run
+# time, so a host without CUDA still builds the crate.
+cudarc = { version = "0.19", default-features = false, features = [
+    "std",
+    "driver",
+    "nvrtc",
+    "cuda-12020",
+    "fallback-dynamic-loading",
+], optional = true }
