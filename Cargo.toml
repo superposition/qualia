@@ -39,6 +39,7 @@ members = [
     "runners/l4-behavior",
     "runners/l5-behavior",
     "runners/l6-semantic",
+    "runners/leash-sensors",
     "runners/lidar",
     "runners/map",
     "runners/mission-broker",

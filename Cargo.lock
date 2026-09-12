@@ -6097,6 +6097,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-leash-sensors"
+version = "0.1.0"
+dependencies = [
+ "qualia-lidar",
+ "qualia-shm",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "qualia-lidar"
 version = "0.1.0"
 dependencies = [

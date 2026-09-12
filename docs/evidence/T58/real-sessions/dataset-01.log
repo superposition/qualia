@@ -1,0 +1,35 @@
+MCAP=/home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap
+SHA256=97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334
+== catalog ==
+{
+  "sources": [
+    {
+      "session_id": "t58-real-01",
+      "environment_id": "pinkie-bench",
+      "condition": "bench-static",
+      "primary_entity": "pinkie",
+      "path": "/home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap",
+      "sha256": "97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334"
+    }
+  ]
+}
+== qualia-jepa-dataset ==
+/home/jetson/t58-capture/t58-real-01/dataset/jepa-dataset-fb309e6f160badff5d5493f09ba194cb50727c48e512e4744fd8cc477f8d5a75.json
+valid=0 candidates=4501 sessions=0 environments=0 conditions=0
+qualia-jepa-dataset: every promoted MCAP source must contribute valid transitions
+DATASET_RC=1
+MANIFEST=/home/jetson/t58-capture/t58-real-01/dataset/jepa-dataset-fb309e6f160badff5d5493f09ba194cb50727c48e512e4744fd8cc477f8d5a75.json
+schema qualia.jepa-dataset.v3
+digest fb309e6f160badff5d5493f09ba194cb50727c48e512e4744fd8cc477f8d5a75
+sources 1 samples 0
+valid_transitions 0 candidate_transitions 4501
+sessions 0 environments 0 conditions {}
+rejected {"calibration_missing": 4501}
+split_samples {}
+mean_sensor_skew_ns 0.0 p95_sensor_skew_ns 0
+mean_action_coverage 0.0 overexposed_candidate_fraction 0.0
+== qualia-jepa-train (bounded, one epoch) ==
+qualia-jepa-train: every promoted MCAP source must contribute valid transitions
+TRAIN_RC=1
+total 0
+== end ==
