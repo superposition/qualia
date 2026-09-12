@@ -1,0 +1,34 @@
+flowchart LR
+  subgraph ROBOT["The robot: a WaveShare UGV, and the leash that owns it"]
+    CAM["camera, 640x480 MJPEG"]
+    LIDAR["LD06 lidar, 360 beams at 10 Hz"]
+    IMU["9-DOF IMU, odometry, battery"]
+    MOTORS["wheel motors on /dev/ttyTHS1"]
+  end
+  LEASH["leash serve http :8000<br/>owns the hardware and republishes it<br/>deadman 400 ms"]
+  ENC["encoder<br/>8 luminance columns, gain 0.5<br/>95,494 visual cells"]
+  FLY["the fly<br/>166,700 neurons<br/>25,582,938 edges, 124,177,617 synapses<br/>membrane potential + refractory only"]
+  READ["read-out<br/>2,012 descending + motor neurons<br/>sign of R minus L gives left, right or hold"]
+  DRIVE["qualia-drive<br/>WheelSpeeds, one frame per 100 ms<br/>zero-speed link claim, e-stop, staleness,<br/>disarm and transport codes"]
+  subgraph LEARN["The learning loop, not closed"]
+    MCAP["sessions recorded as MCAP"]
+    DATA["dataset transitions, 11 named gates"]
+    TRAIN["JEPA train_batch"]
+    GATE{"promotion gate<br/>50,000 / 12 / 3 / 3"}
+  end
+  FC["crates/fly-circuit<br/>rate model, invented dynamics<br/>observe-only, behind sim"]
+
+  CAM --> LEASH
+  LIDAR --> LEASH
+  IMU --> LEASH
+  LEASH -->|camera frame| ENC
+  ENC -->|input current| FLY
+  FLY -->|spikes| READ
+  READ -. "not yet converted" .-> DRIVE
+  DRIVE -->|WheelSpeeds| MOTORS
+  LEASH -.->|recorded session| MCAP
+  MCAP --> DATA
+  DATA --> TRAIN
+  TRAIN --> GATE
+  GATE -. "would retune the fly, not closed today" .-> READ
+  FC -. "no path to the wheels" .-> READ
