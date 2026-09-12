@@ -8,7 +8,7 @@ flowchart TD
   EDGE["POST /braid — the write edge the two other-process strands cross\nfrozen BraidEvent in, the GET /braid view out; a failed dispatch is 503.\nNot deduplicated: the count is the events folded, so a re-delivered\nmission_opened counts twice"]
   OBS["observe(state, event)\nthe sole mutator of BraidState"]
   REFUSED["the variant the edge refuses\nrecovery's Quarantined is not a strand report: the edge refuses it with 400,\nand the dispatch (renaming *.partial files aside) stays in the crate's fold,\nover a local root — no strand, and no state moved"]
-  STATE["BraidState (the agent's own copy)\nschema_version · generation · session_id\nopen_missions · last_promotion_ns · last_quarantine_ns —\nthe fold, rebuildable by replaying the stream"]
+  STATE["BraidState (the agent's own copy)\ngeneration · session_id · open_missions ·\nlast_promotion_ns · last_quarantine_ns —\nthe fold, rebuildable by replaying the stream;\nthe wire view adds schema_version"]
   COPIES["the durable copies — where the records live\nMCAP: quarantine_partials moves the partials aside\nregistry: route() writes a rollback's reason, a handle the fold does not hold\na sealed segment is its own record — the braid keeps none of them"]
   READ["GET /braid — the read every strand and page polls\nthe console's Mission view, the TUI's Braid line and the operator page read it;\nBeliefClock::decision_latency_ns() reads the arena's own stamps instead —\nit is a view over the region, not a field of this state"]
 

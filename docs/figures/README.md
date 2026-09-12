@@ -8,7 +8,7 @@ in layout, colour or provenance. This file is the convention step 38 fixes;
 $ cargo run --quiet -p qualia-gates -- figures              # the figures of the worktree you run it in
 $ cargo run --quiet -p qualia-gates -- figures --root DIR   # a named tree, e.g. another worktree
 $ cargo run --quiet -p qualia-gates -- figures --self-test  # the checker's own fixtures, no repository needed
-figures: OK (10 entries, 49 figures, 400 KiB budget)
+figures: OK (11 entries, 55 figures, 400 KiB budget)
 ```
 
 ## Layout
