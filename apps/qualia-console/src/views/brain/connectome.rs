@@ -24,6 +24,7 @@
 //! The reading thread is beside the poller's, never inside the paint.
 
 use std::io::Read;
+use std::collections::VecDeque;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -98,6 +99,14 @@ pub enum CloudState {
 }
 
 /// One tick as the panel reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpikeActivity {
+    pub received: Instant,
+    pub tick: u64,
+    pub count: usize,
+}
+
+/// Latest frame plus a bounded history of distinct received model frames.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConnectomeFrame {
     pub tick: u64,
@@ -108,6 +117,7 @@ pub struct ConnectomeFrame {
     pub ticks_read: u64,
     /// Local ingestion time of the last distinct producer frame.
     pub last_advanced: Option<Instant>,
+    pub activity: VecDeque<SpikeActivity>,
     /// The source reached its end (a recorded run) rather than failing.
     pub finished: bool,
     /// The source could not be read.
@@ -432,7 +442,12 @@ fn pump(source: &str, latest: Arc<Mutex<ConnectomeFrame>>, stop: Arc<AtomicBool>
                     connection_frames += 1;
                     if let Ok(mut guard) = latest.lock() {
                         if guard.ticks_read == 0 || (guard.tick, guard.t_ns) != (frame.tick, frame.t_ns) {
-                            guard.last_advanced = Some(Instant::now());
+                            let received = Instant::now();
+                            if frame.tick < guard.tick || frame.t_ns < guard.t_ns { guard.activity.clear(); }
+                            guard.activity.retain(|sample| received.duration_since(sample.received) < Duration::from_secs(10));
+                            if guard.activity.len() >= 512 { guard.activity.pop_front(); }
+                            guard.activity.push_back(SpikeActivity {received, tick:frame.tick, count:frame.ids.len()});
+                            guard.last_advanced = Some(received);
                         }
                         let read = guard.ticks_read + 1;
                         guard.tick = frame.tick;

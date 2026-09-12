@@ -230,6 +230,7 @@ pub fn run(config: BrokerConfig, options: RunOptions) -> Result<RunReport, Strin
                         usage_reported: answer.usage_reported,
                         latency_ms: Some(answer.latency_ms),
                         decided_at_ms: answer.decided_at_ms,
+                        source_observed_at_ms: None,
                         disposition: disposition.clone(),
                     });
                     match mission {

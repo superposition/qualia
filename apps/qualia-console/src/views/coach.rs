@@ -91,6 +91,8 @@ pub struct DecisionRow {
     pub latency_ms: Option<u64>,
     #[serde(default)]
     pub decided_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_observed_at_ms: Option<u64>,
     #[serde(default)]
     pub disposition: String,
 }
@@ -238,10 +240,20 @@ pub fn render(ui: &mut Ui, state: &crate::ConsoleState) {
                 Some("no_key") => ("no key", theme::WARN),
                 Some("timeout") => ("timeout", theme::FAIL),
                 Some("error") => ("error", theme::FAIL),
+                Some("requesting") => ("asking model", theme::ACCENT),
+                Some("waiting") => ("waiting for input", theme::WARN),
                 _ => ("unknown", theme::MUTED),
             };
             theme::status_pill(ui, pill.0, pill.1);
             ui.add_space(theme::GAP_S);
+            if let Some(decision) = snapshot.decisions.first().filter(|d| d.decision_kind == "operator_guidance") {
+                ui.strong("DeepSeek operator guidance");
+                if let Some(reason) = &decision.reason { ui.add(egui::Label::new(reason).wrap()); }
+                ui.label(format!("Received {}", theme::age(state.observed_at_ns, decision.decided_at_ms.saturating_mul(1_000_000))));
+                if let Some(stamp) = decision.source_observed_at_ms { ui.label(format!("Sensor snapshot {}", theme::age(state.observed_at_ns, stamp.saturating_mul(1_000_000)))); }
+                ui.colored_label(theme::WARN, "Advice refers to its recorded sensor snapshot; no mission or motor command dispatched.");
+                ui.add_space(theme::GAP_S);
+            }
 
             if let Some(model) = &snapshot.model {
                 theme::field_text(ui, "model", &model.model_id);
@@ -284,7 +296,7 @@ pub fn render(ui: &mut Ui, state: &crate::ConsoleState) {
                             decision.target_proposal_ids.join(", ")
                         ),
                     );
-                    if let Some(reason) = &decision.reason {
+                    if let Some(reason) = decision.reason.as_ref().filter(|_| decision.decision_kind != "operator_guidance") {
                         theme::field_text(ui, "reason", reason);
                     }
                     theme::field_text(

@@ -1,0 +1,162 @@
+{
+  "observed_at_ms": 1789255515948,
+  "robot_stream": "tcp://10.0.0.180:18762",
+  "frames": [
+    {
+      "tick": 4404,
+      "elapsed_ns": 161282580175,
+      "spike_count": 0
+    },
+    {
+      "tick": 4405,
+      "elapsed_ns": 161320835628,
+      "spike_count": 0
+    },
+    {
+      "tick": 4406,
+      "elapsed_ns": 161357764628,
+      "spike_count": 0
+    }
+  ],
+  "fly": {
+    "camera": "http://127.0.0.1:8000/camera/snapshot",
+    "producer_pid": 31168,
+    "bridge_pid": 31166,
+    "stream": "tcp://10.0.0.180:18762",
+    "producer_host": "ubuntu",
+    "state": "live",
+    "run_id": "live-20260912-192231",
+    "transport_attached": false,
+    "frames": 4403,
+    "tick": 4402,
+    "firing": 0,
+    "clients": 1,
+    "max_duration_seconds": 1200,
+    "published_ms": 1789255515804,
+    "input": {
+      "schema_version": "qualia.sensor-conditioned-retina.v1",
+      "tick": 4402,
+      "received_ms": 1789255515772,
+      "camera_request_started_ms": 1789255515761,
+      "camera_received_ms": 1789255515766,
+      "camera_capture_timestamp_known": false,
+      "measured": {
+        "imu_ts_ms": 1789255515712,
+        "lidar_ts_ms": 1789255515744,
+        "odometry_ts_ms": 1789255515712,
+        "angular_velocity_radps": [
+          -0.004865978,
+          0.00286234,
+          0.002003638
+        ],
+        "acceleration_including_gravity_mps2": [
+          0.01436521,
+          -0.095768064,
+          9.799467
+        ],
+        "odometry_pose": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "valid_ranges": 257,
+        "total_ranges": 360,
+        "nearest_return_m": 0.158
+      },
+      "odometry_speed_mps": 0.0,
+      "odometry_yaw_rate_radps": 0.0,
+      "fused_yaw_rate_radps": 0.001001819,
+      "acceleration_norm_mps2": 9.799946,
+      "motion_attenuation": 0.99833053,
+      "proximity_attention": 0.921,
+      "image_columns": [
+        0.16143301,
+        0.16092482,
+        0.16139624,
+        0.1609904,
+        0.1604955,
+        0.15951684,
+        0.15856864,
+        0.15940267
+      ],
+      "conditioned_columns": [
+        0.12107476,
+        0.12069362,
+        0.12104718,
+        0.1207428,
+        0.120371625,
+        0.11963763,
+        0.11892648,
+        0.119552
+      ],
+      "encoder": "photoreceptors; brightness plus body-conditioned temporal contrast; no pixel/range projection",
+      "hold_reason": "measured lidar return is inside the 0.25 m clearance hold",
+      "run_id": "live-20260912-192231"
+    },
+    "received_at": 1789255515.804635,
+    "output": {
+      "gated_command": 0,
+      "input_fresh_at_output": true,
+      "max_wheel_speed": 0.0,
+      "model_stepped": true,
+      "neural_command": 0,
+      "proposed_left": 0.0,
+      "proposed_right": -0.0,
+      "received_ms": 1789255515798,
+      "schema_version": "qualia.sensor-conditioned-retina.output.v1",
+      "throttle": 0.0,
+      "tick": 4402,
+      "run_id": "live-20260912-192231"
+    }
+  },
+  "perception": {
+    "camera_received_ms": 1789255515828,
+    "camera_request_started_ms": 1789255515641,
+    "camera_url": "http://10.0.0.180:8000/camera/snapshot",
+    "capture_timestamp_known": false,
+    "features": 0,
+    "frame_seq": 2114,
+    "frames": 1057,
+    "gradient": 0.0016526717226952314,
+    "height": 480,
+    "keyframes": 1,
+    "limitation": "Thumbnail visual frontend only; camera scale/extrinsics and head motion are uncalibrated. No navigation pose, persistent map or loop closure is established.",
+    "luminance_mean": 0.16032348573207855,
+    "luminance_stddev": 0.003329619998112321,
+    "metric_map_available": false,
+    "pose_confidence": 0.20250968635082245,
+    "pose_writer_active": false,
+    "published_ms": 1789255515841,
+    "schema_version": "qualia.perception-observation.v1",
+    "state": "live",
+    "tracking_confidence": 0.20250968635082245,
+    "width": 640
+  },
+  "coach_latest": [
+    {
+      "decision_id": "observation-10408-2",
+      "decision_kind": "operator_guidance",
+      "target_proposal_ids": [],
+      "output_ids": [],
+      "reason": "Check the lidar return at 0.159 m against the 0.25 m clearance hold and confirm whether the obstruction is real or a spurious near-field return before any further exploration.\nThe measured nearest lidar return (0.159 m) is inside the 0.25 m clearance hold, which is the stated output hold reason; wheel transport is disconnected and no motion is authorized, so the next check is to verify this obstruction reading rather than command movement.",
+      "llm_priors_ablated": false,
+      "model_id": "deepseek-flash",
+      "prompt_digest": "sha256:b13d4dc678d42040248259b9cf1f82b5b0d9d4148311aa634a4e0d4a0ceab8f3",
+      "response_id": "2e3ff5ed-eb98-4419-8a57-fa667b2a9bc0",
+      "prompt_tokens": 774,
+      "completion_tokens": 107,
+      "usage_reported": true,
+      "latency_ms": 1245,
+      "decided_at_ms": 1789255504739,
+      "source_observed_at_ms": 1789255503234,
+      "disposition": "Advisory only; source \"live-20260912-192231\" tick 4060; no mission or motor command dispatched"
+    }
+  ],
+  "motion_sent": false,
+  "limits": [
+    "No downstream motor firing established",
+    "No calibrated metric SLAM or map",
+    "DeepSeek advisory only; not a belief update",
+    "Lighting driver in progress"
+  ]
+}

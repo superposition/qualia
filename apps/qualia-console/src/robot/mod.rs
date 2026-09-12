@@ -1,6 +1,7 @@
 //! Live robot views use the robot's published HTTP readings. They do not send
 //! motor commands or turn a missing host producer into a simulated reading.
 mod lidar;
+mod exploration;
 mod panels;
 mod source;
 mod spatial;
@@ -9,19 +10,20 @@ use egui::{Color32, TextureHandle, TextureOptions};
 use source::{Data, Monitor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Dialog { Camera, Lidar, Occupancy, Brain, Inputs, Cognition, Matrices, World, Perception, Mission, Evidence, Compute, Telemetry, Diagnostics, Braid, Recordings }
-const DIALOGS: [(Dialog, &str); 16] = [
-    (Dialog::Camera, "Camera"), (Dialog::Lidar, "Lidar"), (Dialog::Occupancy, "Occupancy"),
-    (Dialog::Brain, "Brain"), (Dialog::Inputs, "Fly inputs"), (Dialog::Cognition, "Seven layers"), (Dialog::Matrices, "Belief matrices"),
-    (Dialog::World, "World + route"), (Dialog::Perception, "Perception"), (Dialog::Mission, "Mission + agent"),
-    (Dialog::Evidence, "Action evidence"), (Dialog::Compute, "Compute"), (Dialog::Telemetry, "Robot telemetry"),
+enum Dialog { Camera, Lidar, Occupancy, Brain, Inputs, Coach, Cognition, Matrices, World, Perception, Mission, Evidence, Compute, Telemetry, Diagnostics, Braid, Recordings }
+const DIALOGS: [(Dialog, &str); 17] = [
+    (Dialog::Camera, "Camera"), (Dialog::Brain, "Brain"), (Dialog::Coach, "DeepSeek console"),
+    (Dialog::Mission, "Exploration + score + MCP"), (Dialog::Perception, "Visual processing"),
+    (Dialog::Lidar, "Lidar"), (Dialog::Occupancy, "Occupancy"), (Dialog::Inputs, "Fly inputs"),
+    (Dialog::Evidence, "Action evidence"), (Dialog::Cognition, "Seven layers"), (Dialog::Matrices, "Belief matrices"),
+    (Dialog::World, "World + route"), (Dialog::Compute, "Compute"), (Dialog::Telemetry, "Robot telemetry"),
     (Dialog::Diagnostics, "Diagnostics"), (Dialog::Braid, "Braid"), (Dialog::Recordings, "Recordings"),
 ];
 
 pub struct RobotConsole {
     monitor: Monitor,
     robot_url: String,
-    open: [bool; 16],
+    open: [bool; 17],
     arrange: bool,
     last_size: egui::Vec2,
     extent: f32,
@@ -40,7 +42,7 @@ impl RobotConsole {
         if robot_url.is_empty() { return None; }
         Some(Self {
             monitor: Monitor::new(robot_url.clone(), crate::client::agent_url()),
-            robot_url, open: [true; 16], arrange: true, last_size: egui::Vec2::ZERO, extent: 6.0, camera: None,
+            robot_url, open: [true; 17], arrange: true, last_size: egui::Vec2::ZERO, extent: 6.0, camera: None,
             grid: None, scan: None, scan_error: None, scan_advanced_ms: 0,
             spatial: spatial::SpatialView::default(), weight_delta: false,
         })
@@ -104,7 +106,7 @@ impl RobotConsole {
                 ui.menu_button("Dialogs", |ui| {
                     for (index, (_, label)) in DIALOGS.iter().enumerate() { ui.checkbox(&mut self.open[index], *label); }
                 });
-                if ui.button("Show all").clicked() { self.open = [true; 16]; self.arrange = true; }
+                if ui.button("Show all").clicked() { self.open = [true; 17]; self.arrange = true; }
                 if ui.button("Arrange dialogs").clicked() { self.arrange = true; }
                 if let Some(health) = data.sources.get("health") {
                     ui.label(format!("Reported estop: {} | deadman OK: {}", panels::text(&health.value["estop"]), panels::text(&health.value["deadman_ok"])));
@@ -158,17 +160,14 @@ impl RobotConsole {
             Dialog::Occupancy => self.lidar_panel(ui, true),
             Dialog::Brain => panels::brain(ui, state),
             Dialog::Inputs => panels::fly_inputs(ui, data),
+            Dialog::Coach => crate::views::coach::render(ui, state),
             Dialog::Cognition => panels::cognition(ui, data),
             Dialog::Matrices => self.matrices(ui, data),
             Dialog::World => self.spatial.render(ui, data),
             Dialog::Perception => panels::perception(ui, data),
             Dialog::Mission => {
-                if ui.add_enabled(!data.observing, egui::Button::new(if data.observing { "Observing..." } else { "Observe" })).clicked() { self.monitor.observe(); }
-                if let Some(observation) = &data.observation {
-                    if let Some(error) = &observation.error { ui.colored_label(Color32::YELLOW, error); }
-                    else { panels::object(ui, "Observation result", &observation.value); }
-                }
-                panels::mission(ui, data);
+                exploration::render(ui, data);
+                if ui.add_enabled(!data.observing, egui::Button::new("MCP observe (read only)")).clicked() { self.monitor.observe(); }
             }
             Dialog::Evidence => panels::evidence(ui, data),
             Dialog::Compute => panels::compute(ui, data),

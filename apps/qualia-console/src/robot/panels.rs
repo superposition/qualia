@@ -148,6 +148,25 @@ pub fn brain(ui: &mut Ui, state: &mut crate::ConsoleState) {
     ui.colored_label(if stale {Color32::YELLOW} else {Color32::LIGHT_GREEN}, format!(
         "{} · tick {} · {:.1} frames/s · {} firing", if stale {"STALE stream"} else {"Receiving model spikes"}, frame.tick, frame.rate_hz, frame.firing_count()));
     ui.label(&frame.source);
+    if let Some(cloud) = cloud {
+        let placed = frame.firing.iter().filter(|id| cloud.point_of(**id).is_some()).count();
+        ui.label(format!("Latest frame: {placed} spikes with coordinates, {} without coordinates", frame.firing.len() - placed));
+    }
+    let samples: Vec<_> = frame.activity.iter().filter(|sample| sample.received.elapsed().as_secs_f32() < 10.0).collect();
+    let peak = samples.iter().map(|sample| sample.count).max().unwrap_or(0);
+    let total: usize = samples.iter().map(|sample| sample.count).sum();
+    ui.label(format!("Observed spikes, last 10 seconds: {total} | peak {peak}/frame | {} received frames", samples.len()));
+    let (history, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 65.0), egui::Sense::hover());
+    let painter = ui.painter_at(history);
+    painter.rect_filled(history, 0.0, Color32::from_rgb(17, 25, 38));
+    for sample in samples {
+        let x = history.right() - sample.received.elapsed().as_secs_f32() / 10.0 * history.width();
+        let height = if sample.count == 0 {1.0} else {(sample.count as f32).ln_1p() / (peak.max(1) as f32).ln_1p() * (history.height()-4.0)};
+        painter.line_segment([egui::pos2(x, history.bottom()), egui::pos2(x, history.bottom()-height)],
+            egui::Stroke::new(2.0, if sample.count == 0 {Color32::GRAY} else {Color32::LIGHT_GREEN}));
+    }
+    ui.small("Spikes per received frame, logarithmic scale; includes cells without 3D coordinates. Up to 512 frames over 10 seconds; gaps have no readings.");
+    if stale { ui.colored_label(Color32::YELLOW, "Retained activity is historical; no fresh frame is being received."); }
     ui.label("Model activity; wheel acknowledgements are in Action evidence.");
     if stale { frame.firing.clear(); }
     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ui.available_height().max(160.0) - 5.0), egui::Sense::drag());
@@ -162,6 +181,16 @@ pub fn brain(ui: &mut Ui, state: &mut crate::ConsoleState) {
 }
 
 pub fn perception(ui: &mut Ui, data: &Data) {
+    if let Some(reading) = data.sources.get("perception-observation") {
+        freshness(ui, reading, 1500);
+        let p = &reading.value;
+        ui.strong("Camera -> visual frontend (observation)");
+        ui.label(format!("{} | frame {} | {} features | confidence {}", text(&p["state"]), text(&p["frame_seq"]), text(&p["features"]), text(&p["tracking_confidence"])));
+        ui.label(format!("Brightness {} | contrast {} | keyframes {}", text(&p["luminance_mean"]), text(&p["luminance_stddev"]), text(&p["keyframes"])));
+        ui.colored_label(Color32::YELLOW, text(&p["limitation"]));
+        if p["error"].is_string() { ui.colored_label(Color32::YELLOW, text(&p["error"])); }
+        ui.separator();
+    }
     if let Some(perception) = data.sources.get("host-perception") {
         freshness(ui, perception, 5000);
         let camera = &perception.value["camera"];

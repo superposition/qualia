@@ -30,7 +30,7 @@ pub struct Data {
 pub struct Monitor {
     pub data: Arc<Mutex<Data>>,
     stop: Arc<AtomicBool>,
-    agent_url: String,
+    robot_url: String,
 }
 
 pub fn now_ms() -> u64 { crate::now_ns() / 1_000_000 }
@@ -162,7 +162,8 @@ impl Monitor {
                 }
             });
         }
-        if let Ok(path) = std::env::var("QUALIA_FLY_STATUS") {
+        for (environment, source_name) in [("QUALIA_FLY_STATUS", "fly-inputs"), ("QUALIA_PERCEPTION_STATUS", "perception-observation")] {
+        if let Ok(path) = std::env::var(environment) {
             let shared = Arc::clone(&data);
             let stopping = Arc::clone(&stop);
             std::thread::spawn(move || {
@@ -176,7 +177,7 @@ impl Monitor {
                         Ok(value)
                     });
                     let mut guard = shared.lock().unwrap();
-                    let reading = guard.sources.entry("fly-inputs".into()).or_default();
+                    let reading = guard.sources.entry(source_name.into()).or_default();
                     match result {
                         Ok(value) => { reading.received_ms = value["published_ms"].as_u64().unwrap(); reading.value = value; reading.error = None; }
                         Err(error) => reading.error = Some(error),
@@ -186,7 +187,8 @@ impl Monitor {
                 }
             });
         }
-        Self { data, stop, agent_url }
+        }
+        Self { data, stop, robot_url }
     }
 
     /// Only an observation tool is offered here. This cannot enqueue a drive,
@@ -198,12 +200,12 @@ impl Monitor {
             guard.observing = true;
         }
         let data = Arc::clone(&self.data);
-        let url = format!("{}/mcp/call", self.agent_url.trim_end_matches('/'));
+        let url = format!("{}/mcp", self.robot_url.trim_end_matches('/'));
         std::thread::spawn(move || {
             let mut builder = reqwest::blocking::Client::builder().connect_timeout(Duration::from_millis(700)).timeout(Duration::from_secs(20));
             if let Some(cert) = crate::client::agent_certificate() { builder = builder.add_root_certificate(cert); }
             let result = builder.build().map_err(|e| e.to_string()).and_then(|client| {
-                let response = client.post(url).json(&serde_json::json!({"tool":"multimodal_observe","args":{}}))
+                let response = client.post(url).json(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"observe","arguments":{}}}))
                     .send().and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
                 let mut bytes = Vec::new();
                 response.take(1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;

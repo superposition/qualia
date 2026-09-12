@@ -32,6 +32,8 @@ fn a_live_source_recovers_from_initial_refusal_and_clean_disconnect() {
     wait_until(|| source.frame().tick == 10);
     assert_eq!(source.frame().firing, vec![3, 7]);
     let first_advance = source.frame().last_advanced;
+    assert_eq!(source.frame().activity.len(), 1);
+    assert_eq!(source.frame().activity[0].count, 2);
     drop(writer);
     wait_until(|| source.frame().error.is_some());
     assert!(!source.frame().finished, "a live disconnect is not recorded EOF");
@@ -40,6 +42,7 @@ fn a_live_source_recovers_from_initial_refusal_and_clean_disconnect() {
     writer.flush().unwrap();
     wait_until(|| source.frame().ticks_read == 2);
     assert_eq!(source.frame().last_advanced, first_advance, "replayed cached frame must not refresh source age");
+    assert_eq!(source.frame().activity.len(), 1, "cached replay is not another model observation");
     drop(writer);
     wait_until(|| source.frame().error.is_some());
     let mut writer = SpikeWriter::new(accept(&listener)).unwrap();
@@ -50,4 +53,6 @@ fn a_live_source_recovers_from_initial_refusal_and_clean_disconnect() {
     assert!(source.frame().error.is_none());
     assert!(!source.frame().finished);
     assert!(source.frame().last_advanced > first_advance);
+    assert_eq!(source.frame().activity.len(), 1, "new producer tick zero clears the prior run's activity");
+    assert_eq!(source.frame().activity[0].count, 1);
 }

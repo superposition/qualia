@@ -1,5 +1,38 @@
 # Console restoration audit
 
+## 19:28 checkpoint, 2026-09-12
+
+The host connection repair succeeded and restarted the installed agent. Its
+action reader now reports `unsupported applied-action schema`; reconnecting
+the URL did not restore its perception producers or backend parity.
+
+The fly runs on the Jetson and the console connects directly to
+`tcp://10.0.0.180:18762`. Three directly observed frames, ticks 4404 through
+4406, contained zero spikes. Real CUDA execution required an sm87 fatbin and
+releasing duplicate CPU graph storage on this 3.6 GiB device. The model's
+downstream dynamics remain unresolved; transport is disconnected.
+
+DeepSeek now has its own visible dialog, containing actual provider output,
+source snapshot age, response age, model identity and evidence references.
+It supplies advisory text only. There is no belief-writing or motor-dispatch
+integration. The exploration dialog shows the explicit five-check readiness
+rubric, unknown global location, and the robot's actual read-only MCP result.
+This rubric is not an RL reward or evidence of a trained policy.
+
+A bounded CPU worker processes real camera frames through the existing visual
+frontend in its own arena. The current image has normalized luminance around
+0.16 and contrast around 0.003, with zero detected features. Its pose publication
+is disabled because the image scale and head motion are uncalibrated. This is
+not successful metric SLAM, loop closure or a persistent map.
+
+Automatic light control is being implemented in the separate Leash worktree.
+The operator explicitly authorized lights but reiterated that the motor
+acknowledgement repair remains unconfirmed. No wheel or head command was sent.
+The three physical demonstrations and the full restoration audit remain open.
+
+Evidence: [robot stream and visible console sources](evidence/jetson-console-20260912.json).
+Earlier checkpoints below describe the state at their respective times.
+
 Status: in progress, 2026-09-12. The operator requested all pre-rewrite
 functionality, simultaneous separate dialogs, and measured multimodal input
 to the fly rather than an apparently active display disconnected from wheels.

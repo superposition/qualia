@@ -59,6 +59,8 @@ pub struct DecisionRow {
     pub usage_reported: bool,
     pub latency_ms: Option<u64>,
     pub decided_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_observed_at_ms: Option<u64>,
     /// What the broker did with it: `posted`, `recorded`, or a refusal reason.
     pub disposition: String,
 }
