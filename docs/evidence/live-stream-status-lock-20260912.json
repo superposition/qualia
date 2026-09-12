@@ -1,0 +1,18 @@
+{
+  "run": "live-20260912-183857",
+  "fault": "Windows reader denies destination replacement",
+  "lock_seconds": 8,
+  "frames_during_lock": 40,
+  "first_tick_during_lock": 367,
+  "last_tick_during_lock": 406,
+  "status_snapshot_unchanged_while_locked": true,
+  "status_recovered_after_unlock": true,
+  "producer_pid": 61392,
+  "bridge_pid": 22620,
+  "transport_attached": false,
+  "validation": [
+    "python scripts/test_live_console_feed.py -v: 3 passed",
+    "live TCP frames continued under actual Windows replacement-denying file handle"
+  ],
+  "limits": "This verifies status-file fault isolation and recovery. Camera acquisition can still time out and is correctly represented as stale until a fresh input is available. No wheel transport is attached."
+}

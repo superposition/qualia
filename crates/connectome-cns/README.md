@@ -279,3 +279,12 @@ and never attaches the transport. New viewers receive only subsequent live
 frames, not a cached last frame. Set `QUALIA_CONNECTOME_SPIKES` to
 `tcp://127.0.0.1:18762`. A finished bounded run is explicitly stale, not silently
 replaced with replayed or generated activity.
+
+The bridge treats status-file I/O failures as optional diagnostics: a Windows
+reader denying atomic replacement leaves the previous timestamped snapshot in
+place, and the next polling cycle retries. This does not terminate the producer.
+Warning-log failures are also nonfatal. `python scripts/test_live_console_feed.py
+-v` covers a real Windows replacement-denying handle, recovery, persistent I/O
+failure and a broken warning sink. A live lock experiment recorded forty frames
+while the status destination stayed locked for eight seconds; see
+`docs/evidence/live-stream-status-lock-20260912.json`.
