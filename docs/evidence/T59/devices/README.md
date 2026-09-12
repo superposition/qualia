@@ -8,10 +8,11 @@ capture — it commits no `capture.json`, no `kernels.json` and no `capture.sqli
 
 Two rules are read through every row:
 
-* **D-023/D-025 — the leash owns the hardware.** On Pinkie one process, `leash serve http`
-  (pid 1299), holds the LD06's serial port, the drive port and the UVC node. The stack subscribes to
-  its surface; it does not open devices. `runners/leash-sensors` (the MCP `observe` bridge) and
-  `runners/camera` (the MJPEG consumer) are the two runners that do the subscribing.
+* **D-025 (drafted, and cited in the 01:06 comment, as D-023) — the leash owns the hardware.** On
+  Pinkie one process, `leash serve http` (pid 1299), holds the LD06's serial port, the drive port
+  and the UVC node. The stack subscribes to its surface; it does not open devices.
+  `runners/leash-sensors` (the MCP `observe` bridge) and `runners/camera` (the MJPEG consumer) are
+  the two runners that do the subscribing.
 * **The region is the interface.** Every runner that is not a device reader consumes or produces
   the shared arena (`/qualia_body` by default); that is what "runs on the robot" means for it.
 
@@ -125,12 +126,13 @@ for p in ('/dev/ttyACM0','/dev/ttyTHS1','/dev/video0','/dev/video1'):
 /dev/video1 OPENED fd=3
 ```
 
-**This corrects the record on this ticket.** The 01:06 comment and D-023 said the leash holds
-`/dev/video0` "with `EBUSY` for anyone else". It does not: the exclusivity is the two serial ports'
-(`uW` fds), while the UVC node takes several readers (`lsof` shows fd `48u` plus an mmap, and the
-open above still returned a descriptor). The rule that the stack subscribes rather than opens is
-unchanged — the camera's pixels reach the arena through `runners/camera` for one owner and one
-implementation — but "the camera is EBUSY" must stop being quoted as its reason.
+**This corrects the record on this ticket.** The 01:06 comment and the decision then numbered D-023,
+now **D-025**, said the leash holds `/dev/video0` "with `EBUSY` for anyone else". It does not: the
+exclusivity is the two serial ports' (`uW` fds), while the UVC node takes several readers (`lsof`
+shows fd `48u` plus an mmap, and the open above still returned a descriptor). The rule that the stack
+subscribes rather than opens is unchanged — the camera's pixels reach the arena through
+`runners/camera` for one owner and one implementation — but "the camera is EBUSY" must stop being
+quoted as its reason.
 
 ### No IMU on this machine's own buses
 
@@ -148,6 +150,15 @@ $ ls /sys/bus/iio/devices
 $ ls /dev/iio:device*
 ls: cannot access '/dev/iio:device*': No such file or directory
 ```
+
+**That block is an excerpt.** Each bus's scan prints the full `00`–`70` grid and the `-- bus N:`
+headers are separators this audit added, not `i2cdetect`'s output; only the rows with a responder are
+reproduced. The rows the claim below rests on are the ones left out: the inertial addresses would
+appear on rows `60`/`70` (`0x68`, `0x69`, `0x6a`, `0x6b`, `0x76`) and `0x28` on row `20`, and all of
+those rows printed `--` for every bus scanned. The conclusion is corroborated from two independent
+directions (`docs/decisions.md`'s D-025 enumeration of buses 0/1/2/7, and the empty
+`/sys/bus/iio/devices` plus the missing `/dev/iio:device*` above), but the excerpt is not the whole
+scan and does not show the decisive rows.
 
 No responder at `0x68`, `0x69`, `0x76`, `0x28`, `0x6a` or `0x6b`, and no IIO device: the robot's
 inertial data exists **only** in the leash's `sensors.imu`/`raw_frame`. `runners/leash-sensors` reads
@@ -207,23 +218,53 @@ the operator's live `/qualia_body` stack was untouched.
 ```console
 $ # host, private region, producers from the robot's leash
 $ QUALIA_STACK_MANIFEST=<default manifest, region renamed> ./qualia-init
++------------------------------------------+
+|QUALIA ENGINE v0.1.0                      |
+|stack: qualia-default                     |
++------------------------------------------+
+
 [init] Creating shared memory '/qualia_t59'...
 [init] Shared memory created: 64 MB
+[init] Stats region created: '/qualia_t59_stats'
+[init] Binding control socket '/tmp/qualia_t59.sock'...
+[init] Spawning qualia-l0-superposition...
+[init] WARNING: qualia-l0-superposition: The system cannot find the file specified. (os error 2)
 [init] Spawning qualia-l1-belief...
 [init] WARNING: qualia-l1-belief: The system cannot find the file specified. (os error 2)
-[init] Spawning qualia-health...        [init]   pid 29996
-[init] Spawning qualia-vision...        [init]   pid 6448
+[init] Spawning qualia-l2-belief...
+[init] WARNING: qualia-l2-belief: The system cannot find the file specified. (os error 2)
+[init] Spawning qualia-l3-belief...
+[init] WARNING: qualia-l3-belief: The system cannot find the file specified. (os error 2)
+[init] Spawning qualia-l4-behavior...
+[init] WARNING: qualia-l4-behavior: The system cannot find the file specified. (os error 2)
+[init] Spawning qualia-l5-behavior...
+[init] WARNING: qualia-l5-behavior: The system cannot find the file specified. (os error 2)
+[init] Spawning qualia-l6-semantic...
+[init] WARNING: qualia-l6-semantic: The system cannot find the file specified. (os error 2)
+[init] Spawning qualia-health...
+[init]   pid 29996
+[init] Spawning qualia-vision...
+[init]   pid 6448
 [init] Spawning qualia-agent...
 [init] WARNING: qualia-agent: The system cannot find the file specified. (os error 2)
-[init] Spawning qualia-leash-sensors... [init]   pid 25984
-[init] Spawning qualia-camera...        [init]   pid 30596
+[init] Spawning qualia-leash-sensors...
+[init]   pid 25984
+[init] Spawning qualia-camera...
+[init]   pid 30596
+
 [init] 4 runners launched.
+[init] Run 'qualia-watch' in another terminal for the TUI.
 ```
 
-The eight warnings are the belief layers and the agent: no `qualia-l1…l6`/`qualia-agent` binary was
-built in this pass. `init` skipping a missing binary is its documented partial-stack path, and it is
-itself an audit finding: on this host the GPU layers and the agent are the parts that need a build
-the plain host path does not produce.
+That is the run's own log, verbatim and unabridged
+(`C:/tmp/Impl240DeviceAudit/live/init.log`), not a condensed quote; the ordering it prints — arena and
+stats region created, control socket bound, then the spawns — is what the audit claims in §"What the
+default stack manifest starts".
+
+The eight warnings are the seven belief layers (`qualia-l0`–`l6`) and the agent: none of those
+binaries was built in this pass. `init` skipping a missing binary is its documented partial-stack
+path, and it is itself an audit finding: on this host the GPU layers and the agent are the parts that
+need a build the plain host path does not produce.
 
 ## What the default stack manifest starts
 
@@ -242,7 +283,11 @@ D-008/D-009 make emitted lines and environment keys interface, so the two change
 are named here rather than left to a diff:
 
 * **`runners/vision`'s capture line changes.** The reference's line named a snapshot file
-  (`qualia-vision: using snapshot {path} ({}B)`) that no process in this tree writes; the new line is
+  (`qualia-vision: using snapshot {path} ({}B)`) that no process in this tree writes:
+  `/tmp/qualia_orin_snap.jpg`, still declared at `runners/agent/src/lib.rs:65` and still read by
+  `media::orin_snapshot_get` (`media.rs:113`), but written by nothing here. (Its sibling
+  `/tmp/qualia_snapshot.jpg` *is* written, by `media::snapshot_post` — which is why the file has to
+  be named rather than the class described.) The new line is
   `qualia-vision: using arena camera preview seq={seq} {w}x{h} ({}B, age={}ms)`. What an operator
   reads is strictly more: the frame's sequence, size and age, and the error paths say which runner
   has to be started instead.
@@ -250,10 +295,17 @@ are named here rather than left to a diff:
   `QUALIA_ORIN_SNAPSHOT_INTERVAL_MS` (with `AgentConfig::orin`) were read into a struct no code read,
   because this implementation has no camera capture: the frame arrives through the arena
   (`perception::camera_source()` defaults to `qualia-shm:camera_frame`). The reference's agent ran
-  ffmpeg on `/dev/video0` at that interval, which is the device path D-023 replaced.
+  ffmpeg on `/dev/video0` at that interval, which is the device path D-025 (then numbered D-023)
+  replaced.
 * **The default manifest gains two runners and one key.** `qualia-leash-sensors`,
   `qualia-camera`, `QUALIA_CAMERA_STREAM_URL` and the two pass-throughs; the keys are the reference's
-  spelling and the runners are the two D-023 subscribers.
+  spelling and the runners are the two D-025 subscribers. One consequence, for whoever owns the
+  console's reader set next: the Telemetry rows are derived from runner *names*
+  (`SensingRunner::for_runner_name`, `apps/qualia-console/src/views/telemetry.rs:57`), and
+  `qualia-leash-sensors` is not one of them although it publishes range scans through
+  `qualia-lidar::publish_scan`. So a deployment named by `QUALIA_STACK_MANIFEST` now declares
+  `["qualia-camera"]` — a camera row and no lidar row — while lidar frames are in the region. The
+  default (no manifest named) is unaffected: it renders every ABI sensing slot.
 
 ## What is absent, and what hardware would fix it
 
@@ -272,7 +324,8 @@ are named here rather than left to a diff:
    the robot's own `open()` calls (errno 16), not the runners' exit lines: the board build that
    would have produced those binaries was stopped under Main's order because it overlapped the
    exclusive #235 lease (02:11–02:41). Their device contract is `exit 2, cannot open the port` and
-   their defaults are quoted from source; the runner-level board run is the one gap in this audit.
+   their defaults are quoted from source; the runner-level board run is the one *device* gap in this
+   audit — items 2–4 record the three other unexercised classes.
 2. **`qualia-vslam`, `qualia-cli`, `qualia-jepa-runtime` and l0–l6 were not built or run.** Three
    other cargo jobs held the host during this pass; each row names the input it needs instead.
 3. **`qualia-watch` and `qualia-console` were not launched**: they open a window, and D-023 forbids

@@ -7,11 +7,12 @@
 //! are the telemetry table's rows in the manifest's own order.
 //!
 //! The console's own row set does not wait on a stack that can name a sensing
-//! runner. `config/stack-manifest.default.json` is the *product's* default stack
-//! and declares none, so with no `QUALIA_STACK_MANIFEST` the rows are the ABI's
-//! sensing slots ([`SensingRunner`]): deriving them from the compiled-in default
-//! would blank the table while the region the console is attached to holds
-//! frames.
+//! runner. With no `QUALIA_STACK_MANIFEST` the rows are the ABI's sensing slots
+//! ([`SensingRunner`]), whatever `config/stack-manifest.default.json` — the
+//! *product's* default stack, which now names `qualia-camera` and
+//! `qualia-leash-sensors` — declares: narrowing the table to a manifest that
+//! declares no sensing runner would blank it while the region the console is
+//! attached to holds frames.
 
 use qualia_types::parse_stack_manifest;
 
@@ -21,7 +22,9 @@ use crate::views::telemetry::SensingRunner;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SensingSet {
     /// No `QUALIA_STACK_MANIFEST` names a stack: every sensing slot the
-    /// console's ABI read path covers.
+    /// console's ABI read path covers, whatever the compiled-in default stack
+    /// declares — a manifest that names no sensing runner must not narrow the
+    /// rows to nothing while the region holds frames.
     EverySlot,
     /// The stack a manifest names: exactly its sensing runners, in its own
     /// order. Empty when the stack declares none, and then the table is
@@ -49,9 +52,9 @@ pub fn sensing_runner_names(manifest: &str) -> Result<Vec<String>, String> {
 /// The sensing rows the stack the console is pointed at declares.
 ///
 /// `QUALIA_STACK_MANIFEST` names a deployment's manifest; with none named the
-/// rows are the ABI's sensing slots, because the product's default stack
-/// declares no sensing runner and deriving the table from it would empty the
-/// panel while the region holds frames.
+/// rows are the ABI's sensing slots — not the compiled-in default stack's
+/// sensing runners — because a manifest that declares no sensing runner must
+/// not narrow the table to nothing while the region holds frames.
 pub fn load_sensing_set() -> Result<SensingSet, String> {
     match std::env::var_os("QUALIA_STACK_MANIFEST").filter(|path| !path.is_empty()) {
         Some(path) => {

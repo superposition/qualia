@@ -40,12 +40,13 @@ Configuration is ten environment variables and nothing else:
 
 The Telemetry view's rows are the ABI's sensing slots — `qualia-lidar`, `qualia-camera` and
 `qualia-vslam` — one row each, carrying the newest frame its publisher wrote or an explicit
-`no frame published`. That row set is the console's own and does not depend on a manifest naming a
-sensing runner: the product's default stack (`config/stack-manifest.default.json`) declares none, so
-deriving the table from it would leave the panel empty while the region the console is attached to
-holds frames. A deployment manifest named by `QUALIA_STACK_MANIFEST` narrows the rows to the sensing
-runners that stack declares, in the manifest's own order; a stack that declares none shows the honest
-empty table.
+`no frame published`. That row set is the console's own, not the compiled-in stack's: with no
+manifest named every slot gets a row, because a stack manifest that declares no sensing runner must
+not narrow the rows to nothing while the region the console is attached to holds frames. (The
+shipped default, `config/stack-manifest.default.json`, now names `qualia-camera` and
+`qualia-leash-sensors`, but it is not the console's row set.) A deployment manifest named by
+`QUALIA_STACK_MANIFEST` narrows the rows to the sensing runners that stack declares, in the
+manifest's own order; a stack that declares none shows the honest empty table.
 
 There is no subnet autodiscovery and no host literal in the source. When no agent answers, the console
 renders the committed fixture `tests/fixtures/braid-state.json` and names the reason in the Mission
