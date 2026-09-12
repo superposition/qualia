@@ -156,7 +156,12 @@ impl<R: std::io::Read> SpikeReader<R> {
         }
 
         let mut raw = vec![0u8; count as usize * 4];
-        read_exact_or_eof(&mut self.inner, &mut raw, &format!("tick {tick} ids"))?;
+        if !read_exact_or_eof(&mut self.inner, &mut raw, &format!("tick {tick} ids"))? {
+            return Err(StreamError::invalid(format!(
+                "truncated tick {tick} ids: 0 of {} bytes",
+                raw.len()
+            )));
+        }
         let ids: Vec<u32> = raw
             .chunks_exact(4)
             .map(|chunk| u32::from_le_bytes(chunk.try_into().expect("4 bytes")))

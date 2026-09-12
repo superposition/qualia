@@ -32,7 +32,7 @@ copy apps/qualia-console/tests/snapshots/brain_fresh.png docs/evidence/T56/float
 ```
 
 The panel in the firing figure reads: the artifact `committed assets/brain/connectome-cns`,
-`166700 nodes, 139662 placed, 11752 types`, source `body-annotations-male-cns-v1.0-minconf-0.5.feather`,
+`166700 nodes, 139662 placed, 11752 types`, source `body-annotations.feather`,
 the stream's tick and its firing count, and `cloud draw` — what the layer drew. On the frames this
 figure was taken from the layer drew **9,976 of the 139,662 placed points and 3,325–3,730 of the tick's
 19,223–64,135 firing nodes** (the cloud is decimated to 10,000 and the firing set strided to 4,096, and
