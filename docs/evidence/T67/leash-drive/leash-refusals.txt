@@ -1,0 +1,30 @@
+== mcp tools/list names ==
+health, capabilities, modules, observe, invoke_capability, stop, estop, capture, cognition_status, cognition_snapshot, cognition_checkpoint
+
+== mcp tools/call invoke_capability capability=authorize ==
+{"error":{"code":-32001,"message":"legacy physical control is disabled; enable it explicitly at deployment"},"id":1,"jsonrpc":"2.0"}
+== mcp tools/call invoke_capability capability=drive (status line + body) ==
+HTTP/1.1 403 Forbidden
+{"error":{"code":-32001,"message":"legacy physical control is disabled; enable it explicitly at deployment"},"id":1,"jsonrpc":"2.0"}
+
+== mcp tools/call stop ==
+{"left":0,"max_speed":0.22,"ok":true,"right":0,"soft_odometry_limited":false,"speed_mode":"low","stopped_by_deadman":false}
+
+== http POST /pilot/authorize (bearer) ==
+{"ok":true,"operator_token":{"active":true,"expires_in_ms":19999,"owner_id":"operator-a64315150608","speed_mode":"low"},"speed_mode":"low","ttl_secs":20}
+== http POST /motors/drive left=0 right=0 (status line + body) ==
+HTTP/1.1 400 Bad Request
+{"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}
+
+== http POST /motors/stop/verified ==
+{"command_sequence":5124,"write_completed_at_ms":1789222157829,"acknowledged":true,"adapter_sample_sequence":1016867,"confirmation_received_at_ms":1789222157842,"source":"waveshare-ugv","statement":"zero command confirmed"}
+== http POST /estop/reset, with no estop latched: the gate is checked first ==
+{"error":"legacy physical control is disabled; enable it explicitly at deployment","ok":false}
+== the dashboard records the refused reset (leash.s own event line) ==
+estop_reset error legacy physical control is disabled; enable it explicitly at deployment
+
+== GET /health ==
+{"mode":"live","estop":false,"deadman_ok":true,"physical_navigation_enabled":true,"ok":true}
+
+== GET /capabilities, adapter and modes ==
+{"mode":"live","physical":true,"physical_navigation_enabled":true,"profile":"waveshare-ugv","role":"pinkie","speed_modes":["low","medium","high"],"adapter":{"category":"mobile-base","maturity":"alpha","capabilities":["drive","camera_aim","speed_mode","stop","estop","observe","capture"],"feature_flags":["waveshare-ugv"],"required_gates":["physical-actuation","policy-token-or-approval"],"boundary":"feature-gated RobotDriver implementation; serial I/O isolated from core policy"}}

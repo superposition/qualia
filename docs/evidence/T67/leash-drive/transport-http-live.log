@@ -1,0 +1,9 @@
+qualia-leash-transport: carrying our wheel commands to http://192.168.55.1:8000 over http; deadman=1000ms speed_mode=low lease_ttl=20s session=c7428df8… token_file=C:/tmp/Impl262LeashDrive/operator.token authority=leash arena=/qualia_t67
+qualia-leash-transport: leash health mode=live deadman_ok=true estop=false -> armed=true
+qualia-leash-transport: leash acknowledged the stop: zero command confirmed
+qualia-leash-transport: idle 1 stop intervals; estop=false accepted=1 refused=0 failures=0
+{"T":1,"L":0.0,"R":0.0}
+qualia-leash-transport: drive refused (T=1 left=0.000 right=0.000) session=c7428df8…: POST http://192.168.55.1:8000/motors/drive refused HTTP 400: {"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}; sending zero
+qualia-leash-transport: idle 20 stop intervals; estop=false accepted=21 refused=0 failures=0
+qualia-leash-transport: idle 40 stop intervals; estop=false accepted=41 refused=0 failures=0
+qualia-leash-transport: idle 60 stop intervals; estop=false accepted=61 refused=0 failures=0

@@ -41,6 +41,20 @@ pub fn agent(timeout: Duration) -> ureq::Agent {
 pub struct Reply {
     /// The tool result when the call succeeded; absent on an error reply.
     pub result: Option<ReplyResult>,
+    /// The refusal when the harness declined the call; absent on success.
+    #[serde(default)]
+    pub error: Option<JsonRpcError>,
+}
+
+/// The error half of a JSON-RPC reply, e.g. a capability policy denial.
+#[derive(Debug, Deserialize)]
+pub struct JsonRpcError {
+    /// The harness's own code, e.g. `-32001`.
+    #[serde(default)]
+    pub code: i64,
+    /// The harness's own message, which a runner quotes rather than replaces.
+    #[serde(default)]
+    pub message: String,
 }
 
 /// The `result` half of a JSON-RPC reply.
@@ -65,25 +79,58 @@ pub struct Content {
 /// already the decoder every other JSON boundary here uses. The returned text is
 /// the tool's own payload — the caller decodes it into the shape it expects.
 pub fn call(agent: &ureq::Agent, base_url: &str, tool: &str) -> Result<String, String> {
+    call_with(agent, base_url, tool, &serde_json::json!({}))
+}
+
+/// One `tools/call` against the leash carrying arguments.
+///
+/// The same envelope as [`call`], with the tool's own argument object. A reply
+/// that carries a JSON-RPC `error` is returned as `Err` with the harness's own
+/// code and message, so a runner quotes the harness's refusal instead of
+/// reporting that the tool returned nothing.
+pub fn call_with(
+    agent: &ureq::Agent,
+    base_url: &str,
+    tool: &str,
+    arguments: &serde_json::Value,
+) -> Result<String, String> {
     let endpoint = format!("{}/mcp", base_url.trim_end_matches('/'));
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": { "name": tool, "arguments": {} },
+        "params": { "name": tool, "arguments": arguments },
     });
     let body =
         serde_json::to_string(&request).map_err(|error| format!("encode {tool} request: {error}"))?;
-    let response = agent
+    let response = match agent
         .post(&endpoint)
         .set("content-type", "application/json")
         .send_string(&body)
-        .map_err(|error| format!("POST {endpoint}: {error}"))?;
+    {
+        Ok(response) => response,
+        // A refused `tools/call` still answers with the JSON-RPC error object,
+        // under a non-2xx status; read it rather than dropping the harness's own
+        // words.
+        Err(ureq::Error::Status(code, response)) => {
+            let text = response.into_string().unwrap_or_default();
+            let refusal = serde_json::from_str::<Reply>(&text)
+                .ok()
+                .and_then(|reply| reply.error)
+                .map(|error| format!("{} {}", error.code, error.message))
+                .unwrap_or_else(|| text.trim().to_owned());
+            return Err(format!("{tool} refused HTTP {code}: {refusal}"));
+        }
+        Err(error) => return Err(format!("POST {endpoint}: {error}")),
+    };
     let payload = response
         .into_string()
         .map_err(|error| format!("read {endpoint} reply: {error}"))?;
     let reply: Reply = serde_json::from_str(&payload)
         .map_err(|error| format!("decode {endpoint} reply: {error}"))?;
+    if let Some(error) = reply.error {
+        return Err(format!("{tool} refused: {} {}", error.code, error.message));
+    }
     reply
         .result
         .and_then(|result| result.content.into_iter().find_map(|content| content.text))
