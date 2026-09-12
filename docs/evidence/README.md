@@ -29,6 +29,14 @@ binary smoke that launches no CUDA kernel. Its README says that it is not a capt
 claim it backs, and the command and output observed on the board; it commits no `capture.json` and no
 `kernels.json`, because there are no kernels to record.
 
+`board/readiness/` is the board's one non-slug directory: it holds the readiness checklist
+(`board/readiness/README.md`), and a capture taken to prove a capability there follows the capture
+layout rather than the non-capture rule above. Such a **readiness proof** lives at
+`board/readiness/<slug>/` (e.g. `board/readiness/mage-nsys-capture/`), carries what a ticket capture
+carries — `capture.json`, `kernels.json`, `kernels.csv`, the backend's export and its own README — is
+exempt from the `T<NN>/<slug>/` path because no ticket's definition of done rests on it, and says in
+its README which capability it proves and that it is not a `needs:profile` ticket's capture.
+
 ## What a capture directory holds
 
 Every capture directory holds `capture.json`, `kernels.json`, `kernels.csv` and its own `README.md`,

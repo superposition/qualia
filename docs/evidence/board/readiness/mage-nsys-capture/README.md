@@ -1,11 +1,14 @@
 # Board `mage profile-exec` capture — the JEPA runtime probe under `nsys` on Pinkie
 
-This directory exists for ticket [#230](https://github.com/superposition/qualia/issues/230)'s
-readiness claim, not for a `needs:profile` ticket: it is the proof that the board's fresh `nsys`
-2024.5.4 and `mage` 0.1.0 installs produce a real board-side `mage profile-exec` capture with CUDA
-kernels in it — the path the audit believed was unavailable ("mage is not installable there"). The
-checklist and the installs are in [`../README.md`](../README.md); the shapes below are the readiness
-check's, the fixture is the probe's, and no ticket's numbers are claimed here.
+This directory is the **readiness proof** of ticket
+[#230](https://github.com/superposition/qualia/issues/230)'s `mage`+`nsys` capability, not a
+`needs:profile` ticket's capture: it is the measured proof that the board's fresh `nsys` 2024.5.4 and
+`mage` 0.1.0 installs produce a real board-side `mage profile-exec` capture with CUDA kernels in it —
+the path the audit believed was unavailable ("mage is not installable there"). `docs/evidence/README.md`
+§Layout defines this case (`board/readiness/<slug>/`, exempt from the `T<NN>/<slug>/` path because no
+ticket's definition of done rests on it). The checklist and the installs are in
+[`../README.md`](../README.md); the shapes below are the readiness check's, the fixture is the
+probe's, and no ticket's numbers are claimed here.
 
 ## Host
 

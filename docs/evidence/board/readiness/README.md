@@ -7,9 +7,18 @@ Waveshare-carried Jetson Orin NX (D-010), with the command that shows it and the
 The two limits the issue asked to challenge — the board's lack of `mage` and of `nsys` — were
 attempted rather than assumed, and **both are now installed**; §"The two attempts" quotes every
 command and every failure on the way. Nothing in this file is inferred from a cache listing or from
-a decision entry: every row was run on the board during this work — the board's own clock read
-`2026-09-02` for the rows taken before it was corrected and `2026-09-12` (matching the dev host) for
-the rows after.
+a decision entry. Rows below were run on the board during this work — its clock read `2026-09-02`
+before it was corrected and `2026-09-12`, matching the dev host, after — except two that cite a
+measurement already in the record rather than repeating it: the candle build without `+fp16`
+(D-016's compiler rejection) and the `--features cuda` build (D-022's `5m 30s`). Both say so.
+
+This directory is the checklist, not a capture: the one capture-shaped thing in it —
+[`mage-nsys-capture/`](mage-nsys-capture/README.md) — is the readiness proof of the `mage`/`nsys`
+capability, and says so; the convention names that case in `docs/evidence/README.md` §Layout
+(`board/readiness/<slug>/`). Its sibling readiness record is
+[`../cross-lane/README.md`](../cross-lane/README.md) (D-018's amendment, PR
+[#231](https://github.com/superposition/qualia/pull/231) merged as `56d8170`): the host-side
+`aarch64` cross-build that replaced the unavailable `cross` image.
 
 The board itself, measured: `aarch64`, kernel `5.15.148-tegra`, L4T **R36.4.7** (JetPack 6),
 6 cores, 3 601 MiB RAM (`free -m` read 1 475 used / 479 free / 1 897 available during this work),
@@ -36,11 +45,11 @@ so the `-k` workarounds are gone (§"Fixed on 2026-09-12, and what is still miss
 | PyTorch CPU index through the proxy | **present** | `pip3 download --index-url https://download.pytorch.org/whl/cpu torch` | `200` for `https://download.pytorch.org/whl/cpu/torch/` without `-k` now the board's clock is right; until 2026-09-12 the same fetch needed `--trusted-host` (§"`mage`") |
 | Native build, plain | **present** | `cargo build --release -j 4 -p qualia-types` | `BUILD_PLAIN_RC=0`, `3m 43s`; `cargo 1.94.0`, `rustc 1.94.0` |
 | Native build, candle-bearing, `+fp16` | **present** | `RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 4 -p qualia-jepa-model --bins` | `BUILD_FP16_RC=0`, `5m 26s` from a fresh target dir; `qualia-jepa-train` 4 592 760 B, `qualia-jepa-parity` 2 469 984 B, `qualia-jepa-plan-eval` 2 379 432 B, `qualia-jepa-runtime-probe` 2 106 864 B |
-| Native build, candle-bearing, no `+fp16` | **rejected by the compiler** | same command without `RUSTFLAGS` | D-016: `gemm-f16`'s inline asm is rejected by the default `neon`-only target (`instruction requires: fullfp16`); the Orin's A78AE has the feature |
+| Native build, candle-bearing, no `+fp16` | **rejected by the compiler** | same command without `RUSTFLAGS` | *cited, not re-run here*: D-016 records `gemm-f16`'s inline asm rejected by the default `neon`-only target (`instruction requires: fullfp16`); the Orin's A78AE has the feature |
 | `nvcc` | **present** | `/usr/local/cuda/bin/nvcc --version` | `release 12.9, V12.9.41` (`cuda_12.9.r12.9/compiler.35813241_0`) |
 | `sm_87` codegen | **present** | `/usr/local/cuda/bin/nvcc -fatbin -gencode arch=compute_87,code=sm_87 kernels/belief_update.cu` then `/usr/local/cuda/bin/cuobjdump --list-elf belief_update.fatbin` | `NVCC_SM87_RC=0`, `ELF file 1: belief_update.1.sm_87.cubin`; `cuobjdump` is not on `PATH` |
-| CUDA-feature build | **present** | `RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 2 -p qualia-jepa-model --bins --features cuda` | D-022 measured `5m 30s`, candle-kernels 0.9.2 built with `nvcc` for sm_87 |
-| Running binaries on the device | **present** | `/home/jetson/readiness/head-target/release/qualia-jepa-runtime-probe --backend cpu --iterations 5 --warmup 1` | `PROBE_CPU_RC=0`, `synchronized_latency_p50_us` **3070**, `outputs_finite: true`; D-022: 3168 µs CPU / 2039 µs CUDA at 30 iterations |
+| CUDA-feature build | **present** | `RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 2 -p qualia-jepa-model --bins --features cuda` | *cited, not re-run here*: D-022 measured `5m 30s`, candle-kernels 0.9.2 built with `nvcc` for sm_87 |
+| Running binaries on the device | **present** | `/home/jetson/readiness/head-target/release/qualia-jepa-runtime-probe --backend cpu --iterations 5 --warmup 1`, and `--backend cuda` under `LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat` | `PROBE_CPU_RC=0`, `synchronized_latency_p50_us` **3070**, `outputs_finite: true`; the CUDA probe ran here too (`STANDALONE_RC=0`, p50 3376 µs under the `mage` capture), against D-022's 3168 µs CPU / 2039 µs CUDA at 30 iterations |
 | `ncu` | **present (needs root)** | `/usr/local/cuda/bin/ncu --version` | `2025.2.0.0 (build 35613519) (public-release)`; `perf_event_paranoid=2` and no NOPASSWD, so captures run under `sudo -S` |
 | `mage` | **present** | `pip3 show mage` for the version, `mage --help` for the CLI entry (the CLI has no `--version` flag) | `Version: 0.1.0`, `/home/jetson/.local/bin/mage`, installed from the board; deps `torch 2.14.0+cpu`, `triton 3.8.0`, `numpy 2.2.6`, `textual 8.2.8`, `rich 15.0.0` |
 | `mage profile-exec` with `nsys` | **present** | `mage profile-exec --backend nsys --capture-range all --output-dir … -- <board binary>` | `MAGE_EXEC_CUDA_RC=0`, 494 kernel rows parsed out of the capture (§"The two attempts"; committed at `mage-nsys-capture/`) |

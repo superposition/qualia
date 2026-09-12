@@ -2,10 +2,11 @@
 
 The board half of ticket [#31](https://github.com/superposition/qualia/issues/31)'s definition of done:
 one `ncu` pass over `crates/cuda/tests/gpu.rs` on **Pinkie**, the Waveshare-carried Jetson Orin NX
-(D-010), with the real `sm_87` fatbins built on the board. It lands the capture the remediation batch
-left in board scratch (`/home/jetson/remediate/515a506/remediate/t16-ncu/`) and whose run the ticket's
-own comment stream quotes — the handoff below is that comment's command lines, verbatim, so the
-capture and the stream agree. The capture itself predates this directory's landing; it is board
+(D-010), with the real `sm_87` fatbins built on the board. It lands the capture the remediation
+batch's board job (`BoardRemediateRuns`, its run comment on #31) left in board scratch
+(`/home/jetson/remediate/515a506/remediate/t16-ncu/`) and whose run the ticket's own comment stream
+quotes — the handoff below is that comment's command lines, verbatim, so the capture and the stream
+agree. The capture itself predates this directory's landing; it is board
 evidence for [#31](https://github.com/superposition/qualia/issues/31) and for
 [#230](https://github.com/superposition/qualia/issues/230)'s retroactive audit.
 
