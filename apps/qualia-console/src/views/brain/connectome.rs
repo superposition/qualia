@@ -12,7 +12,9 @@
 //! rather than drawing an empty brain:
 //!
 //! - `QUALIA_CONNECTOME_DIR` — the artifact directory holding `positions.bin`
-//!   and `types.txt`;
+//!   and `types.txt`; unset, the artifact committed under
+//!   `assets/brain/connectome-cns/` is read, so an offline console needs no
+//!   environment at all;
 //! - `QUALIA_CONNECTOME_SPIKES` — the spike stream: a `spikes.bin` path (played
 //!   back on the stream's own clock) or `tcp://host:port` for the runner on the
 //!   board over the USB link.
@@ -209,14 +211,28 @@ pub fn cloud() -> CloudState {
     CLOUD.clone()
 }
 
-/// `QUALIA_CONNECTOME_DIR`, if the deployment named one.
+/// `QUALIA_CONNECTOME_DIR`, if the deployment named one; otherwise the artifact
+/// committed under `assets/brain/connectome-cns/`, so an offline console draws
+/// the real cloud with no environment at all.
 pub fn artifact_dir() -> Option<PathBuf> {
-    std::env::var(ARTIFACT_DIR_ENV)
+    if let Some(named) = std::env::var(ARTIFACT_DIR_ENV)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+    {
+        return Some(PathBuf::from(named));
+    }
+    let committed = PathBuf::from(COMMITTED_DIR);
+    committed.is_dir().then_some(committed)
 }
+
+/// The artifact committed in this repository. The console is built and run from
+/// the tree (see `apps/qualia-console/README.md`), so the manifest and the label
+/// table beside the binary are the ones the panel reads.
+const COMMITTED_DIR: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/brain/connectome-cns"
+);
 
 /// Reads the artifact and puts it in the scene's frame.
 ///
@@ -278,7 +294,14 @@ pub fn load_cloud(directory: &Path) -> Result<ConnectomeCloud, String> {
         node_count: positions.neuron_count() as u32,
         placed: positions.placed_count(),
         types: positions.types.len(),
-        directory: directory.display().to_string(),
+        // The committed artifact is named by its tree path, not by where this
+        // checkout happens to live, so a panel rendered on another host reads
+        // the same.
+        directory: if directory == Path::new(COMMITTED_DIR) {
+            "committed assets/brain/connectome-cns".to_string()
+        } else {
+            directory.display().to_string()
+        },
         source,
     })
 }

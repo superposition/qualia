@@ -2,50 +2,48 @@
 
 This directory backs #237's claim that the floating brain is visible inside qualia's own console: the
 released male-CNS connectome as a point cloud, with each tick's firing set drawn over it. It is
-**not** a profiler capture (the ticket changes no kernel and carries no `needs:profile` label), and it
-carries no `capture.json` or `kernels.json`.
+**not** a profiler capture (the ticket changes no kernel and carries no `needs:profile` label).
+
+**The acceptance artefact is the console panel**, rendered headlessly through the console's own
+snapshot surface. D-023 forbids putting windows on the operator's desktop, so the Rerun viewer is not
+an acceptance artefact: the Rerun projection exists as the secondary path and writes its recording
+with `qualia-connectome-view view --positions <artifact> --spikes <run> --out brain.rrd`, no window
+involved.
 
 ## What is here
 
 | file | what it shows |
 | --- | --- |
-| `console-brain-panel.png` | the console's Brain panel, rendered offscreen, with the real artifact loaded |
+| `console-brain-panel.png` | the console's Brain panel, rendered offscreen, with the committed artifact loaded |
 
-The console window is never opened on this machine: evidence captures are headless. The figure is the
-console's **own** snapshot surface (`apps/qualia-console/tests/snapshots/`), driven by
-`egui_kittest`'s wgpu backend over the same `views::brain::render` the window calls.
-
-## The figure, and how to reproduce it
+The figure is byte-identical to the committed snapshot
+`apps/qualia-console/tests/snapshots/brain_fresh.png`, which the console's own test renders — so the
+figure cannot drift from the panel: the test fails if it does.
 
 ```powershell
-# The panel with the real artifact: the committed snapshot deliberately does not
-# change, so this run fails its compare and writes the rendered frame as
-# `brain_fresh.new.png`, which is copied here.
-QUALIA_CONNECTOME_DIR=C:/tmp/Impl236ConnectomeRunner/artifact `
-  cargo test -p qualia-console --test snapshots -j 2 -- brain_fresh
-copy apps/qualia-console/tests/snapshots/brain_fresh.new.png docs/evidence/T56/floating-brain/console-brain-panel.png
+cargo test -p qualia-console --test snapshots -j 2 -- brain_fresh
+copy apps/qualia-console/tests/snapshots/brain_fresh.png docs/evidence/T56/floating-brain/console-brain-panel.png
 ```
 
-The committed `brain_fresh.png` is blessed **without** `QUALIA_CONNECTOME_DIR`, so it stays
-host-independent (the panel prints the artifact's directory, which is a host path); the environment
-above is what makes the cloud appear.
+The panel reads, in its own words (the left column is truncated in the render):
 
-The panel in the figure reads, in its own words:
-
-- `cloud artifact` — the artifact directory the panel read;
+- `cloud artifact` — `committed assets/brain/connectome-cns`;
 - `cloud counts` — `166700 nodes, 139662 placed, 11752 types  (male CNS v1.0)`;
 - `cloud source` — `body-annotations-male-cns-v1.0-minconf-0.5.feather`;
-- `spike stream` — the unset arm, because the runner's stream is not on disk yet (see below);
-- `cloud draw` — how many of the placed points and of the tick's firing set the layer drew.
+- `spike stream` — the **unset** arm, because the runner's stream is not on disk yet (below);
+- `cloud draw` — how many of the placed points, and of the tick's firing set, the layer drew.
 
 The 3D canvas draws the cloud decimated to at most 10,000 points (the layer reports what it dropped,
-like every other layer in this scene) and draws the tick's firing nodes on top, bright and larger.
+like every other layer in that scene) and draws the tick's firing nodes on top, bright and larger.
 
 ## The artifact
 
-Written by the importer in `crates/connectome-cns` (T55 / #236) at
-`C:/tmp/Impl236ConnectomeRunner/artifact/`, read here by `qualia-connectome-stream` and checked by
-`qualia-connectome-view verify`:
+Committed at `assets/brain/connectome-cns/` — `positions.bin`, `types.txt`, `nodes.txt`, the
+importer's `manifest.json` and `attribution.json`, with the digests in the README beside them. Written
+by the importer in `crates/connectome-cns` (T55 / #236) from the public release; `weights.bin`
+(180,414,198 B) stays off-tree by digest. `qualia-connectome-view verify --positions
+assets/brain/connectome-cns` re-reads this directory and checks every section digest against the
+manifest:
 
 ```text
 schema=qualia.connectome-cns.v1 manifest=present nodes=166700 placed=139662 unplaced=27038 cell_types=11752
@@ -62,26 +60,23 @@ artifact: OK
 ```
 
 The network the cloud belongs to, on the importer's corrected measurement: **166,700 neurons,
-25,582,938 neuron-level edges, 124,177,617 synapses** (Σ weight), of which +94,542,746 excitatory,
+25,582,938 neuron-level edges, 124,177,617 synapses** (Σ weight), +94,542,746 excitatory,
 −26,403,637 inhibitory, 3,232,234 unknown. The 151,856,684-row / 311,833,243-weight total is the
-segment-resolution figure and is not the neuron-level number.
+segment-resolution figure, not the neuron-level number.
 
 **Coverage, said plainly:** 139,662 of the 211,577 bodies in the annotation table carry a
 `somaLocation`, so the cloud draws the somata we have, not every neuron; the other 27,038 CSR nodes
-have no position and are left out rather than placed at a made-up coordinate.
+are left out rather than placed at a made-up coordinate.
 
-## What is not here yet
+## What is not established here
 
-- **The firing stream.** `spikes.bin` is T55's runner output and had not landed when this figure was
-  taken, so the panel's `spike stream` line is the unset arm. Pointing
-  `QUALIA_CONNECTOME_SPIKES` at the recorded file (or `tcp://host:port` for the runner over the USB
-  link) is the only change needed; the highlight and the per-tick framing are already exercised by
-  `the_spike_stream_round_trips_a_recorded_run`.
-- **A Rerun figure.** The Rerun projection is the secondary artefact; its recording is written
-  headlessly (`qualia-connectome-view view --positions <artifact> --spikes <run> --out brain.rrd`),
-  but the Rerun *viewer* needs a window, so no Rerun screenshot is taken here.
-
-## What this does not establish
-
-This is a visualization of the network's activity, not evidence about the fly's behaviour. Nothing
-here claims "the fly is in there" — the same caveat the connectomics community put on the Eon video.
+- **No real firing set is shown yet.** `spikes.bin` is T55's runner output, driven by the leash's
+  camera frames, and had not landed when this figure was taken — so the `spike stream` line is the
+  unset arm, and this figure shows the cloud only. Pointing `QUALIA_CONNECTOME_SPIKES` at the recorded
+  file and re-running the command above is the whole of the remaining step; the highlight and the
+  per-tick framing are already exercised by `the_spike_stream_round_trips_a_recorded_run` and by the
+  Rerun recording. **No synthetic stream is presented as evidence anywhere in this directory.**
+- **The live `tcp://host:port` path is unexercised.** The recorded file is the path that matters; the
+  socket framing is the same bytes (checked over a local socket, not over the USB link to the board).
+- This is a visualization of the network's activity, not evidence about the fly's behaviour. Nothing
+  here claims "the fly is in there" — the same caveat the connectomics community put on the Eon video.
