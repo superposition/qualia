@@ -5,6 +5,7 @@ members = [
     "crates/braid",
     "crates/connectome-prior",
     "crates/fly-circuit",
+    "crates/gates",
     "crates/cuda",
     "crates/ipc",
     "crates/jepa",
