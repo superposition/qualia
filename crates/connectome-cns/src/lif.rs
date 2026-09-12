@@ -7,7 +7,10 @@
 //! slice is the plumbing, and the plumbing is the arithmetic below.
 //!
 //! This module is the CPU reference. [`crate::gpu`] runs the identical
-//! recurrence on the device and the two are compared tick for tick.
+//! recurrence on the device and the two are compared tick for tick. The spike
+//! vector is double-buffered here exactly as it is there: every neuron in a
+//! tick reads the *previous* tick's spikes, so the update is synchronous and
+//! independent of neuron order.
 
 use crate::IncomingCsr;
 
@@ -44,6 +47,10 @@ pub struct LifState {
     pub refractory: Vec<u8>,
     /// Spikes of the tick that just ran; `spike[i]` is 0 or 1.
     pub spike: Vec<u8>,
+    /// The other spike buffer, holding the tick before last after the swap.
+    /// [`step_cpu`] writes the tick it is computing here so that no neuron
+    /// reads this tick's output in place of last tick's input.
+    pub spike_out: Vec<u8>,
     /// Firing node ids of the last tick, ascending.
     pub fired: Vec<u32>,
     /// Ticks stepped so far.
@@ -59,6 +66,7 @@ impl LifState {
             v: vec![0.0; neuron_count],
             refractory: vec![0; neuron_count],
             spike: vec![0; neuron_count],
+            spike_out: vec![0; neuron_count],
             fired: Vec::new(),
             tick: 0,
             total_spikes: 0,
@@ -78,13 +86,14 @@ pub fn step_cpu(
 ) {
     let neurons = graph.neuron_count();
     debug_assert_eq!(state.v.len(), neurons);
+    debug_assert_eq!(state.spike_out.len(), neurons);
     debug_assert!(external.is_empty() || external.len() == neurons);
     state.fired.clear();
     for neuron in 0..neurons {
         if state.refractory[neuron] > 0 {
             state.refractory[neuron] -= 1;
             state.v[neuron] = params.reset;
-            state.spike[neuron] = 0;
+            state.spike_out[neuron] = 0;
             continue;
         }
         let start = graph.rowptr[neuron] as usize;
@@ -100,16 +109,17 @@ pub fn step_cpu(
         }
         let v = state.v[neuron] * params.decay + current;
         if v >= params.threshold {
-            state.spike[neuron] = 1;
+            state.spike_out[neuron] = 1;
             state.v[neuron] = params.reset;
             state.refractory[neuron] = params.refractory_ticks.min(u32::from(u8::MAX)) as u8;
             state.fired.push(neuron as u32);
             state.total_spikes += 1;
         } else {
-            state.spike[neuron] = 0;
+            state.spike_out[neuron] = 0;
             state.v[neuron] = v;
         }
     }
+    std::mem::swap(&mut state.spike, &mut state.spike_out);
     state.tick += 1;
 }
 

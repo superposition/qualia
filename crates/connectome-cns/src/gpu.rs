@@ -164,7 +164,7 @@ impl LifDevice {
     /// One kernel serves both cases: a free-running network simply leaves the
     /// external buffer zeroed, because a `__global__` function cannot call
     /// another one without dynamic parallelism (nvcc rejects it).
-    pub fn step(&mut self, params: &LifParams, driven: bool) -> Result<(), String> {
+    pub fn step(&mut self, params: &LifParams) -> Result<(), String> {
         let config = LaunchConfig {
             grid_dim: (self.neuron_count.div_ceil(BLOCK), 1, 1),
             block_dim: (BLOCK, 1, 1),
@@ -176,10 +176,6 @@ impl LifDevice {
         let reset = params.reset;
         let refractory_ticks = params.refractory_ticks;
         let stream = self.stream.clone();
-        // SAFETY: the argument order and types match kernels/cns_lif.cu, both
-        // spike buffers are distinct device allocations, and the stream is
-        // synchronized before either is read back.
-        let _ = driven;
         // SAFETY: the argument order and types match kernels/cns_lif.cu, both
         // spike buffers are distinct device allocations, and the stream is
         // synchronized before either is read back.

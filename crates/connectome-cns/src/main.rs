@@ -294,12 +294,12 @@ fn bench(artifact: &Path, ticks: u64, warmup: u64, device: &str) -> Result<(), C
                 let mut lif =
                     qualia_connectome_cns::gpu::LifDevice::new(&incoming).map_err(CnsError::Artifact)?;
                 for _ in 0..warmup {
-                    lif.step(&params, false).map_err(CnsError::Artifact)?;
+                    lif.step(&params).map_err(CnsError::Artifact)?;
                 }
                 lif.synchronize().map_err(CnsError::Artifact)?;
                 let started = Instant::now();
                 for _ in 0..ticks {
-                    lif.step(&params, false).map_err(CnsError::Artifact)?;
+                    lif.step(&params).map_err(CnsError::Artifact)?;
                 }
                 lif.synchronize().map_err(CnsError::Artifact)?;
                 let elapsed = started.elapsed().as_secs_f64();
@@ -619,7 +619,7 @@ fn close_loop(
                     let columns = column_luminance(&frame, width, height);
                     drive(&mut external, &input_indices, &input_columns, &columns);
                     lif.set_external(&external).map_err(CnsError::Artifact)?;
-                    lif.step(&params, true).map_err(CnsError::Artifact)?;
+                    lif.step(&params).map_err(CnsError::Artifact)?;
                     let fired = lif.fired().map_err(CnsError::Artifact)?;
                     frames.push(SpikeFrame {
                         tick,

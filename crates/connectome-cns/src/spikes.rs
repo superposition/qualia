@@ -1,9 +1,11 @@
 //! The recorded firing stream: magic `QLSP`, one frame per tick.
 //!
 //! A frame is `tick u64 | t_ns u64 | count u32 | ids u32[count]`, with the ids
-//! sorted ascending. The header is 12 bytes, so a frame starts 8-aligned and
-//! the whole file is a sequential read or an mmap walk — the viewer replays it
-//! and the runner appends to it with the same code.
+//! sorted ascending. The header is 8 bytes — magic `QLSP`, a `u16` version and
+//! a `u16` reserved, with the frames immediately after — so the whole file is a
+//! sequential read or an mmap walk: the runner appends to it and the viewer
+//! replays it with the same code. A frame is `20 + 4 * count` bytes, so frames
+//! are 4-byte aligned, not 8.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Write};

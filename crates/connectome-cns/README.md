@@ -25,8 +25,9 @@ Two facts decide the artifact's shape, and both are measured, not assumed:
 
 1. **The flat release is segment-level.** `body-stats` describes 88,384,522 segments with at least one
    synapse. Only 166,700 of them carry a `superclass` — the neurons the paper counts (the v2 preprint
-   abstract says 166,691 neurons and 11,691 types; the v1.0 annotation table carries 166,700 and
-   11,752) — and only 164,446 carry a cell type.
+   abstract says 166,691 neurons and 11,691 types; the v1.0 annotation table has 166,700 such rows and
+   **11,751** distinct non-null `type` labels, while the importer interns **11,752** because it adds
+   the empty label for the 2,194 neurons that have no type) — and only **164,506** carry a cell type.
 2. **The two tables cross-check.** Σ`weight` over the weights table is **311,833,243**, and
    Σ`post` over `body-stats` is **311,833,243** — the release's own segment-resolution synapse total,
    over 88.1M unannotated fragments as well as neurons.
@@ -83,8 +84,9 @@ of the 166,700 neurons carry a `somaLocation`; the rest are NaN and are counted 
 `nodes.txt` — one line per CSR node, tab separated: body id, type, superclass, side, instance. Text,
 because it is metadata; it is what the encoders select populations from.
 
-`spikes.bin` — magic `QLSP`, the recorded run: `tick u64 | t_ns u64 | count u32 | ids u32[count]`,
-ids ascending, one frame per tick, header 12 bytes.
+`spikes.bin` — magic `QLSP`, the recorded run: header `magic "QLSP" (4 B) | version u16 |
+reserved u16` = 8 bytes, then one frame per tick, `tick u64 | t_ns u64 | count u32 | ids
+u32[count]`, ids ascending.
 
 `manifest.json` — the schema literal, the counts, per-section `{offset, len, sha256}` for both binary
 files, the digest of each text table, the source tables' own byte sizes, digests and row counts, and
