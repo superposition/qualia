@@ -1,8 +1,8 @@
 # Handoff — getting the fly driving the WaveShare
 
-You are taking over a specific, short piece of work: the fly's wheel commands already reach a transport that
-can drive the robot; the three demonstrations that prove it are owed, and one small shim is missing between
-the fly and the transport. Read `docs/agents.md` (the operating model: breadcrumbs, claims, the board lease,
+You are taking over a specific, short piece of work: the fly's wheel commands have a per-tick shim into
+the merged transport, and the three demonstrations that prove robot actuation are still owed. The shim's
+local checks are recorded below. Read `docs/agents.md` (the operating model: breadcrumbs, claims, the board lease,
 the definition of done) and, if you are running in this session's harness, the batch context file
 `local://qualia-swarm-context.md`. Then read ticket **#262 (T67)** and its review trail — that is the state,
 not this file.
@@ -45,13 +45,24 @@ report the line; if it is accepted, the window is open.
 | The fly that produces commands | `crates/connectome-cns` (`qualia-connectome-cns loop … --trace <csv>`) | Merged. Its live camera loop produced the commands (196/200 host ticks; 296/300 and 294/300 on the board) and writes them to a **trace CSV**, not to a wire frame |
 | The post about all of this | `docs/figures/the-fly-brain-on-the-robot/` | Merged (#261); subject is the robot and the fly driving it |
 
-### The one missing shim
+### The producer shim
 
-The transport wants `{"T":…,"L":…,"R":…}` lines; the loop writes a trace CSV with a `command` column (left /
-right / hold) and wheel rates. **Write the small bridge** — either a `--frames-out` on the loop, or a tiny
-filter that reads the trace and emits frames — so the fly's own output is what the transport consumes. Keep
-it honest: the frame's `T` should be the loop's tick, and a `hold` must become a zero, not a skipped line
-(the deadman then does the right thing on a gap).
+Implemented by `loop --frames-out -`: one flushed JSON frame per tick, with that tick in `T` and an
+explicit zero for every hold. The same decoder values write the CSV. The loop now decodes during
+acquisition rather than after the full run, so a camera gap reaches the transport as a gap. Status goes
+to stderr. `--max-wheel-speed` defaults to `0.04`; a frame-file destination must be new.
+
+The CSV rates are **neural firing fractions**, not wheel speeds. The bridge maps `command` and
+`throttle` into bounded pivots; the mapping and live pipe recipe are in
+[`crates/connectome-cns/README.md`](../crates/connectome-cns/README.md#wheel-frames-for-the-leash-transport).
+[`docs/evidence/T67/fly-frames/`](evidence/T67/fly-frames/) records the local CPU/GPU checks. No robot
+request or fresh acknowledgement probe accompanied them: both the zero probe and motion still wait
+for the operator's word to retry. The three demonstrations remain owed.
+
+A subsequent host run against the robot's live camera completed 30 ticks in 5.181 s, producing 27
+steering decisions and 3 holds into a local frame file. That sensor-to-frame run is recorded in the
+same evidence directory. The transport was built but not started; no motor command or bearer access
+accompanied this run.
 
 ## Running the transport
 
