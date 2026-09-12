@@ -30,10 +30,6 @@ pub const DEFAULT_REPLICA_ID: &str = "qualia-host";
 pub const DEFAULT_ROSBRIDGE_URL: &str = "ws://127.0.0.1:9091";
 /// `QUALIA_RERUN_BLUEPRINT_NAME`, default `Thought Theater`.
 pub const DEFAULT_BLUEPRINT_NAME: &str = "Thought Theater";
-/// `QUALIA_ORIN_CAMERA_DEVICE`, default `/dev/video0`.
-pub const DEFAULT_ORIN_CAMERA_DEVICE: &str = "/dev/video0";
-/// `QUALIA_ORIN_SNAPSHOT_INTERVAL_MS`, default `500`.
-pub const DEFAULT_ORIN_SNAPSHOT_INTERVAL_MS: u64 = 500;
 /// `QUALIA_JEPA_CATALOG`, default `artifacts/jepa/catalog.json`, the catalog of
 /// sealed session evidence Step 31's dataset binary reads.
 pub const DEFAULT_JEPA_CATALOG: &str = "artifacts/jepa/catalog.json";
@@ -85,13 +81,6 @@ pub struct ReplicaConfig {
     pub capabilities_json: String,
     pub metadata_json: String,
     pub endpoint: String,
-}
-
-/// The Orin snapshot capture settings, Linux-only in practice.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OrinConfig {
-    pub camera_device: String,
-    pub snapshot_interval_ms: u64,
 }
 
 /// Step 31's paths, as the process's environment names them: the sealed catalog
@@ -186,7 +175,6 @@ pub struct AgentConfig {
     /// registry pointer.
     pub promotion: PromotionConfig,
     pub replica: ReplicaConfig,
-    pub orin: OrinConfig,
     pub auth: AuthConfig,
     /// `QUALIA_ENTITY_PROFILES`, a path list.
     pub entity_profiles: Option<String>,
@@ -230,10 +218,6 @@ impl Default for AgentConfig {
                 capabilities_json: "{}".to_string(),
                 metadata_json: "{}".to_string(),
                 endpoint: String::new(),
-            },
-            orin: OrinConfig {
-                camera_device: DEFAULT_ORIN_CAMERA_DEVICE.to_string(),
-                snapshot_interval_ms: DEFAULT_ORIN_SNAPSHOT_INTERVAL_MS,
             },
             auth: AuthConfig::default(),
             entity_profiles: None,
@@ -296,13 +280,6 @@ impl AgentConfig {
                 metadata_json: env_string("QUALIA_REPLICA_METADATA_JSON")
                     .unwrap_or_else(|| "{}".to_string()),
                 endpoint: env_string("QUALIA_SYNC_ENDPOINT").unwrap_or_default(),
-            },
-            orin: OrinConfig {
-                camera_device: env_string("QUALIA_ORIN_CAMERA_DEVICE")
-                    .unwrap_or_else(|| DEFAULT_ORIN_CAMERA_DEVICE.to_string()),
-                snapshot_interval_ms: env_string("QUALIA_ORIN_SNAPSHOT_INTERVAL_MS")
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(DEFAULT_ORIN_SNAPSHOT_INTERVAL_MS),
             },
             auth: AuthConfig::from_env(),
             entity_profiles: std::env::var_os("QUALIA_ENTITY_PROFILES")
