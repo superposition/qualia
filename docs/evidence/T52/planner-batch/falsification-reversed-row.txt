@@ -1,0 +1,24 @@
+   Compiling qualia-jepa-model v0.1.0 (/mnt/c/Users/ericm/wt/T52planner/crates/jepa-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.49s
+     Running unittests src/lib.rs (/home/superposition/t52-target/debug/deps/qualia_jepa_model-659846a4d06a75f0)
+
+running 1 test
+test planner::tests::the_same_emitted_values_across_the_batched_planner_step ... FAILED
+
+failures:
+
+---- planner::tests::the_same_emitted_values_across_the_batched_planner_step stdout ----
+
+thread 'planner::tests::the_same_emitted_values_across_the_batched_planner_step' (1868) panicked at crates/jepa-model/src/planner.rs:1201:9:
+assertion `left == right` failed: max_collision_probability moved for candidate-00: 0.28894565 != 0.28633523
+  left: 1049882799
+ right: 1049795208
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    planner::tests::the_same_emitted_values_across_the_batched_planner_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p qualia-jepa-model --lib`

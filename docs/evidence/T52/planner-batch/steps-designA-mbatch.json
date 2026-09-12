@@ -1,0 +1,1 @@
+{"backend":"cuda","batched_step_ms":215.434882,"bit_identical":false,"checkpoint_id":"t52-candidate","mismatched_rows":64,"mode":"steps","rows":64,"single_step_ms":26.918659,"worst_raw_bit_delta":2228224}
