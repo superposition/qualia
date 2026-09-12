@@ -209,6 +209,34 @@ question any more. **T52's step 2 (`qualia-jepa-parity` and `qualia-jepa-plan-ev
 promotion-passing checkpoint) is therefore still not producible**: no artifact this repository
 trains clears `all_gates_passed`, so there is still no promoted checkpoint to point those runs at.
 
+## The board leg
+
+Recorded on its stated reason, with this ticket's own measurement of the first limb. **No aarch64
+artifact of these binaries can be built on this host**: on the 1.98.1 toolchain
+`rustup target list --installed` carries only `x86_64-unknown-linux-gnu`, and `which
+aarch64-linux-gnu-gcc cross` finds neither on `PATH`. The build dies the way #224 recorded for this
+same package:
+
+```text
+$ rustup run 1.98.1 cargo build --release -j 2 --target aarch64-unknown-linux-gnu \
+    -p qualia-jepa-model --bin qualia-jepa-train
+   Compiling cfg-if v1.0.4
+error[E0463]: can't find crate for `core`
+  |
+  = note: the `aarch64-unknown-linux-gnu` target may not be installed
+error: could not compile `cfg-if` (lib) due to 1 previous error
+# rc 101
+```
+
+That is the same `rc 101`, `error[E0463]` #224 measured, and the fault `docs/decisions.md` D-018
+names (no Docker engine, no `cross`, no `aarch64-linux-gnu-gcc`; the musl target fails the same way).
+**And none could run on Pinkie anyway**: the board's offline registry cache carries no `candle-core`
+and the board has no DNS (D-016/D-018), so these model binaries cannot be built or fetched there —
+#224's board record states the same for the same bins. No cross-build is claimed; this paragraph is
+the DoD's stated-reason clause, and every run in this capture was on the dev host's 4090. The
+`git archive` + native aarch64 board build that D-018 records as lane (a) is the board job's, not
+this agent's: the batch's host rules reserve Pinkie, and this agent has no ssh to it.
+
 ## Files
 
 | file | bytes | sha256 |
