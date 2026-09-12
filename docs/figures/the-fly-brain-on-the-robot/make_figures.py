@@ -160,7 +160,8 @@ def drive_commands() -> None:
         0.012,
         0.02,
         "Source: each run's committed trace in docs/evidence/T55/connectome-runner/ "
-        "(host-loop-gpu-trace.csv, board-loop-trace.csv, board-loop-trace-rerun.csv), re-counted here.",
+        "(host-loop-gpu-trace.csv, board-loop-trace.csv, board-loop-trace-rerun.csv), re-counted here; "
+        "the first board run's wall-clock is issue #236's braid comment.",
         fontsize=8.3,
         color=MUTED,
     )
