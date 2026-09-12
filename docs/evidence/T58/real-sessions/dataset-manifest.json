@@ -1,0 +1,41 @@
+{
+  "schema_version": "qualia.jepa-dataset.v3",
+  "digest": "fb309e6f160badff5d5493f09ba194cb50727c48e512e4744fd8cc477f8d5a75",
+  "config": {
+    "max_sensor_skew_ns": 150000000,
+    "max_frame_gap_ns": 500000000,
+    "min_action_coverage": 0.8,
+    "min_lidar_valid_fraction": 0.1,
+    "min_pose_confidence": 0.1,
+    "min_luminance_mean": 0.05,
+    "max_luminance_mean": 0.95,
+    "lidar_max_range_m": 8.0,
+    "grounding_resolution_m": 0.05
+  },
+  "sources": [
+    {
+      "session_id": "t58-real-01",
+      "environment_id": "pinkie-bench",
+      "condition": "bench-static",
+      "primary_entity": "pinkie",
+      "path": "/home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap",
+      "sha256": "97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334"
+    }
+  ],
+  "samples": [],
+  "audit": {
+    "candidate_transitions": 4501,
+    "valid_transitions": 0,
+    "rejected": {
+      "calibration_missing": 4501
+    },
+    "sessions": 0,
+    "environments": 0,
+    "conditions": {},
+    "split_samples": {},
+    "mean_sensor_skew_ns": 0.0,
+    "p95_sensor_skew_ns": 0,
+    "mean_action_coverage": 0.0,
+    "overexposed_candidate_fraction": 0.0
+  }
+}

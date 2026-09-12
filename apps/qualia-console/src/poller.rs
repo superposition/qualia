@@ -80,6 +80,8 @@ fn worker(
     // The stack's declared row set is a deployment fact, not a per-poll one:
     // read the manifest once and hold it for the life of the poller.
     let sensing = crate::stack::load_sensing_set();
+    // The broker's status address is read once, the way every other address is.
+    let coach_url = crate::views::coach::coach_url();
     let mut evidence = EvidenceScan::default();
 
     loop {
@@ -87,29 +89,44 @@ fn worker(
         let region = shm_sample::region_name();
         let shm = shm_sample::sample(&region, &sensing);
 
-        let sample = match source.fetch() {
-            Ok(snapshot) => {
-                let mut brain = shm.brain;
-                brain.record_braid(&snapshot.braid);
-                brain.observe_coupling_scale(observed_at_ns);
-                Sample {
-                    observed_at_ns,
-                    connection: crate::Connection::Live,
-                    braid: snapshot.braid,
-                    drift: snapshot.drift,
-                    belief: shm.belief,
-                    world: shm.world,
-                    telemetry: shm.telemetry,
-                    evidence: evidence.refresh(&evidence_root, shm.ledger),
-                    brain,
-                }
-            }
+        // The region readings are the region's, not the agent's: they are read
+        // and shown whether or not the braid answers, so a dead agent degrades
+        // the Mission panel instead of blanking the whole page. The braid
+        // itself is the live agent's, or the committed fixture's with the
+        // reason named in Mission's banner.
+        let (connection, braid, drift) = match source.fetch() {
+            Ok(snapshot) => (crate::Connection::Live, snapshot.braid, snapshot.drift),
             Err(reason) => {
                 // The fallback is the committed fixture source; if even that
                 // cannot answer, the compiled-in fixture still can.
                 let fixture = fallback.fetch().unwrap_or_else(|_| client::fixture());
-                Sample::degraded(&fixture, &reason, observed_at_ns)
+                (
+                    crate::Connection::Unreachable { reason },
+                    fixture.braid,
+                    fixture.drift,
+                )
             }
+        };
+
+        let mut brain = shm.brain;
+        brain.record_braid(&braid);
+        brain.observe_coupling_scale(observed_at_ns);
+        // The coach is the broker's second source, on loopback: a broker that
+        // is not running degrades the Coach panel with a named line and never
+        // touches the braid's own reading.
+        let coach = crate::views::coach::sample(&coach_url);
+        let sample = Sample {
+            observed_at_ns,
+            connection,
+            braid,
+            drift,
+            belief: shm.belief,
+            world: shm.world,
+            telemetry: shm.telemetry,
+            evidence: evidence.refresh(&evidence_root, shm.ledger),
+            brain,
+            stats: shm.stats,
+            coach,
         };
 
         let live = sample.connection == crate::Connection::Live;

@@ -8,7 +8,9 @@
 use crate::client::{BraidSnapshot, BraidState, DriftReport};
 use crate::views::belief::BeliefView;
 use crate::views::brain::BrainView;
+use crate::views::coach::CoachView;
 use crate::views::evidence::{EvidenceView, DEFAULT_EVIDENCE_ROOT};
+use crate::views::stats::StatsView;
 use crate::views::telemetry::TelemetryView;
 use crate::views::world::WorldView;
 use crate::Connection;
@@ -33,6 +35,14 @@ pub struct Sample {
     pub evidence: EvidenceView,
     pub telemetry: TelemetryView,
     pub brain: BrainView,
+    /// The runner telemetry frames the HUD draws. The poller fills this from
+    /// the stats region even when the agent is unreachable, so the operator's
+    /// panels stay live without a braid.
+    pub stats: StatsView,
+    /// The mission broker's decision stream (T63), read from its own loopback
+    /// status surface; a broker that is not running is a named line, never an
+    /// invented decision.
+    pub coach: CoachView,
 }
 
 impl Sample {
@@ -62,6 +72,14 @@ impl Sample {
             },
             telemetry: TelemetryView::unattached(format!("agent unreachable: {reason}")),
             brain,
+            stats: StatsView::unattached(
+                Some(FIXTURE_SHM_REGION.to_owned()),
+                format!("agent unreachable: {reason}"),
+            ),
+            coach: CoachView::Unreachable {
+                url: crate::views::coach::coach_url(),
+                reason: "not polled".to_string(),
+            },
         }
     }
 }

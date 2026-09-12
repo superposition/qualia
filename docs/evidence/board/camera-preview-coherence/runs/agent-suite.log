@@ -1,0 +1,116 @@
+   Compiling qualia-agent v0.1.0 (/home/jetson/remediate/515a506/runners/agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 52s
+     Running unittests src/lib.rs (target/debug/deps/qualia_agent-22fb60e78f16e1ee)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/qualia_agent-315d2fc0a286a800)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/braid.rs (target/debug/deps/braid-2584856771b61a55)
+
+running 4 tests
+test braid_edge_rejects_a_tagless_body ... ok
+test braid_edge_refuses_the_quarantine_variant ... ok
+test a_seal_under_a_closed_mission_arms_one_training_job ... ok
+test braid_endpoint_reports_state ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/env_contract.rs (target/debug/deps/env_contract-11fc73cde480ffba)
+
+running 5 tests
+test an_unset_stack_manifest_names_no_handover_target ... ok
+test the_camera_source_names_the_configured_url ... ok
+test boolean_keys_accept_only_the_reference_spellings ... ok
+test replica_role_parses_and_falls_back_to_host ... ok
+test the_loopback_bypass_keeps_the_reference_off_only_spellings ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/improvement.rs (target/debug/deps/improvement-a76a3f7df7594bd4)
+
+running 5 tests
+test a_malformed_digest_submits_nothing ... ok
+test a_root_only_candidate_is_not_accepted ... ok
+test a_seal_under_a_closed_mission_submits_one_bounded_job ... ok
+test the_gate_is_handed_the_nested_candidate_directory ... ok
+test a_seal_while_the_job_runs_is_refused ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/leash.rs (target/debug/deps/leash-bcd9e93d981d6b8c)
+
+running 16 tests
+test a_command_the_declaration_does_not_carry_is_refused_locally ... ok
+test a_navigation_goal_without_an_operator_label_is_refused_locally ... ok
+test a_refused_operator_lease_stops_the_goal ... ok
+test a_leash_refusal_carries_leashs_own_answer ... ok
+test a_goal_leash_reports_inactive_is_refused ... ok
+test an_acknowledged_estop_is_accepted ... ok
+test an_estop_the_declaration_does_not_require_acknowledgement_for_is_refused_locally ... ok
+test a_profile_that_declares_the_command_is_carried ... ok
+test an_estop_leash_does_not_acknowledge_is_refused ... ok
+test navigate_sends_the_goal_contract_and_records_acceptance ... ok
+test a_profile_that_does_not_declare_the_command_sends_nothing ... ok
+test the_leash_routes_require_operator_authority ... ok
+test the_operator_lease_is_bounded_by_the_contract_and_the_plan ... ok
+test the_agent_routes_forward_and_report_the_outcome ... ok
+test a_silent_leash_is_an_explicit_timeout ... ok
+test forwarding_writes_no_motor_or_arena_goal ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/mission_broker.rs (target/debug/deps/mission_broker-fe754b98697c1ea4)
+
+running 8 tests
+test broker_scope_requires_its_token ... ok
+test a_journal_written_before_the_dial_still_loads ... ok
+test malformed_envelope_is_refused_and_leaves_the_braid_alone ... ok
+test accepted_mission_binds_the_braid_session ... ok
+test an_unset_stack_manifest_leaves_the_repository_manifest_alone ... ok
+test replayed_envelope_is_idempotent ... ok
+test a_closed_mission_steps_the_coupling_dial ... ok
+test accepted_mission_opens_the_braid_and_cancel_closes_it ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/startup.rs (target/debug/deps/startup-3d259aff5ca8bea9)
+
+running 1 test
+test an_unloadable_tls_keypair_is_the_reference_start_failure ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/surface.rs (target/debug/deps/surface-6fbff1eca58f3c3f)
+
+running 15 tests
+test braid_view_carries_the_console_contract ... ok
+test cuda_smoke_reports_a_result_body ... ok
+test entities_are_empty_without_profiles ... ok
+test an_unauthenticated_read_gets_the_reference_auth_error ... ok
+test operator_page_and_static_assets_come_from_the_web_dir ... ok
+test mcp_advertises_the_reference_tool_manifest ... ok
+test routes_whose_subsystem_has_not_landed_say_so ... ok
+test encoded_frame_serves_the_published_preview_verbatim ... ok
+test compute_path_checks_pose_then_lidar_before_the_service ... ok
+test unknown_routes_are_not_found ... ok
+test health_ready_reports_the_stack_shape ... ok
+test nav_goal_writes_the_shared_goal ... ok
+test perception_status_reports_absent_then_fresh_camera ... ok
+test status_routes_keep_their_reference_shapes ... ok
+test the_encoded_frame_endpoint_never_serves_a_torn_preview ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+   Doc-tests qualia_agent
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

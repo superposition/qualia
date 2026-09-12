@@ -365,23 +365,14 @@ pub fn publish_camera_preview(shm: &ShmRegion, bytes: &[u8], width: u32, height:
     let format = encoded_format(bytes);
     let publishable = format != PREVIEW_FORMAT_NONE && bytes.len() <= CAMERA_PREVIEW_MAX_BYTES;
     let preview = shm.camera_preview_mut();
-    let opening = preview.seq.load(Ordering::Acquire).wrapping_add(1) | 1;
-    preview.seq.store(opening, Ordering::Release);
-    preview.len.store(0, Ordering::Release);
-    if publishable {
-        preview.timestamp_ns = now_ns();
-        preview.width = width;
-        preview.height = height;
-        preview.format = format;
-        preview.bytes[..bytes.len()].copy_from_slice(bytes);
-        preview.len.store(bytes.len(), Ordering::Release);
+    // The runner is this slot's single writer, so the seqlock exchange inside
+    // `publish`/`clear` never finds an odd sequence: it takes the odd marker
+    // with acquire-release, which is what orders the byte copy after it.
+    let _ = if publishable {
+        preview.publish(format, width, height, now_ns(), bytes)
     } else {
-        preview.timestamp_ns = 0;
-        preview.width = 0;
-        preview.height = 0;
-        preview.format = PREVIEW_FORMAT_NONE;
-    }
-    preview.seq.store(opening.wrapping_add(1), Ordering::Release);
+        preview.clear()
+    };
 }
 
 /// The preview format code the slot records for `bytes`.

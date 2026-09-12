@@ -1,0 +1,17 @@
+[package]
+name = "qualia-leash-sensors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Leash sensor ingest — subscribes to the body's own sensor surface and publishes it into the arena"
+
+[[bin]]
+name = "qualia-leash-sensors"
+path = "src/main.rs"
+
+[dependencies]
+qualia-lidar = { path = "../lidar" }
+qualia-shm.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"

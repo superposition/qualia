@@ -12,6 +12,7 @@
 //!   [`BraidSource`]s, so the view never knows which one it has;
 //! - source 4 — the wire types belong with the client, not the widget.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,12 @@ pub const BRAID_STATE_SCHEMA: &str = "qualia.braid-state.v1";
 
 /// The only default address in the source; every other address is config.
 pub const DEFAULT_AGENT_URL: &str = "http://127.0.0.1:8080";
+
+/// Environment key naming the directory that holds the agent's own `cert.pem`.
+pub const AGENT_TLS_DIR_ENV: &str = "QUALIA_AGENT_TLS_DIR";
+
+/// The agent's certificate directory when the deployment names none.
+pub const DEFAULT_AGENT_TLS_DIR: &str = ".qualia_tls";
 
 /// Establish budget, from the ops dashboard's 700 ms connect / 1200 ms total.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(700);
@@ -111,11 +118,21 @@ pub struct HttpSource {
 
 impl HttpSource {
     pub fn new(base_url: impl Into<String>) -> Result<Self, String> {
-        let client = reqwest::blocking::Client::builder()
+        let base_url = base_url.into();
+        let mut builder = reqwest::blocking::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .map_err(|error| classify(&error))?;
+            .timeout(REQUEST_TIMEOUT);
+        // The agent serves TLS with the certificate it generates on first start
+        // (`QUALIA_AGENT_TLS_DIR/cert.pem`, default `$HOME/.qualia_tls`). An
+        // operator can hand the console that certificate as a root; trusting a
+        // named deployment certificate is not the same as disabling
+        // verification, and there is still no insecure default.
+        if base_url.starts_with("https://") {
+            if let Some(certificate) = agent_certificate() {
+                builder = builder.add_root_certificate(certificate);
+            }
+        }
+        let client = builder.build().map_err(|error| classify(&error))?;
         Ok(Self {
             base_url: base_url.into(),
             client,
@@ -125,6 +142,24 @@ impl HttpSource {
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
+}
+
+/// The agent's own certificate PEM, when the deployment has one on disk.
+///
+/// The directory is `QUALIA_AGENT_TLS_DIR`, or `$HOME/.qualia_tls` — the
+/// default the agent generates into. A missing or unreadable file is not an
+/// error: the request then fails verification and the Mission banner names it,
+/// which is the honest state for an agent whose certificate this host has not
+/// been given.
+fn agent_certificate() -> Option<reqwest::Certificate> {
+    let directory = std::env::var_os(AGENT_TLS_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(DEFAULT_AGENT_TLS_DIR))
+        })?;
+    let pem = std::fs::read(directory.join("cert.pem")).ok()?;
+    reqwest::Certificate::from_pem(&pem).ok()
 }
 
 impl BraidSource for HttpSource {

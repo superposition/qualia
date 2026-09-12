@@ -5854,12 +5854,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-connectome-stream"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "qualia-connectome-view"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "qualia-connectome-stream",
+ "qualia-rerun-bridge",
+ "rerun",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "qualia-console"
 version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "qualia-connectome-stream",
  "qualia-fly-circuit",
  "qualia-mcap",
  "qualia-shm",
@@ -6122,6 +6145,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-leash-sensors"
+version = "0.1.0"
+dependencies = [
+ "qualia-lidar",
+ "qualia-shm",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "qualia-lidar"
 version = "0.1.0"
 dependencies = [
@@ -6159,6 +6193,17 @@ dependencies = [
  "qualia-jepa",
  "qualia-shm",
  "qualia-types",
+]
+
+[[package]]
+name = "qualia-mission-broker"
+version = "0.1.0"
+dependencies = [
+ "qualia-sync-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

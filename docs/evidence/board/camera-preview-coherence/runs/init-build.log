@@ -1,0 +1,29 @@
+   Compiling qualia-types v0.1.0 (/home/jetson/remediate/515a506/crates/types)
+   Compiling qualia-ipc v0.1.0 (/home/jetson/remediate/515a506/crates/ipc)
+   Compiling qualia-shm v0.1.0 (/home/jetson/remediate/515a506/crates/shm)
+   Compiling qualia-init v0.1.0 (/home/jetson/remediate/515a506/runners/init)
+warning: direct cast of function item into an integer
+   --> runners/init/src/main.rs:376:51
+    |
+376 |         libc::signal(libc::SIGINT, signal_handler as libc::sighandler_t);
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(function_casts_as_integer)]` on by default
+help: first cast to a pointer `as *const ()`
+    |
+376 |         libc::signal(libc::SIGINT, signal_handler as *const () as libc::sighandler_t);
+    |                                                   ++++++++++++
+
+warning: direct cast of function item into an integer
+   --> runners/init/src/main.rs:377:52
+    |
+377 |         libc::signal(libc::SIGTERM, signal_handler as libc::sighandler_t);
+    |                                                    ^^^^^^^^^^^^^^^^^^^^^
+    |
+help: first cast to a pointer `as *const ()`
+    |
+377 |         libc::signal(libc::SIGTERM, signal_handler as *const () as libc::sighandler_t);
+    |                                                    ++++++++++++
+
+warning: `qualia-init` (bin "qualia-init") generated 2 warnings (run `cargo fix --bin "qualia-init" -p qualia-init` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.78s

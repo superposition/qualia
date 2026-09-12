@@ -15,7 +15,7 @@
 //! carries [`ACTION_SAFETY_TRANSPORT_ERROR`]. The runner holds zero speed while
 //! armed at startup, and it never fails to start because a sensor is quiet.
 
-use qualia_shm::ShmRegion;
+use qualia_shm::{ShmRegion, StatsWriter};
 use qualia_types::{
     AppliedActionSnapshot, LidarScanSnapshot, NavGoal, NavPose, LIDAR_MAX_POINTS,
     ACTION_AUTHORITY_QUALIA_DRIVE, ACTION_SAFETY_COLLISION_CLAMP, ACTION_SAFETY_DISARMED,
@@ -31,6 +31,9 @@ use std::time::{Duration, Instant};
 // Serial link and shared-region defaults.
 const DEFAULT_SHM_NAME: &str = "/qualia_body";
 const DEFAULT_PORT: &str = "/dev/ttyTHS1";
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-drive`.
+const RUNNER_NAME: &str = "qualia-drive";
 const DEFAULT_BAUD: u32 = 115_200;
 const DEFAULT_TICK_MS: u64 = 100;
 
@@ -223,6 +226,9 @@ fn main() {
     let producer_epoch = now_ns();
     let mut action_sequence = 0u64;
     let mut pending: Option<AppliedActionSnapshot> = None;
+    // The runner's own telemetry frame: ticks/s, the wheel speeds it last wrote
+    // and whether the link took them.
+    let mut telemetry = StatsWriter::attach(&config.shm_name, RUNNER_NAME);
 
     loop {
         let now = now_ns();
@@ -286,6 +292,17 @@ fn main() {
         if last_log.elapsed() >= LOG_PERIOD {
             log_tick(&decision, &sensors);
             last_log = Instant::now();
+        }
+
+        if let Some(telemetry) = telemetry.as_mut() {
+            telemetry.tick();
+            telemetry.set_value(0, "left", decision.left);
+            telemetry.set_value(1, "right", decision.right);
+            telemetry.set_value(2, "goal active", if sensors.goal.active != 0 { 1.0 } else { 0.0 });
+            telemetry.set_value(3, "link ok", if transport_ok { 1.0 } else { 0.0 });
+            if !transport_ok {
+                telemetry.record_error();
+            }
         }
 
         thread::sleep(Duration::from_millis(config.tick_ms));

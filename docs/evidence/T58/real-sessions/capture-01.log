@@ -1,0 +1,60 @@
+== device enumeration ==
+crw-rw---- 1 root video 81, 0 Dec 31  1969 /dev/video0
+crw-rw---- 1 root video 81, 1 Dec 31  1969 /dev/video1
+ls: cannot access '/dev/ttyUSB*': No such file or directory
+crw-rw---- 1 root dialout 166, 0 Dec 31  1969 /dev/ttyACM0
+ls: cannot access '/dev/iio:device*': No such file or directory
+NVIDIA Tegra Video Input Device (platform:tegra-camrtc-ca):
+	/dev/media0
+
+USB Camera: USB Camera (usb-3610000.usb-2.2):
+	/dev/video0
+	/dev/video1
+	/dev/media1
+
+09-12-2026 01:37:49 RAM 1507/3602MB (lfb 14x4MB) SWAP 427/14089MB (cached 7MB) CPU [3%@729,0%@729,1%@729,3%@729,3%@729,1%@729] GR3D_FREQ 0% cpu@56.343C soc2@56.125C soc0@54.562C gpu@56.031C tj@56.531C soc1@56.531C VDD_IN 4428mW/4428mW VDD_CPU_GPU_CV 562mW/562mW VDD_SOC 1366mW/1366mW
+09-12-2026 01:37:50 RAM 1505/3602MB (lfb 14x4MB) SWAP 427/14089MB (cached 7MB) CPU [4%@729,0%@729,5%@729,1%@729,2%@729,2%@729] GR3D_FREQ 0% cpu@56.5C soc2@56.062C soc0@54.218C gpu@56C tj@56.5C soc1@56.437C VDD_IN 4428mW/4428mW VDD_CPU_GPU_CV 562mW/562mW VDD_SOC 1366mW/1366mW
+== leash owner of the ports ==
+[sudo] password for jetson: COMMAND  PID   USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+leash   1299 jetson   44uW  CHR  240,1      0t0  153 /dev/ttyTHS1
+leash   1299 jetson   45uW  CHR  166,0      0t0  833 /dev/ttyACM0
+== leash sensor surface (fresh observe) ==
+camera: {"health": "healthy", "snapshot_url": "/camera/snapshot", "status": "available", "stream_url": "/camera/stream.mjpg"}
+range_scan: available waveshare-ugv-ld06 last_ms 1789191471905 points 360
+imu: available waveshare-ugv last_ms 1789191471861
+odometry: {"left_m": 0.0, "right_m": -0.01, "status": "available"}
+== start t58-real-01 at 1789191471964593088 (2026-09-12T05:37:51Z) for 900s ==
+RECORDER_RC=0
+== session files ==
+total 81348
+-rw-rw-r-- 1 jetson jetson 83299459 Sep 12 01:52 t58-real-01.mcap
+MCAP=/home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap
+97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334  /home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap
+/home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap 83299459 bytes
+== inspect ==
+INSPECT_RC=0
+/qualia/camera           pinkie   messages=  4502 span_ns=  900076073472 payload_bytes=52452153
+/qualia/lidar            pinkie   messages=  8775 span_ns=  899988080288 payload_bytes=4846499653
+session_span_ns None total_payload_bytes None
+== recorder log ==
+qualia-arena-recorder: recording session=t58-real-01 sources=pinkie:/qualia_body(primary) root=/home/jetson/t58-capture/t58-real-01/mcap
+qualia-arena-recorder: completed /home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap sha256=97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334 channels=12
+== camera log (first and last three lines) ==
+qualia-camera: consuming live MJPEG stream http://127.0.0.1:8000/camera/stream.mjpg; publishing at most every 100ms
+qualia-camera: frame_seq=2 src=640x480 thumb=64x48 luma_mean=0.468 luma_std=0.148 quality=usable
+qualia-camera: frame_seq=32 src=640x480 thumb=64x48 luma_mean=0.468 luma_std=0.148 quality=usable
+...
+qualia-camera: frame_seq=9002 src=640x480 thumb=64x48 luma_mean=0.465 luma_std=0.150 quality=usable
+qualia-camera: frame_seq=9032 src=640x480 thumb=64x48 luma_mean=0.464 luma_std=0.150 quality=usable
+qualia-camera: frame_seq=9062 src=640x480 thumb=64x48 luma_mean=0.468 luma_std=0.150 quality=usable
+== leash-sensors log (first and last three lines) ==
+qualia-leash-sensors: subscribing to http://127.0.0.1:8000/mcp observe every 100ms; publishing range scans into /qualia_body
+qualia-leash-sensors: leash surface imu=available(waveshare-ugv) odometry=present (range scan is what this runner publishes)
+qualia-leash-sensors: scan 1 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=267 rate=10.007Hz range_mm=157..3329 age_ms=67
+...
+qualia-leash-sensors: scan 8700 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=265 rate=10.018Hz range_mm=157..3327 age_ms=57
+qualia-leash-sensors: scan 8750 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=268 rate=10.000Hz range_mm=157..3328 age_ms=88
+qualia-leash-sensors: scan 8800 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=268 rate=9.996Hz range_mm=156..3325 age_ms=13
+== window ==
+start_ns=1789191471964593088 end_ns=1789192381565040000 elapsed_s=909
+== end ==

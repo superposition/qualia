@@ -12,10 +12,13 @@ use crate::theme;
 
 use super::layout::Layout;
 use super::prior::PriorGraph;
+use super::connectome::{firing_colour, ConnectomeCloud, ConnectomeFrame};
 use super::{BrainAssets, BrainView};
 
-/// Height of the scene canvas, above the matrix panels.
-pub const SCENE_HEIGHT: f32 = 216.0;
+/// Height of the scene canvas, above the matrix panels. The connectome cloud is
+/// the layer with the most to show, so the canvas is tall enough for a brain to
+/// read at a glance rather than a thumbnail above the matrices.
+pub const SCENE_HEIGHT: f32 = 320.0;
 /// Nodes drawn per frame; the rest are counted as dropped.
 pub const MAX_NODES_DRAWN: usize = 4096;
 /// Edges drawn per frame; the rest are counted as dropped.
@@ -24,6 +27,10 @@ pub const MAX_EDGES_DRAWN: usize = 6000;
 pub const MAX_POINTS_DRAWN: usize = 720;
 /// Occupied voxels drawn per frame; the rest are counted as dropped.
 pub const MAX_VOXELS_DRAWN: usize = 3000;
+/// Connectome cloud points drawn per frame; the rest are counted as dropped.
+pub const MAX_CLOUD_DRAWN: usize = 10_000;
+/// Firing nodes drawn per frame; the rest are counted as dropped.
+pub const MAX_FIRING_DRAWN: usize = 4096;
 
 /// Which of the scene's layers are showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +38,8 @@ pub struct SceneToggles {
     pub world: bool,
     pub cloud: bool,
     pub brain: bool,
+    /// The released male-CNS connectome point cloud and the firing set.
+    pub connectome: bool,
     pub floor: bool,
 }
 
@@ -40,6 +49,7 @@ impl Default for SceneToggles {
             world: true,
             cloud: true,
             brain: true,
+            connectome: true,
             floor: true,
         }
     }
@@ -129,6 +139,12 @@ pub struct SceneCounts {
     pub points_drawn: usize,
     pub voxels_drawn: usize,
     pub voxels_total: usize,
+    /// Connectome cloud points drawn, and the placed rows they come from.
+    pub connectome_drawn: usize,
+    pub connectome_placed: usize,
+    /// Firing nodes drawn, and the tick's firing count.
+    pub firing_drawn: usize,
+    pub firing_total: usize,
 }
 
 /// Draw the scene into `rect`, returning what was drawn.
@@ -139,6 +155,8 @@ pub fn paint(
     toggles: SceneToggles,
     view: &BrainView,
     assets: &BrainAssets,
+    cloud: Option<&ConnectomeCloud>,
+    frame: &ConnectomeFrame,
 ) -> SceneCounts {
     painter.rect_filled(rect, 0.0, theme::BG);
     let projector = Projector::new(rect, *camera);
@@ -176,8 +194,60 @@ pub fn paint(
             paint_graph(painter, rect, &projector, view, prior, layout, &mut counts);
         }
     }
+    if toggles.connectome {
+        if let Some(cloud) = cloud {
+            paint_connectome(painter, rect, &projector, cloud, frame, &mut counts);
+        }
+    }
 
     counts
+}
+
+/// The released connectome: the placed somata as the dim cloud, the tick's
+/// firing nodes on top of it, bright and larger.
+///
+/// The cloud is drawn from the decimated subset the loader picked, so the frame
+/// cost is bounded by [`MAX_CLOUD_DRAWN`] however many nodes the artifact
+/// places; the panel reports what was dropped.
+fn paint_connectome(
+    painter: &Painter,
+    rect: Rect,
+    projector: &Projector,
+    cloud: &ConnectomeCloud,
+    frame: &ConnectomeFrame,
+    counts: &mut SceneCounts,
+) {
+    counts.connectome_placed = cloud.points.len();
+    for index in &cloud.draw {
+        let point = &cloud.points[*index];
+        let (position, depth) = projector.project(point.position);
+        if !rect.contains(position) {
+            continue;
+        }
+        let colour = point.colour.gamma_multiply(Projector::depth_alpha(depth) * 0.85);
+        painter.circle_filled(position, 1.0, colour);
+        counts.connectome_drawn += 1;
+    }
+
+    counts.firing_total = frame.firing.len();
+    let hot = firing_colour();
+    // The ids arrive sorted, so a plain `take` would draw the lowest node
+    // indices — one corner of the brain. Stride instead, so the highlighted set
+    // is spread over the whole cloud, and report what was dropped.
+    let stride = frame.firing.len().div_ceil(MAX_FIRING_DRAWN).max(1);
+    for node in frame.firing.iter().step_by(stride) {
+        let Some(point) = cloud.point_of(*node) else {
+            continue;
+        };
+        let (position, depth) = projector.project(point.position);
+        if !rect.contains(position) {
+            continue;
+        }
+        let alpha = Projector::depth_alpha(depth);
+        painter.circle_filled(position, 4.0, hot.gamma_multiply(alpha * 0.35));
+        painter.circle_filled(position, 2.4, hot.gamma_multiply(alpha));
+        counts.firing_drawn += 1;
+    }
 }
 
 fn paint_floor(painter: &Painter, projector: &Projector) {

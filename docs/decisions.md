@@ -567,6 +567,121 @@ hostport`, the supervised process was restarted, and `http://ports.ubuntu.com/ub
 answers `200` while `apt-get -o Acquire::http::Proxy=… download libxcb-cursor0` stages the deb. The
 WiFi association remains the one physical limit, unchanged from the paragraph above
 (`CTRL-EVENT-ASSOC-REJECT status_code=1`).
+## D-023 — The operator's instrument is qualia's own console, and there is one agent instance
+
+Instance: 2026-09-12. The operator's console showed "agent unreachable: waiting for agent at
+`http://127.0.0.1:8080`" on every panel while a single `qualia-agent.exe` was listening on
+`0.0.0.0:18081` and serving TLS only (a plain `GET /braid` on it returns nothing; the agent is
+TLS-mandatory — a keypair that does not load is a start failure, `runners/agent/src/main.rs`) with a
+self-signed `CN=rcgen self signed cert` in `$HOME/.qualia_tls`. Neither side could see the other: the
+port is configuration on both ends (`QUALIA_WEB_PORT`, default `8080`; the console's
+`QUALIA_AGENT_URL`, default `http://127.0.0.1:8080`) and the scheme is TLS, which the console's
+validating client cannot accept without that certificate as a root.
+
+(Drafted as D-020; renumbered when the wave's D-020–D-022 landed first.)
+
+Consequences:
+
+- **One agent instance per host.** Two instances on different ports is not a deployment; it is a
+  console that cannot see the agent. The port and scheme the console is configured for are the ones
+  the agent runs on.
+- **The console is the operator's instrument.** Anything an operator should see — the connectome
+  firing, the sensor rates, mission state, the coach's decisions — ships as a view or panel in
+  `apps/qualia-console`. Rerun is a secondary path and is never the acceptance artefact.
+- **TLS between console and agent is explicit, not insecure.** The console trusts the agent by
+  reading the certificate (`$QUALIA_TLS_DIR/cert.pem`, default `$HOME/.qualia_tls`) as a root; there
+  is no insecure bypass.
+- **Credentials come from the desktop's vault at run time** (`omp token deepseek`), never from a
+  committed file; a run without one degrades with a named line rather than inventing a result.
+- **The operator's desktop is not a test surface.** No agent opens a window on it: evidence is rendered
+  headlessly (the console's `egui_kittest` snapshot path writes a PNG without a window). Two of our own
+  agents opened console windows beside the operator's at 01:26 on 2026-09-12 and both were killed; the
+  operator's own console is the only one that may exist.
+
+
+## D-024 — The board is leased, not handed over by message
+
+Instance: 2026-09-12. Two tickets waited on the board while one held it through a build, a smoke capture
+and a fifteen-minute real capture. Nothing was broken and every party was progressing — but the queue
+existed only in hub messages, so from outside the wait was indistinguishable from a hang, and a crashed
+holder would have left no trace of who was next. The board is a single machine: one build or one run at
+a time.
+
+Consequences:
+
+- **A board wait is recorded in the ticket** (`blocked_on: board` in the braid, with the command the
+  waiter will run), so the tracker shows the queue rather than a set of long-running agents.
+- **The holder posts a lease** — start time, the command, an expiry of 30 minutes unless a bounded run
+  needs more — and **exits it with a comment**. A handover agreed in a message does not exist for a
+  later agent.
+- **An expired lease is public**: the next waiter takes it after saying so, and the previous holder
+  stops when it reads that.
+- **Look before you take it**: one `ssh` of `uptime` and the process list costs two seconds and is how
+  a second job on top of someone's is avoided.
+
+The five-agent cap (D-015) bounds how many agents run; the lease bounds this one resource. Both exist
+for the same reason: parallelism that is not written down cannot be told apart from a hang.
+
+## D-025 — The leash owns the body's hardware; the stack subscribes to its surface
+
+**On this robot the sensors are not free device nodes.** Measured on Pinkie 2026-09-12 for T58
+([#239](https://github.com/superposition/qualia/issues/239)), board-local 00:56–01:05, while
+enumerating the hardware the ticket asked to capture:
+
+- `leash serve http` (`/home/jetson/.local/bin/leash`, pid 1299 at the time, up 19 h) holds the two
+  ports a sensor runner would want: `lsof` shows `/dev/ttyACM0` (`45uW`) and `/dev/ttyTHS1` (`44uW`),
+  and `~/.config/leash/leash.env` names both — `LEASH_SERIAL_PORT=/dev/ttyTHS1` (drive, 115200) and
+  `LEASH_UGV_LIDAR_DEVICE=/dev/ttyACM0` (LD06), with `LEASH_CAMERA_DEVICE=/dev/video0` and
+  `LEASH_PROFILE=waveshare-ugv`. An `open()` of `/dev/ttyACM0` from any other process returns
+  `EBUSY`; the ports are single-owner.
+- The leash republishes what it owns. Its MCP `observe` tool returns `sensors.range_scan`
+  (`source: waveshare-ugv-ld06`, `scan_rate_hz: 9.9958`, 360 ranges + 360 intensities — the
+  enumeration's own call; the capture-time call committed as
+  `docs/evidence/T58/real-sessions/leash-observe.json` reads `9.99918699186992` with 263 of the 360
+  ranges non-null),
+  `sensors.imu` (angular velocity + linear acceleration, 9-DOF with magnetometer in
+  `raw_frame.payload`), `sensors.odometry`, `sensors.battery`, and `sensors.camera` advertising
+  `snapshot_url: /camera/snapshot` and `stream_url: /camera/stream.mjpg`. That stream answered
+  `HTTP 200` with `content-type: multipart/x-mixed-replace; boundary=leashframe` and carried 19
+  complete JPEG frames in 5 s.
+- There is no other inertial source: `ls /dev/iio:device*` and `/sys/bus/iio/devices` are empty, and
+  `i2cdetect` on buses 0/1/2/7 returns only `fusb301`, `ina3221`, `24c02` EEPROMs, `vrs-pseq` and
+  i2c-7's `0x15`/`0x3c`/`0x42` — no MPU/ICM/BNO address.
+
+**The rule.** Killing or displacing the leash to borrow a port is the wrong trade: it is the robot's
+safe-stop and actuation service, and its guarantees are why a drive path is allowed to exist. A
+runner that needs a sensor the leash owns **subscribes** to the leash's surface and publishes into
+the arena; it does not open the device node. T58 lands that rule as code:
+`runners/leash-sensors` polls `observe` and publishes the rotation through `qualia-lidar`'s own
+`publish_scan` (scan + occupancy grid, one implementation), and `qualia-camera`'s existing MJPEG path
+(`QUALIA_CAMERA_STREAM_URL`) reads the camera, so neither opens a device `/dev/video0` already has an
+owner for. This is also why the earlier "add a V4L2 source to `qualia-camera`" plan was dropped: a
+second opener of an owned device is a second owner.
+
+**Consequence for the record.** A device node appearing in `/dev` is not evidence that a runner may
+read it; on this robot the owner is `leash` and the interface is its HTTP surface. "The lidar is
+missing" and "the lidar is present but owned" are different findings, and only the second is true
+here.
+
+## D-026 — Committed snapshot images are re-rendered, never sided
+
+Instance: 2026-09-12. In one hour two PRs hit binary conflicts on the console's committed
+`apps/qualia-console/tests/snapshots/*.png`. Every console change re-blesses those images, and `main`
+had moved under both branches: PR #243 (the brain view) conflicted against main's theme change, and PR
+#252 (the HUD fixes) conflicted against main's T56 re-renders. Resolving either by taking a side would
+have silently reverted the other ticket's rendering — the images differ by tens of thousands of pixels,
+and the test suite is green either way because the images *are* the expectation.
+
+Consequences:
+
+- **A branch rebased past a change to the console's rendering re-renders the images on the rebased
+  tree**, headlessly (D-023). Never `--ours`/`--theirs` on a snapshot PNG.
+- **Name the movement**: the commit and the braid say which images moved and why, in pixels and in
+  cause (e.g. "152 px in one 23×11 box at (218,16) — the HUD menu button `cc9eb6e` added"), so a
+  reviewer can attribute it to a known change instead of to the rebase.
+- **Review both directions**: that the branch's own change is visible in the pixels, and that no other
+  ticket's render disappeared.
+- A merge that reverts a committed render is a correctness failure even when every test passes.
 
 ## D-003 — Repository
 

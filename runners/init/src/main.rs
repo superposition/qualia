@@ -25,7 +25,7 @@
 //! supervisor's environment when they are set.
 
 use qualia_ipc::{ControlListener, ControlMsg};
-use qualia_shm::{ShmRegion, SHM_SIZE};
+use qualia_shm::{ShmRegion, StatsRegion, SHM_SIZE};
 use qualia_types::{parse_stack_manifest, RunnerStdout, StackManifest};
 use std::collections::BTreeMap;
 #[cfg(unix)]
@@ -85,6 +85,19 @@ fn main() {
         "[init] Shared memory created: {} MB",
         SHM_SIZE / (1024 * 1024)
     );
+
+    // The telemetry stats region beside the arena: every producer publishes its
+    // fixed-width frame there, and the console's HUD reads them without
+    // touching the ABI layout above. The supervisor owns its lifetime, so a
+    // stale one is cleared first and the region is created before any child
+    // starts.
+    let stats_name = qualia_shm::stats_region_name_from_env(&shm_name);
+    let _ = StatsRegion::unlink(&stats_name);
+    let _stats = match StatsRegion::create(&stats_name) {
+        Ok(region) => region,
+        Err(err) => fatal(&format!("[init] Failed to create stats shm: {err}")),
+    };
+    eprintln!("[init] Stats region created: '{stats_name}'");
 
     eprintln!("[init] Binding control socket '{sock_path}'...");
     let control = match ControlListener::bind(&sock_path) {

@@ -1,0 +1,32 @@
+warning: unused import: `std::thread`
+ --> runners/camera/tests/preview.rs:5:5
+  |
+5 | use std::thread;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `qualia-camera` (test "preview") generated 1 warning (run `cargo fix --test "preview" -p qualia-camera` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.47s
+     Running tests/preview.rs (target/debug/deps/preview-377cf3c2783b2ac9)
+
+running 1 test
+test readers_never_observe_a_torn_preview ... FAILED
+
+failures:
+
+---- readers_never_observe_a_torn_preview stdout ----
+
+thread 'readers_never_observe_a_torn_preview' (515755) panicked at runners/camera/tests/preview.rs:165:9:
+assertion `left == right` failed: a coherent read saw two encodings mixed together
+  left: 97
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    readers_never_observe_a_torn_preview
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.78s
+
+error: test failed, to rerun pass `-p qualia-camera --test preview`

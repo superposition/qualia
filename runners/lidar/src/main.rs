@@ -13,13 +13,17 @@ use qualia_lidar::{
     extract_packet, idle_action, publish_scan, summarize, DevicePoint, IdleAction, LidarConfig,
     ScanAssembler, FRAME_SIZE,
 };
-use qualia_shm::ShmRegion;
+use qualia_shm::{ShmRegion, StatsWriter};
 use tokio::io::AsyncReadExt;
 use tokio::time::timeout;
 use tokio_serial::SerialPortBuilderExt;
 
 /// How long one read may block before the loop re-checks its deadlines.
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-lidar`.
+const RUNNER_NAME: &str = "qualia-lidar";
 
 #[tokio::main]
 async fn main() {
@@ -57,6 +61,8 @@ async fn main() {
     let mut rotations = 0u64;
     let mut last_publication = Instant::now();
     let log_every_scans = config.log_every_scans.max(1);
+    // The runner's own telemetry frame: scans/s, points and the arena sequence.
+    let mut telemetry = StatsWriter::attach(&config.shm_name, RUNNER_NAME);
 
     loop {
         match timeout(READ_TIMEOUT, port.read(&mut chunk)).await {
@@ -72,6 +78,12 @@ async fn main() {
                         publish_scan(&shm, &rotation);
                         rotations = rotations.wrapping_add(1);
                         last_publication = Instant::now();
+                        if let Some(telemetry) = telemetry.as_mut() {
+                            telemetry.tick();
+                            telemetry.set_value(0, "points", rotation.len() as f32);
+                            telemetry.set_value(1, "rotations", rotations as f32);
+                            telemetry.set_value(2, "packets", packet_count as f32);
+                        }
                         if rotations == 1 || rotations % log_every_scans == 0 {
                             report(&shm, packet_count, &rotation);
                         }
@@ -79,6 +91,9 @@ async fn main() {
                 }
             }
             Ok(Err(error)) => {
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.record_error();
+                }
                 eprintln!("qualia-lidar: read failed: {error}");
                 std::process::exit(3);
             }
@@ -91,12 +106,20 @@ async fn main() {
                     config.timeout,
                 ) {
                     IdleAction::Fail => {
+                        if let Some(telemetry) = telemetry.as_mut() {
+                            telemetry.record_error();
+                            telemetry.set_value(3, "buffered points", buffered_points as f32);
+                            telemetry.publish();
+                        }
                         eprintln!(
                             "qualia-lidar: no complete scan assembled packet_count={packet_count} buffered_points={buffered_points}"
                         );
                         std::process::exit(4);
                     }
                     IdleAction::Warn => {
+                        if let Some(telemetry) = telemetry.as_mut() {
+                            telemetry.set_value(3, "buffered points", buffered_points as f32);
+                        }
                         eprintln!(
                             "qualia-lidar: waiting for complete scan packet_count={packet_count} buffered_points={buffered_points}"
                         );

@@ -1,0 +1,27 @@
+{
+  "schema_version": "world.model.v1",
+  "proposal_id": "proposal-frontier-corner-a",
+  "proposal_kind": "region",
+  "source_replica_id": "planner-frontier-a",
+  "source_replica_role": "host",
+  "created_at_hlc": "1757700000000000000:0",
+  "status": "proposed",
+  "belief_weight": 0.62,
+  "source_weight": 0.7,
+  "mission_relevance": 0.8,
+  "confidence": 0.55,
+  "lineage": {
+    "derived_from": [],
+    "supersedes": [],
+    "evidence_refs": ["mcap://arena/session-0001/pose/1042", "mcap://arena/session-0001/lidar/1042"]
+  },
+  "body": {
+    "kind": "region",
+    "data": {
+      "region_kind": "frontier",
+      "bounds": { "min_x_m": 1.2, "min_y_m": 0.4, "max_x_m": 2.6, "max_y_m": 1.8 },
+      "attributes": { "observation_count": 12, "nearest_obstacle_m": 0.9 },
+      "profile_refs": []
+    }
+  }
+}
