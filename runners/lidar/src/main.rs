@@ -108,7 +108,7 @@ async fn main() {
                     IdleAction::Fail => {
                         if let Some(telemetry) = telemetry.as_mut() {
                             telemetry.record_error();
-                            telemetry.set_value(3, "buffered points", buffered_points as f32);
+                            telemetry.set_value(3, "buffered pts", buffered_points as f32);
                             telemetry.publish();
                         }
                         eprintln!(
@@ -118,7 +118,7 @@ async fn main() {
                     }
                     IdleAction::Warn => {
                         if let Some(telemetry) = telemetry.as_mut() {
-                            telemetry.set_value(3, "buffered points", buffered_points as f32);
+                            telemetry.set_value(3, "buffered pts", buffered_points as f32);
                         }
                         eprintln!(
                             "qualia-lidar: waiting for complete scan packet_count={packet_count} buffered_points={buffered_points}"

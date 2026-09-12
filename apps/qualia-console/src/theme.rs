@@ -367,6 +367,23 @@ pub fn age(observed_at_ns: u64, timestamp_ns: u64) -> String {
     }
 }
 
+/// How long a runner has been up, from the frame's own start time: the operator
+/// reads `3 m 05 s`, not a timestamp. An unstamped start reads as the absent
+/// mark rather than as an age since the epoch.
+pub fn uptime(observed_at_ns: u64, started_at_ns: u64) -> String {
+    if started_at_ns == 0 {
+        return DASH.to_owned();
+    }
+    let seconds = observed_at_ns.saturating_sub(started_at_ns) / 1_000_000_000;
+    if seconds < 60 {
+        format!("{seconds} s")
+    } else if seconds < 3_600 {
+        format!("{} m {:02} s", seconds / 60, seconds % 60)
+    } else {
+        format!("{} h {:02} m", seconds / 3_600, (seconds % 3_600) / 60)
+    }
+}
+
 /// The one slim strip: the product name and the `Windows` menu that re-opens a
 /// closed panel. Nothing else is chrome; the status and every reading live in
 /// the panels.

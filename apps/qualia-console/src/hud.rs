@@ -325,8 +325,11 @@ fn draw_panel(
     observed_at_ns: u64,
 ) {
     let age_ns = observed_at_ns.saturating_sub(row.published_at_ns);
+    // The writer clears its publishing flag as it stops, so a runner that
+    // stopped cleanly reads `stopped`; one that was killed keeps the flag set
+    // and ages out to `stale` on the console's own clock.
     let state_word = if !row.publishing {
-        "no frame"
+        "stopped"
     } else if age_ns > STALE_NS {
         "stale"
     } else {
@@ -358,6 +361,12 @@ fn draw_panel(
         ui,
         "updated",
         &theme::age(observed_at_ns, row.published_at_ns),
+        None,
+    );
+    theme::field(
+        ui,
+        "uptime",
+        &theme::uptime(observed_at_ns, row.started_at_ns),
         None,
     );
 
