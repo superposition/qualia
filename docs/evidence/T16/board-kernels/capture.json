@@ -1,0 +1,77 @@
+{
+  "backend": "ncu",
+  "capture_range": "all",
+  "argv": [
+    "./target/release/deps/gpu-e5293633ad869b15",
+    "--test-threads=1"
+  ],
+  "profiler_argv": [
+    "sudo",
+    "env",
+    "LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat",
+    "/usr/local/cuda/bin/ncu",
+    "--target-processes",
+    "all",
+    "--launch-count",
+    "8",
+    "--export",
+    "remediate/t16-ncu/capture",
+    "--force-overwrite",
+    "./target/release/deps/gpu-e5293633ad869b15",
+    "--test-threads=1"
+  ],
+  "command": "./target/release/deps/gpu-e5293633ad869b15 --test-threads=1",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 8,
+  "profiler": {
+    "name": "NVIDIA Nsight Compute Command Line Profiler",
+    "version": "2025.2.0.0 (build 35613519) (public-release)",
+    "path": "/usr/local/cuda/bin/ncu",
+    "root": "sudo on the board, with the account password on stdin; `perf_event_paranoid=2` and no NOPASSWD",
+    "import": "ncu --import remediate/t16-ncu/capture.ncu-rep --page details --csv > remediate/t16-ncu/metrics.csv"
+  },
+  "board": {
+    "name": "Pinkie",
+    "ssh": "jetson@192.168.55.1",
+    "kernel": "5.15.148-tegra",
+    "device": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "driver": "540.4.0",
+    "clock": "2026-09-02T14:30Z (the board runs ~9 days behind the dev host, D-010)",
+    "toolkit": "CUDA 12.9.41 at /usr/local/cuda",
+    "ncu": "2025.2.0.0 (build 35613519)",
+    "nvcc": "cuda_12.9.r12.9/compiler.35813241_0",
+    "cargo": "1.94.0",
+    "rustc": "1.94.0",
+    "shared": "llama-server (pid 1304, --n-gpu-layers 99) has been resident since board clock 2026-09-01T16:56, so the GPU was not exclusively held"
+  },
+  "source": {
+    "repository": "superposition/qualia",
+    "commit": "515a5063cc6655f87c821f7f3fe931cc77ca8f55",
+    "transfer": "git archive HEAD | gzip, scp to the board, untar under the account home",
+    "build": "CUDAARCHS=87-real NVCC=/usr/local/cuda/bin/nvcc cargo test -p qualia-cuda --features cuda --release --test gpu --offline -j 2 --no-run",
+    "build_evidence": "the build log records `qualia-cuda: embedded fatbins for sm_87`"
+  },
+  "target": {
+    "package": "qualia-cuda",
+    "features": [
+      "cuda"
+    ],
+    "test": "crates/cuda/tests/gpu.rs",
+    "artifact": "target/release/deps/gpu-e5293633ad869b15",
+    "tests": {
+      "passed": 8,
+      "failed": 0,
+      "harness_seconds": 22.26
+    }
+  },
+  "environment": {
+    "LD_LIBRARY_PATH": "/usr/local/cuda-12.9/compat",
+    "why": "CUDA forward-compatibility libcuda; the board's toolkit 12.9 is newer than its driver 540.4, so without it cuModuleLoadData fails with CUDA_ERROR_UNSUPPORTED_PTX_VERSION (D-016, T50)"
+  },
+  "capture_range_note": "--launch-count 8, the suite's own launch count; the profiler keeps running past the eighth launch, so `smoke`'s `add_one` loop is not in the capture (the same cut T18 records)",
+  "measurement_note": "one pass, ncu's default clock control; the board's SM Frequency read 305.98 MHz for these launches, and the durations are far below `docs/evidence/T18/fatbin-sm-87`'s 13.00 ms `belief_update` on the same board and 39.32 ms total. Reported as measured, with no claim attached to the difference",
+  "kernels_json": "hand-normalised projection of metrics.csv, one object per launch; see the directory README for the column mapping and the export's hashes",
+  "no_display_devices_touched": "no adapter was disabled, enabled or restarted, and no driver was reinstalled (D-012)"
+}
