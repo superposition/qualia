@@ -94,12 +94,12 @@ gadget interfaces, VID 0955). `ssh -i ~/.ssh/qualia_jetson_ed25519 jetson@192.16
 account password is `jetson`.
 
 Development stays on the 4090 host; deployment is a cross-build (`docker/Dockerfile.cross-aarch64`,
-`Cross.toml`) or a native aarch64 build on the board itself (the cross-image lane was already
-unusable when D-018 was written the same day; the host cross lane is restored by `cargo-zigbuild` —
-PR #231, D-018's amendment, and D-022). Kernels are developed and verified on the
-4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts measured by the T29 smoke
-(issue #45) on 2026-09-02: the board has **no DNS** (ship a tarball; `git clone`/crates.io are
-unreachable), its clock
+`Cross.toml`) or a native aarch64 build on the board itself (these facts are from 2026-09-02; by
+2026-09-11, when D-018 measured the host, the cross-image lane was already unusable — the host cross
+lane is restored by `cargo-zigbuild`, PR #231, D-018's amendment, and D-022). Kernels are developed
+and verified on the 4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts were
+measured by the T29 smoke (issue #45) on 2026-09-02: the board has **no DNS** (ship a tarball;
+`git clone`/crates.io are unreachable), its clock
 is ~10 days behind the dev host (TLS to anything remote will complain), and a Windows-side clone writes
 CRLF into the working tree, which breaks shell scripts and the cross-build Dockerfile on Linux — ship
 `git archive` output, not a working copy. The DNS fact is a network state of that day, not an
@@ -526,9 +526,10 @@ on [#225](https://github.com/superposition/qualia/issues/225) and
 *after provisioning*, not an inference from a cache listing or a network state; a run recorded as
 impossible before provisioning is provisional, not architecture. Two companion records: the host
 cross lane is separately restored by PR
-[#231](https://github.com/superposition/qualia/pull/231) (`docs/cross-lane-recipe`, commit `7a14b14`),
-which amends D-018 in place with the rootless `cargo-zigbuild` recipe and records its board run at
-`docs/evidence/board/cross-lane/README.md`; and D-018's original paragraph stays as history under
+[#231](https://github.com/superposition/qualia/pull/231) (branch `docs/cross-lane-recipe`, commit
+`7a14b14`), which amends D-018 in place with the rootless `cargo-zigbuild` recipe and records its
+board run at `docs/evidence/board/cross-lane/README.md`; and D-018's original paragraph stays as
+history under
 that amendment. What this entry does not overturn:
 the board carries no `nsys` and no `mage` as measured, so a step-level `nsys` timeline still has no
 board path; whether either is installable is the readiness workstream's item
