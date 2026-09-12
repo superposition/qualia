@@ -77,7 +77,8 @@ Exactly one agent listener on 8080 (`netstat`, quoted):
 and Main was killing it from an admin shell; it serves an arena page, not `/braid`. `8080` (pid
 43984) is the one agent this run used.
 
-Mission-broker wiring, checked with the bearer the broker reads:
+Mission-broker wiring: the route is reachable, and a malformed body is refused by the deserializer
+before the handler body runs:
 
 ```console
 $ TOKEN=$(tr -d '\r\n' < C:/tmp/qualia-mission-broker.token)
@@ -90,10 +91,34 @@ Failed to deserialize the JSON body into the target type: not: unknown field `no
 http=422
 ```
 
-The same request **without** any `Authorization` header answers 422 with the identical validation
-error, so on loopback the route admits the caller before any bearer check — recorded as a finding,
-not as proof the token file is required. The positive control is valid either way: the route is
-reachable, auth (whatever admits it) passed, and validation ran.
+That `422` says nothing about auth. `envelope_post` takes `Json(envelope): Json<MissionEnvelopeV1>`
+as an extractor argument (`runners/agent/src/mission_control.rs:466-477`), which axum runs **before**
+the handler body, so a malformed body answers `422` with or without a bearer.
+
+**Auth on this route is enforced, and the first reading of the `422` here was wrong.** Three probes
+with a **well-formed** `MissionEnvelopeV1` — one that deserializes, so the extractor cannot answer
+for the handler — sent against the live agent on 2026-09-12 by a client that read the token out of
+the file instead of carrying it in the command line:
+
+| probe | the agent's answer |
+|---|---|
+| no `Authorization` header | `401` `{"error":"authentication_required","schema_version":"qualia.auth-error.v1"}` |
+| a wrong bearer | `401`, the same body |
+| the bearer in `C:/tmp/qualia-mission-broker.token` | `400` `{"error":"mission t60-rev-probe-does-not-exist: cannot pause an unknown mission"}` |
+
+The third answer is the handler's own: `command: "pause"` for a mission that does not exist is
+refused by `MissionControl::ingest`, which can only run once `authorize` has passed. So
+`401 → 401 → the handler's own error` **is** the auth decision, and the third probe changes no
+mission state. Two code facts behind it:
+
+- `runners/agent/src/auth.rs:80-82` does not extend the loopback bypass to this scope:
+  `let loopback_bypass = remote_ip.is_loopback() && self.allow_loopback && !matches!(scope, AuthScope::Admin | AuthScope::MissionBroker);`
+  and `envelope_post` authorizes `AuthScope::MissionBroker`.
+- the extractor ordering above is what makes a malformed-body `422` look like a bypass.
+
+Probe shape for the next reader: send a body that **deserializes**. A bare `400` with
+`content-length: 0` and `connection: close` from a shell client is a broken probe, not something the
+agent answered — re-run it with the token read from its file before concluding anything about auth.
 
 ## The capture
 
