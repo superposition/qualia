@@ -9,7 +9,6 @@ use qualia_camera::{
     publish_camera_preview, PREVIEW_FORMAT_JPEG, PREVIEW_FORMAT_NONE, PREVIEW_FORMAT_PNG,
 };
 use qualia_shm::ShmRegion;
-use qualia_types::CAMERA_PREVIEW_MAX_BYTES;
 
 static NEXT_REGION: AtomicU64 = AtomicU64::new(0);
 
@@ -111,6 +110,7 @@ fn readers_never_observe_a_torn_preview() {
     let small = jpeg(&[0xaa; 4096]);
     let large = jpeg(&[0x55; 16_384]);
     let stop = AtomicBool::new(false);
+    let taken = AtomicU64::new(0);
 
     std::thread::scope(|scope| {
         scope.spawn(|| {
@@ -119,41 +119,43 @@ fn readers_never_observe_a_torn_preview() {
                 let bytes = if round % 2 == 0 { &small } else { &large };
                 publish_camera_preview(&shm, bytes, 64, 48);
                 round += 1;
-                // Let the reader run between publishes; it still starts reads
-                // while a copy is in flight.
-                thread::yield_now();
+                // Publish, then wait for the reader to finish one complete
+                // copy before publishing again. A bare yield gives the reader
+                // no window on aarch64 -- the writer re-enters its publish at
+                // once, and a correct reader caught 7..47 copies per five
+                // seconds (measured on Pinkie) -- so this wait is what makes
+                // the floor below reachable. The reader attempts copies
+                // throughout, so the next publish still interrupts one in
+                // flight, which is the overlap the assertion needs.
+                let target = taken.load(Ordering::Acquire) + 1;
+                while taken.load(Ordering::Acquire) < target && !stop.load(Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
             }
         });
 
-        // Reader protocol exactly as the console and the agent use it: take the
-        // sequence, copy, then require the same even sequence still stands.
+        // Reader protocol exactly as the console and the agent use it: the
+        // slot's own snapshot takes the sequence, copies the payload, fences
+        // and then requires the same even sequence still to stand.
         let mut accepted = 0u64;
         let mut torn = 0u64;
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while accepted < 500 && Instant::now() < deadline {
-            let before = preview.seq.load(Ordering::Acquire);
-            if before == 0 || before % 2 != 0 {
-                std::hint::spin_loop();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while accepted < 8000 && Instant::now() < deadline {
+            let Ok(snapshot) = preview.snapshot(64) else {
+                // A publish overlapped every attempt; it is not evidence.
                 continue;
-            }
-            let len = preview
-                .len
-                .load(Ordering::Acquire)
-                .min(CAMERA_PREVIEW_MAX_BYTES);
-            if len == 0 {
+            };
+            let bytes = snapshot.bytes;
+            if bytes.len() < 4 {
                 continue;
             }
             // Both encodings carry the same three-byte JPEG prefix, so every
             // byte of the payload must match: a copy that mixed two publishes
             // would show both fills.
-            let fill = preview.bytes[3];
-            let coherent = preview.bytes[3..len].iter().all(|&byte| byte == fill);
-            let after = preview.seq.load(Ordering::Acquire);
-            if before != after || after % 2 != 0 {
-                // A publish overlapped the read; it is not evidence either way.
-                continue;
-            }
+            let fill = bytes[3];
+            let coherent = bytes[3..].iter().all(|&byte| byte == fill);
             accepted += 1;
+            taken.fetch_add(1, Ordering::Release);
             if !coherent {
                 torn += 1;
             }
@@ -161,6 +163,6 @@ fn readers_never_observe_a_torn_preview() {
 
         stop.store(true, Ordering::Relaxed);
         assert_eq!(torn, 0, "a coherent read saw two encodings mixed together");
-        assert_eq!(accepted, 500, "the reader never caught complete previews");
+        assert_eq!(accepted, 8000, "the reader never caught complete previews");
     });
 }

@@ -813,7 +813,10 @@ impl AppliedActionHistory {
 /// Newest bounded encoded camera frame for operator preview.
 ///
 /// `seq` is a seqlock: odd while the writer copies bytes, even when a reader
-/// may take them. Format 1 is JPEG and 2 is PNG.
+/// may take them. Format 1 is JPEG and 2 is PNG. [`CameraPreview::snapshot`]
+/// is the reader: take the sequence with acquire, copy, fence acquire, then
+/// re-read it, so a copy observed across a publish is rejected rather than
+/// returned. The fence is not optional on a weakly ordered machine.
 #[repr(C)]
 pub struct CameraPreview {
     pub seq: AtomicU64,
@@ -824,6 +827,116 @@ pub struct CameraPreview {
     pub _pad0: [u8; 7],
     pub len: AtomicUsize,
     pub bytes: [u8; CAMERA_PREVIEW_MAX_BYTES],
+}
+
+/// Owned copy of one coherent [`CameraPreview`].
+#[derive(Clone)]
+pub struct CameraPreviewSnapshot {
+    pub seq: u64,
+    pub timestamp_ns: u64,
+    pub width: u32,
+    pub height: u32,
+    pub format: u8,
+    pub bytes: Vec<u8>,
+}
+
+impl CameraPreview {
+    /// Publishes an encoded preview. Returns the new even sequence number.
+    ///
+    /// `format` is the code for `bytes`' leading bytes and `timestamp_ns` its
+    /// capture time; the caller keeps the size policy. The odd marker is
+    /// exchanged with acquire-release, which orders the payload stores after
+    /// it, so no reader can observe a byte of this frame under the previous
+    /// even sequence.
+    pub fn publish(
+        &mut self,
+        format: u8,
+        width: u32,
+        height: u32,
+        timestamp_ns: u64,
+        bytes: &[u8],
+    ) -> Result<u64, SnapshotError> {
+        let current = self.seq.load(Ordering::Acquire);
+        if current & 1 != 0 {
+            return Err(SnapshotError::WriterBusy);
+        }
+        let writing = current.wrapping_add(1);
+        self.seq
+            .compare_exchange(current, writing, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| SnapshotError::WriterBusy)?;
+        let len = bytes.len().min(CAMERA_PREVIEW_MAX_BYTES);
+        self.len.store(0, Ordering::Release);
+        self.timestamp_ns = timestamp_ns;
+        self.width = width;
+        self.height = height;
+        self.format = format;
+        self.bytes[..len].copy_from_slice(&bytes[..len]);
+        let published = writing.wrapping_add(1);
+        self.len.store(len, Ordering::Release);
+        self.seq.store(published, Ordering::Release);
+        Ok(published)
+    }
+
+    /// Clears the slot, advancing the sequence like a publish of nothing.
+    pub fn clear(&mut self) -> Result<u64, SnapshotError> {
+        let current = self.seq.load(Ordering::Acquire);
+        if current & 1 != 0 {
+            return Err(SnapshotError::WriterBusy);
+        }
+        let writing = current.wrapping_add(1);
+        self.seq
+            .compare_exchange(current, writing, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| SnapshotError::WriterBusy)?;
+        self.len.store(0, Ordering::Release);
+        self.timestamp_ns = 0;
+        self.width = 0;
+        self.height = 0;
+        self.format = 0;
+        let published = writing.wrapping_add(1);
+        self.seq.store(published, Ordering::Release);
+        Ok(published)
+    }
+
+    /// Takes an owned copy, retrying at most `max_attempts` times.
+    pub fn snapshot(&self, max_attempts: usize) -> Result<CameraPreviewSnapshot, SnapshotError> {
+        for _ in 0..max_attempts.max(1) {
+            let before = self.seq.load(Ordering::Acquire);
+            if before & 1 != 0 {
+                std::hint::spin_loop();
+                continue;
+            }
+            // SAFETY: the sequence word brackets the plain fields and the
+            // payload copy, and the acquire fence below keeps this copy from
+            // being observed after the closing check, so only a complete
+            // publish is returned.
+            let timestamp_ns = unsafe { std::ptr::read_volatile(&self.timestamp_ns) };
+            let width = unsafe { std::ptr::read_volatile(&self.width) };
+            let height = unsafe { std::ptr::read_volatile(&self.height) };
+            let format = unsafe { std::ptr::read_volatile(&self.format) };
+            let len = self
+                .len
+                .load(Ordering::Acquire)
+                .min(CAMERA_PREVIEW_MAX_BYTES);
+            let mut bytes = Vec::with_capacity(len);
+            unsafe {
+                std::ptr::copy_nonoverlapping(self.bytes.as_ptr(), bytes.as_mut_ptr(), len);
+                bytes.set_len(len);
+            }
+            fence(Ordering::Acquire);
+            let after = self.seq.load(Ordering::Acquire);
+            if before == after && after & 1 == 0 {
+                return Ok(CameraPreviewSnapshot {
+                    seq: after,
+                    timestamp_ns,
+                    width,
+                    height,
+                    format,
+                    bytes,
+                });
+            }
+        }
+        Err(SnapshotError::TornRead)
+    }
 }
 
 /// Seqlocked front-end state from the visual SLAM runner.
