@@ -80,6 +80,25 @@ verdicts stand unless the fix touched their concern. The merge happens only when
 A blocked ticket gets `status:blocked`, `blocked_on:` filled, and a `resume` label only when the
 blocker is another agent that may never return.
 
+## Blocked on a shared resource: the board
+
+The board ("Pinkie", `jetson@192.168.55.1`) is **one machine**: one build or one run at a time, whoever
+holds it. Access is a **lease**, not a courtesy.
+
+- A ticket that needs the board but does not hold it records `blocked_on: board` in its braid, with the
+  command it will run when it gets the lease. That field is what makes the wait visible in the tracker;
+  without it a wait and a hang look identical from the outside.
+- The holder posts the lease as a braid comment when it takes it: `next:` the board command, the
+  board-local start time, and the **expiry** — 30 minutes, unless the work is a bounded run that needs
+  longer, and then say the bound.
+- **Handover is a comment**, never a message between agents: the holder posts
+  `state: done` with the board-free time, and the waiter posts its own lease. A handover agreed only in a
+  message does not exist for the next agent reading GitHub.
+- A lease past its expiry is public: the next waiter may take it after posting a comment saying so, and
+  the previous holder stops its board work when it reads that.
+- Before taking the lease, look: `ssh pinkie 'uptime; ps -eo pcpu,comm --sort=-pcpu | head'` costs two
+  seconds and is how you avoid running a second job on top of someone's.
+
 ## Resume
 
 ```bash

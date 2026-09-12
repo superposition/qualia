@@ -599,6 +599,29 @@ Consequences:
   operator's own console is the only one that may exist.
 
 
+## D-024 — The board is leased, not handed over by message
+
+Instance: 2026-09-12. Two tickets waited on the board while one held it through a build, a smoke capture
+and a fifteen-minute real capture. Nothing was broken and every party was progressing — but the queue
+existed only in hub messages, so from outside the wait was indistinguishable from a hang, and a crashed
+holder would have left no trace of who was next. The board is a single machine: one build or one run at
+a time.
+
+Consequences:
+
+- **A board wait is recorded in the ticket** (`blocked_on: board` in the braid, with the command the
+  waiter will run), so the tracker shows the queue rather than a set of long-running agents.
+- **The holder posts a lease** — start time, the command, an expiry of 30 minutes unless a bounded run
+  needs more — and **exits it with a comment**. A handover agreed in a message does not exist for a
+  later agent.
+- **An expired lease is public**: the next waiter takes it after saying so, and the previous holder
+  stops when it reads that.
+- **Look before you take it**: one `ssh` of `uptime` and the process list costs two seconds and is how
+  a second job on top of someone's is avoided.
+
+The five-agent cap (D-015) bounds how many agents run; the lease bounds this one resource. Both exist
+for the same reason: parallelism that is not written down cannot be told apart from a hang.
+
 ## D-003 — Repository
 
 
