@@ -57,6 +57,9 @@ so the `-k` workarounds are gone (§"Fixed on 2026-09-12, and what is still miss
 | `tegrastats` | **present** | `tegrastats --interval 1000` (bounded with `timeout 3`) | see §"Other board tools" |
 | Disk headroom | **present** | `df -h /` | 76 GiB free of 233 GiB (66 % used) after this work; 87 GiB free before it |
 | Plain-HTTP through the proxy | **present (fixed 2026-09-12)** | `apt-get -o Acquire::http::Proxy=http://192.168.55.100:8085 download libxcb-cursor0` | `Fetched 9 880 B`, deb staged; before the fix the same fetch was `502 Bad Gateway` (§"Fixed on 2026-09-12, and what is still missing") |
+| Robot sensor surface (leash-owned) | **present** | `lsof /dev/ttyACM0 /dev/ttyTHS1 /dev/video0` | `leash` pid 1299 holds the LD06 bridge on `/dev/ttyACM0` (`45uW`, `1a86:55d3` at USB `1-2.1.2`) and the drive port on `/dev/ttyTHS1` (`44uW`); a second `open()` of either is `errno 16` — the stack subscribes via `runners/leash-sensors` and `runners/camera` (T59, [#240](https://github.com/superposition/qualia/issues/240)) |
+| Camera node | **present, multi-reader** | `python3 -c "import os; os.open('/dev/video0', os.O_RDWR)"` | `OPENED fd=3` — *not* `EBUSY`; the UVC node (`0bda:5842` on `/dev/video0`+`/dev/video1`) takes several readers, so D-023's "EBUSY for anyone else" is the two serial ports only (corrected in `../T59/devices/README.md`) |
+| Robot IMU | **absent from the board's own buses** | `ls /sys/bus/iio/devices`; `i2cdetect -y -r 0`, `-r 1`, `-r 7` | empty; no responder at `0x68`/`0x69`/`0x76`/`0x28`/`0x6a`/`0x6b` — the robot's inertial data exists only as the leash's `sensors.imu` (`leash surface imu=available(waveshare-ugv)`) and no runner consumes it yet (T59, [#240](https://github.com/superposition/qualia/issues/240)) |
 
 ## The two attempts
 
