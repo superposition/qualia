@@ -1,12 +1,14 @@
 # Figures — the agent in the loop
 
 Two figures for the journal entry
-[`the-agent-in-the-loop`](https://superposition.github.io/journal/the-agent-in-the-loop/).
+[`the-agent-in-the-loop`](https://superposition.github.io/journal/the-agent-in-the-loop/), plus the
+Mermaid source of the flow diagram.
 
 | File | Kind | What it encodes |
 | --- | --- | --- |
 | `mission-lifecycle.svg` (+ `.png`) | chart, two panels | Left: `open_missions` through the fold — the crate's test folding open m1, open m2, close m1, close m2 and a close for a mission it never saw (1, 2, 1, 0, 0), and the agent's write edge folding one open and one close (1, 0). Right: the belief pace gate — the window (1×), the stale window (8×), the hold region and the two stale publications `runners/map`'s tests assert (a 10 s-old belief tick under the 250 ms default; a 300 ms-old tick released at the 200 × 8 = 1,600 ms window). |
-| `strand-flow.svg` (+ `.png`) | diagram | The three owners that report — the mission broker calling `observe` directly (it runs in this process), and the two strands that live in other processes, the evidence recorder's `EvidenceSealed` and the JEPA runtime's `PromotionAccepted` / `PromotionRolledBack`, crossing the one write edge (`POST /braid` carrying the frozen `BraidEvent`, 503 on a failed dispatch, no de-duplication) — then `observe` as the sole mutator, the folded `BraidState` and its six fields, the durable copies the braid does not keep (MCAP quarantine, the registry's rollback record), recovery's `Quarantined` shown as the variant the edge refuses with 400, and the `GET /braid` read the console, TUI and operator page poll. |
+| `strand-flow.mmd` | diagram | The strand flow going forward, in Mermaid: the three owners that report — the mission broker calling `observe` directly (it runs in this process), and the two strands that live in other processes, the evidence recorder's `EvidenceSealed` and the JEPA runtime's `PromotionAccepted` / `PromotionRolledBack`, crossing the one write edge (`POST /braid` carrying the frozen `BraidEvent`, 503 on a failed dispatch, no de-duplication) — then `observe` as the sole mutator, the folded `BraidState` and its six fields, the durable copies the braid does not keep (MCAP `quarantine_partials`, the registry's `route()` reason, a sealed segment as its own record), recovery's `Quarantined` shown as the variant the edge refuses with 400, and the `GET /braid` read the console's Mission view, the TUI's Braid line and the operator page poll. |
+| `strand-flow.svg` (+ `.png`) | diagram, the published raster | The hand-drawn original of the Mermaid diagram above, kept because the published entry's absolute URL still resolves to it. The three owners that report — the mission broker calling `observe` directly (it runs in this process), and the two strands that live in other processes, the evidence recorder's `EvidenceSealed` and the JEPA runtime's `PromotionAccepted` / `PromotionRolledBack`, crossing the one write edge (`POST /braid` carrying the frozen `BraidEvent`, 503 on a failed dispatch, no de-duplication) — then `observe` as the sole mutator, the folded `BraidState` and its six fields, the durable copies the braid does not keep (MCAP quarantine, the registry's rollback record), recovery's `Quarantined` shown as the variant the edge refuses with 400, and the `GET /braid` read the console, TUI and operator page poll. |
 | `loop-state.json` | data | The two event sequences the fold is replayed from, the pace gate's constants and its two asserted stale publications, and the console fixture's `BraidState` fields. |
 
 ## Data
@@ -54,6 +56,10 @@ recording the fold does not hold, then re-reads the gate's constants from
 $ py -3.13 docs/figures/the-agent-in-the-loop/make_figures.py
 figures: crate fold [1, 2, 1, 0, 0], edge fold [1, 0], pace 250 ms × 8 (stale at 2000 ms), wrote mission-lifecycle, strand-flow
 ```
+
+`strand-flow.mmd` is not written by the generator — there is no Mermaid step here — so it is edited
+by hand, and `make_figures.py` still rewrites the `.svg`/`.png` beside it that the published entry's
+absolute URL resolves to. The figures check is the gate the `.mmd` passes.
 
 No Blender step: this entry is a state machine and a gate — a chart and a
 schematic, not a numeric field with a shape to turn — so the render band of

@@ -20,6 +20,7 @@ docs/figures/
     make_figures.py          the generator: `python make_figures.py` rewrites the figures below
     README.md                the table, the data, and how to regenerate (the shape below)
     <name>.svg  <name>.png   one figure: vector source, and the raster beside it
+    <name>.mmd               a Mermaid diagram (rule 1); source, not a counted asset
     <name>.json              the recording the figure draws (optional)
     <name>.glb               a Blender render (optional; steps 42–43)
 ```
@@ -31,9 +32,22 @@ ticket rather than to a published entry takes a short slug for that set — `fly
 ## The rules
 
 1. **One chart and one drawing.** Every entry ships with at least one **chart** (matplotlib) and at
-   least one **diagram or render**: a schematic drawn in `_house.py`'s box/arrow vocabulary, or a
-   Blender render from steps 42–43. A human learner needs the picture as well as the number, and the
-   teaching editor's checklist refuses an entry with only one of the two.
+   least one **diagram or render**: a schematic drawn in `_house.py`'s box/arrow vocabulary, a
+   Blender render from steps 42–43, or **Mermaid** — a `<name>.mmd` committed beside the figures,
+   whose `mermaid` block the published entry carries (or a fenced block written straight into the
+   entry, with the `.mmd` as the source of record here). Mermaid is sanctioned because GitHub renders
+   the fenced block on the repository page and the diagram stays text, so it can be edited and
+   reviewed like any other file; it draws in the viewer's theme rather than the house palette, so the
+   hand-drawn schematic stays the form where the subject needs the box/arrow vocabulary or the house
+   colours. A human learner needs the picture as well as the number, and the teaching editor's
+   checklist refuses an entry with only one of the two.
+
+   The machine check reads this tree, not the published entry. A `.mmd` named in the entry's figure
+   table is held to the table's own rules — the row's Kind must be one of the known kinds
+   (`diagram`), and the file must exist beside the README — but it is not an asset: it is not
+   counted in the `figures: OK` total, it is not budget-checked, and the check does not render
+   Mermaid, exactly as it does not run `make_figures.py`. A diagram that lives only inside the
+   published Markdown is invisible to the check, which is why the `.mmd` is committed here.
 2. **The mesh band only where the subject is a numeric field.** The render band is an extra, not a
    default: it is added to an entry whose subject is a numeric field (steps 42–43 own the asset), and
    an entry that is a story with a chart and a schematic does not get one.
