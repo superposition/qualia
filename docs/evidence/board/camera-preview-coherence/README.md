@@ -45,18 +45,20 @@ records the two reverts used to falsify the result.
 
 ## Files exercised on the board
 
-Every run below happened in `/home/jetson/remediate/515a506`, a `git archive` of `515a506` (the then
-`origin/main`, `d59e7ab`'s tree). The files there were replaced with the PR head's files and are
-**byte-identical** to them (md5, board vs this worktree):
+Every run below happened in `/home/jetson/remediate/515a506`: a `git archive` of commit `515a506`
+(the board's tree, #227's merge) **with the changed files overlaid from this PR**. The overlaid files
+are byte-identical to the PR head's — same git blob, same md5 — which is what carries these results
+for the reviewed files; the tree is not literally this PR's head (it and `d59e7ab` differ in 24 files
+this PR does not touch, and none of them are exercised above).
 
-| path | md5 |
-| --- | --- |
-| `crates/types/src/lib.rs` | `f1dc8ccb3f0814036e790f425d090d07` |
-| `runners/camera/src/lib.rs` | `5a3d42f8a76d7a10b3a95e8e7b7c6120` |
-| `runners/camera/tests/preview.rs` | `6b8e0fa94663f5a0f0e9c6c47bfb5e15` |
-| `runners/agent/src/perception.rs` | `1e7ece8ab7efb81953b29547cb2d486c` |
-| `runners/agent/tests/surface.rs` | `2936327e839f2191c1796659ea88420a` |
-| `runners/agent/tests/support/mod.rs` | `1f5b2c72e14b2b810053fd1cbb505ac0` |
+| path | blob at PR head | md5 (board == this worktree) |
+| --- | --- | --- |
+| `crates/types/src/lib.rs` | `d5a7dcf8e` | `f1dc8ccb3f0814036e790f425d090d07` |
+| `runners/camera/src/lib.rs` | `7a48ee2df` | `5a3d42f8a76d7a10b3a95e8e7b7c6120` |
+| `runners/camera/tests/preview.rs` | `e3c5e75e3` | `6b8e0fa94663f5a0f0e9c6c47bfb5e15` |
+| `runners/agent/src/perception.rs` | `78f694e6d` | `1e7ece8ab7efb81953b29547cb2d486c` |
+| `runners/agent/tests/surface.rs` | `2168a6311` | `2936327e839f2191c1796659ea88420a` |
+| `runners/agent/tests/support/mod.rs` | `1967b98f5` | `1f5b2c72e14b2b810053fd1cbb505ac0` |
 
 The tree was restored to its pre-existing files afterwards (the same md5s for the three camera files
 as before the session) and the scratch test files were deleted.
