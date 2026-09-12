@@ -1,0 +1,17 @@
+$ qualia-jepa-train --backend cuda ... (the 12 x 4168 gate-minimum fixture, `--epochs 1`)
+qualia-jepa-train: refusing to publish checkpoint t50close-e1: non-finite training-report metric validation.flat_mlp.rollout_error = NaN; a non-finite metric means the evaluation diverged, and JSON writes it as null, which the reader rejects
+
+$ qualia-jepa-train --backend cuda ... (the 12 x 4168 gate-minimum fixture, `--epochs 20`)
+qualia-jepa-train: refusing to publish checkpoint t50close-e20: non-finite training-report metric validation.tiny_cnn.rollout_error = NaN; a non-finite metric means the evaluation diverged, and JSON writes it as null, which the reader rejects
+
+$ qualia-jepa-train --backend cuda ... (the 156 x 330 short-chain fixture, `--epochs 1`)
+qualia-jepa-train: refusing to publish checkpoint t50close-s1: non-finite training-report metric validation.flat_mlp.rollout_error = inf; a non-finite metric means the evaluation diverged, and JSON writes it as null, which the reader rejects
+
+$ qualia-jepa-parity --checkpoint <the published null artifact> --target cuda ...
+qualia-jepa-parity: invalid type: null, expected f64 at line 26 column 27
+
+$ qualia-jepa-plan-eval propose --checkpoint <the published null artifact> ...
+Error: Error("invalid type: null, expected f64", line: 26, column: 27)
+
+$ qualia-jepa-plan-eval compare --checkpoint <the published null artifact> ...
+Error: Error("invalid type: null, expected f64", line: 26, column: 27)

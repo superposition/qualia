@@ -1,0 +1,36 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "<target>/release/t50close-probe",
+    "propose",
+    "--checkpoint",
+    "<scratch>/cand/t50close-candidate",
+    "--request",
+    "<scratch>/cand-requests/propose-request.json",
+    "--backend",
+    "cuda"
+  ],
+  "profiler_argv": [
+    "/usr/local/cuda/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=<output-dir>/mage-nsys-<run>/capture",
+    "<target>/release/t50close-probe",
+    "propose",
+    "--checkpoint",
+    "<scratch>/cand/t50close-candidate",
+    "--request",
+    "<scratch>/cand-requests/propose-request.json",
+    "--backend",
+    "cuda"
+  ],
+  "command": "<target>/release/t50close-probe propose --checkpoint <scratch>/cand/t50close-candidate --request <scratch>/cand-requests/propose-request.json --backend cuda",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 15360
+}

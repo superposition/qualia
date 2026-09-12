@@ -165,7 +165,13 @@ prediction and Hebbian walks; `cognition_update` prediction and row walks). `cog
 transposed gradient already reads coalesced across lanes; only its shared-memory error reads are
 vectorized, four rows at a time, in the same ascending order. The launcher signature is unchanged:
 same kernel names, same argument lists, same `grid`/`block`/`shared_mem_bytes` (`1×1×1` / `1024` /
-0), and the static shared memory is still 8 KiB, which `crates/cuda/tests/budget.rs` still passes.
+0), and the static shared memory is still 8 KiB, which the captures measure
+(`static_shared_mem_bytes 8192` in `after-kernels.csv`; `launch__shared_mem_per_block_static 8.19
+Kbyte/block` in `pinkie-kernels-refactored/metrics.csv`) and the kernels declare
+(`kernels/belief_update.cu:78-79`, `kernels/cognition_update.cu:37-38`, 2 × 1024 `f32`), with
+`shared_mem_bytes: 0` dynamic in both launchers (`crates/cuda/src/cuda_impl.rs:283`, `:1135`). No test
+asserts it: `crates/cuda/tests/budget.rs` is the costmap memory plan and
+`crates/cuda/tests/kernel_abi.rs` pins device struct offsets.
 
 **Rejected: the tiled, shared-memory reduction over column tiles.** The report's recommendation is a
 block-per-row-tile reduction, and a reduction changes the order of the 1024 adds. The contract is

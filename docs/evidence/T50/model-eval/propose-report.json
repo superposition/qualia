@@ -1,0 +1,1 @@
+{"backend":"cuda","candidates":64,"checkpoint_id":"t50close-candidate","direct_planner_write":false,"load_ms":129.556,"mode":"propose","predict_calls":1024,"selected_candidate_id":null,"step_ms":461.930945,"steps_per_candidate":16}

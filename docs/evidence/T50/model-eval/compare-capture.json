@@ -1,0 +1,32 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "<target>/release/t50close-probe",
+    "compare",
+    "--request",
+    "<scratch>/cand-requests/comparison-input.json",
+    "--checkpoint",
+    "<scratch>/cand/t50close-candidate"
+  ],
+  "profiler_argv": [
+    "/usr/local/cuda/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=<output-dir>/mage-nsys-<run>/capture",
+    "<target>/release/t50close-probe",
+    "compare",
+    "--request",
+    "<scratch>/cand-requests/comparison-input.json",
+    "--checkpoint",
+    "<scratch>/cand/t50close-candidate"
+  ],
+  "command": "<target>/release/t50close-probe compare --request <scratch>/cand-requests/comparison-input.json --checkpoint <scratch>/cand/t50close-candidate",
+  "capture_range": "all",
+  "status": "failed",
+  "returncode": 0,
+  "error": "RuntimeError: nsys captured no CUDA kernel launches. Check the target and capture range. Reports: <output-dir>/mage-nsys-<run>"
+}

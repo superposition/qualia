@@ -91,6 +91,9 @@ extern "C" __global__ void belief_update(
     // sector with all of it used, in a quarter of the instructions. Every row
     // starts on a 4096-byte boundary of a device allocation, so both ends of
     // the vector read are 16-byte aligned.
+    // Do not re-associate: ascending column order and the fmaf contraction are
+    // the twin's contract (crates/cuda/src/cpu.rs) and D-008/D-009 make the
+    // emitted bits interface.
     float* row = weights + tid * 1024;
     const float4* row4 = reinterpret_cast<const float4*>(row);
     const float4* mean4 = reinterpret_cast<const float4*>(prior_mean);
@@ -156,6 +159,9 @@ extern "C" __global__ void belief_update(
         const float weight_step =
             fminf(fmaxf(weight_rate * gain * residual, -0.01f), 0.01f);
         const float decay = 1.0f - weight_decay;
+        // Do not re-associate: ascending column order and the fmaf contraction are
+        // the twin's contract (crates/cuda/src/cpu.rs) and D-008/D-009 make the
+        // emitted bits interface.
         float4* row4w = reinterpret_cast<float4*>(row);
 #pragma unroll 4
         for (int chunk = 0; chunk < 256; ++chunk) {

@@ -10,6 +10,16 @@
 //! the same clamps, the same reduction order for the VFE tree, and the same
 //! ordering of the belief, weight and precision updates. Any change to one
 //! side must be mirrored in the other.
+//!
+//! The emitted bits are part of that contract and not only the order of
+//! operations: the kernels accumulate each row in ascending column order and
+//! pin the scalar multiply-add's contraction with `fmaf`, because nvcc's own
+//! choice of FMA contraction moves a few percent of the weights by one ULP
+//! while the parity tests' tolerance cannot see it. D-008/D-009 make emitted
+//! values interface, so a walk that re-associates the sum, or drops the pin,
+//! is a value change — refused in `kernels/belief_update.cu` and
+//! `kernels/cognition_update.cu`, which carry that sentence above each vector
+//! loop.
 
 use qualia_types::{
     BeliefSlot, JEPA_OCCUPANCY_CELLS, JEPA_OCCUPANCY_H, JEPA_OCCUPANCY_W, STATE_DIM, VOXEL_D,
