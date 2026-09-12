@@ -84,7 +84,7 @@ artifact: OK
 
 The network the cloud belongs to, on the importer's corrected measurement: **166,700 neurons,
 25,582,938 neuron-level edges, 124,177,617 synapses** (Σ weight), +94,542,746 excitatory,
-−26,403,637 inhibitory, 3,232,234 unknown. The 151,856,684-row / 311,833,243-weight total is the
+−26,402,637 inhibitory, 3,232,234 unknown. The 151,856,684-row / 311,833,243-weight total is the
 segment-resolution figure, not the neuron-level number.
 
 **Coverage, said plainly:** 139,662 of the 211,577 bodies in the annotation table carry a
