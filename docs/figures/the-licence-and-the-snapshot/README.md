@@ -15,7 +15,7 @@ Three figures for the journal entry
 `scripts/provenance_check.py` that the chart draws:
 
 ```bash
-python scripts/provenance_check.py     # run at 144bb6d and at the head of main
+cargo run --quiet -p qualia-gates -- provenance     # run at 144bb6d and at the head of main
 ```
 
 At `144bb6d` (the commit that introduced the check, and the one that closed
