@@ -246,7 +246,7 @@ live on Pinkie with ncu 2025.3.1:
 `docs/evidence/README.md` now names the details page as `metrics.csv`; the T50 capture stands with
 its `.ncu-rep` reports attached.
 
-## D-018 — The dev host cannot cross-build for the board; board builds are native
+## D-018 — The dev host cannot cross-build for the board; board builds are native (amended below)
 
 Measured 2026-09-11 by both board jobs: the Docker engine is unreachable, `cross` is not installed,
 and a direct `cargo build --target aarch64-unknown-linux-gnu` dies in `ring`'s build script for want
@@ -256,6 +256,117 @@ lanes that work: **(a)** a native aarch64 build on Pinkie from a `git archive` o
 capture and the C39/T23/T26 legs use it; the board's crate cache is populated), and **(b)** shipping
 a host-built artifact only when it is architecture-independent. Operator action to restore the cross
 lane: install the `aarch64-unknown-linux-gnu` toolchain, start Docker, or install `cross`.
+
+**Amendment, later on 2026-09-11 — the cross lane is restored, and restoring it was an agent action,
+not an operator one.** The paragraph above measures the host *as it was installed at that moment*,
+not the host. Taking its three operator remedies in turn, on the same machine:
+
+- **"install the `aarch64-unknown-linux-gnu` toolchain" — needed.** It is the first line of the recipe
+  below; without the target's std nothing cross-compiles.
+- **"start Docker" — not needed.** D-010's `Cross.toml` image stays a route, but it wants a running
+  engine, and building that image wants network and root.
+- **"install `cross`" — not needed.** Its job, driving a cross toolchain over a
+  `aarch64-linux-gnu-gcc`, is done here by `cargo-zigbuild`, which needs no root.
+- **the Debian `aarch64-linux-gnu-gcc` that `ring` failed for — not needed either.** Zig *is* that
+  compiler, plus a glibc sysroot, and `uv` installs it into `$HOME` from a Python wheel.
+
+`sudo` needs a password on this machine, so nothing in the lane may ask for root; nothing does.
+
+Replayable recipe, on the WSL2 Ubuntu-22.04 guest. Two prerequisites are not in the tree: `rustup`,
+and `uv`, which the third line needs and which rustup does not supply — the guest carries `uv 0.6.11`,
+and upstream's rootless installer is `curl -LsSf https://astral.sh/uv/install.sh | sh` (the project's
+documented route; not measured here, because this guest already had `uv`):
+
+```bash
+rustup toolchain install 1.94.1 --profile minimal --target aarch64-unknown-linux-gnu
+rustup toolchain install 1.98.1 --profile minimal          # cargo-zigbuild's rust-version is 1.88
+uv tool install ziglang==0.16.0                            # the wheel ships the compiler; no root
+ln -sf "$HOME/.local/share/uv/tools/ziglang/bin/python-zig" "$HOME/.local/bin/zig"
+cargo +1.98.1 install cargo-zigbuild --version 0.23.4 --locked -j 2
+
+git -C <checkout> archive HEAD | tar -x -C <a fresh tree>   # build an export, not the checkout
+cd <that tree>
+export CARGO_TARGET_DIR="$HOME/scratch/target-cross"
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-feature=+fp16"
+cargo +1.94.1 zigbuild --release --target aarch64-unknown-linux-gnu.2.17 \
+  -p qualia-jepa-model --bins -j 2
+```
+
+Two properties to know before running the recipe:
+
+- **Its first run needs the network.** All three installs above download; there is no offline form of
+  the first run.
+- **It mutates shared per-user state on the guest, not the repository:** `~/.rustup` (two toolchains
+  and the aarch64 std), `~/.cargo/bin/cargo-zigbuild`, and `~/.local/bin/zig`. Re-running it is a
+  no-op, but it is not a sandboxed build step, and it is not a per-worktree one.
+
+Three details worth naming:
+
+- **`.2.17` is the glibc floor, and it is the right one.** aarch64 Linux starts at glibc 2.17, Rust's
+  prebuilt std for this triple wants 2.17, and the board is Ubuntu 22.04.5 / `GLIBC 2.35` (D-010), so
+  the artifacts run there. Naming a *higher* floor narrows where the artifacts run and buys nothing.
+- **The `+fp16` flag is required, and a target-scoped variable is where it is set.** `gemm-f16`
+  0.18.2 is in `qualia-jepa-model`'s graph and compiles for the target, and D-016's flag is what lets
+  its inline asm assemble there. `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS` states by
+  construction that the flag belongs to the target crates only. Measured on a two-crate probe (a
+  proc-macro and a build script) cross-`check`ed for this triple: plain `RUSTFLAGS` also reached one
+  unit only — the target crate, and not the host build script or the proc macro — and exited 0, and
+  the target-scoped variable behaved identically. It is a statement of intent, not a workaround, and
+  not something that failed here.
+- **A `zig` command has to exist on `PATH`.** `uv tool install ziglang` installs only a `python-zig`
+  entry point; the symlink is what `cargo-zigbuild` looks for.
+
+Measured with: rustup 1.29.1, rustc 1.94.1 (e408947bf 2026-03-25) building the target, zig 0.16.0
+(the `ziglang` 0.16.0 wheel), cargo-zigbuild 0.23.4 built by rustc 1.98.1 (48a229cea 2026-09-01).
+The four binaries build in ~2m40s at `-j 2`, and a replay from a fresh `git archive` into a fresh
+`CARGO_TARGET_DIR` produced byte-identical files — the same SHA-256 for all four. **That
+byte-identity is version-tied**: it is a property of these pinned versions, not of the recipe, so a
+reader who moves any pin should re-measure it rather than assume it.
+
+At `60beee4`, `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.17 -p qualia-jepa-model
+--bins` yields four artifacts that `file` reports as
+
+```text
+qualia-jepa-train:         ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 2.0.0, stripped
+qualia-jepa-parity:        ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 2.0.0, stripped
+qualia-jepa-plan-eval:     ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 2.0.0, stripped
+qualia-jepa-runtime-probe: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 2.0.0, stripped
+```
+
+Their only `NEEDED` entries are `libm.so.6`, `libc.so.6`, `libpthread.so.0` and `libdl.so.2`, and the
+highest glibc symbol version any of them imports is `GLIBC_2.17`. The board run is recorded in
+[`evidence/board/cross-lane/README.md`](evidence/board/cross-lane/README.md).
+
+Consequences:
+
+- **D-018's two routes keep their letters and gain a third.** **(a)** a native aarch64 build on
+  Pinkie, unchanged. **(b)** shipping a host-built artifact when it is architecture-independent,
+  unchanged. **(c) — this amendment — a host cross-build with `cargo zigbuild`**, for artifacts that
+  are architecture-dependent Rust whose dependency graph this host can satisfy. D-010's `Cross.toml`
+  image remains a further route whenever a Docker engine is running. (c) needs no root, no Docker and
+  no board slot.
+- **Which route, when.** Cross-build (c) when the change is Rust the crate graph covers and the
+  artifact must run on the board: it is the only route that costs no board time, and it leaves the
+  board's crate cache untouched. Build natively on the board (a) when the build needs something this
+  host cannot install rootlessly — today, the CUDA feature's aarch64 toolkit — or when the board's
+  own toolchain is what is under test. Ship host-built bytes alone (b) only when they are
+  architecture-independent.
+- **Scope of the lane.** It builds the board's own target, `aarch64-unknown-linux-gnu`, which is the
+  architecture DoD's "built for the robot's architecture" asks for. It does not touch the host-only
+  case DoD names — `--backend metal` (`crates/jepa-model`'s `metal` feature) still records an aarch64
+  build as its board evidence, with execution on the board impossible — and it does not build
+  `--features cuda`.
+- **Native board builds stay valid.** The board lane is not deprecated by this; (c) removes the
+  host's *dependence* on it, which is what D-018's *lanes that work* list was really recording.
+- **The cross lane does not build the CUDA feature, and that is a toolkit gap rather than a cross
+  gap.** `--features cuda` for `aarch64-unknown-linux-gnu` needs the aarch64 CUDA toolkit (`nvcc`,
+  `libcudart`) that this host does not carry, so a default-feature cross build refuses a CUDA target
+  with `backend cuda is not compiled into this binary`. The cross lane therefore proves that the
+  board *runs* the model binaries, not that it runs them on the GPU.
+- **The C path is untested by this package.** `qualia-jepa-model`'s graph is Rust-only — `cargo tree`
+  names no `cc` and no `ring` — so this build never exercised D-018's `ring` failure. cargo-zigbuild
+  does export `CC`/`AR`/`CXX` wrappers around `zig cc` for the target, which is the mechanism that
+  should answer it; that is `[INFERENCE]`, not a measurement.
 
 ## D-019 — A PR based on another ticket's branch can strand its work; base PRs on `main`
 
