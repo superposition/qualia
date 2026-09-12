@@ -211,11 +211,10 @@ trains clears `all_gates_passed`, so there is still no promoted checkpoint to po
 
 ## The board leg
 
-Recorded on its stated reason, with this ticket's own measurement of the first limb. **No aarch64
-artifact of these binaries can be built on this host**: on the 1.98.1 toolchain
-`rustup target list --installed` carries only `x86_64-unknown-linux-gnu`, and `which
-aarch64-linux-gnu-gcc cross` finds neither on `PATH`. The build dies the way #224 recorded for this
-same package:
+**The host half is measured by this ticket.** No aarch64 artifact of these binaries can be built on
+this host: on the 1.98.1 toolchain `rustup target list --installed` carries only
+`x86_64-unknown-linux-gnu`, and `which aarch64-linux-gnu-gcc cross` finds neither on `PATH`. The build
+dies the way #224 recorded for this same package:
 
 ```text
 $ rustup run 1.98.1 cargo build --release -j 2 --target aarch64-unknown-linux-gnu \
@@ -229,13 +228,22 @@ error: could not compile `cfg-if` (lib) due to 1 previous error
 ```
 
 That is the same `rc 101`, `error[E0463]` #224 measured, and the fault `docs/decisions.md` D-018
-names (no Docker engine, no `cross`, no `aarch64-linux-gnu-gcc`; the musl target fails the same way).
-**And none could run on Pinkie anyway**: the board's offline registry cache carries no `candle-core`
-and the board has no DNS (D-016/D-018), so these model binaries cannot be built or fetched there —
-#224's board record states the same for the same bins. No cross-build is claimed; this paragraph is
-the DoD's stated-reason clause, and every run in this capture was on the dev host's 4090. The
-`git archive` + native aarch64 board build that D-018 records as lane (a) is the board job's, not
-this agent's: the batch's host rules reserve Pinkie, and this agent has no ssh to it.
+names for this host (no Docker engine, no `cross`, no `aarch64-linux-gnu-gcc`; the musl target fails
+the same way). No cross-build is claimed.
+
+**The Pinkie half is not measured by this ticket.** What an earlier note — and #224's board record
+for the same bins — said, that the board's offline registry cache carries no `candle-core` and that
+the board has no DNS, is *inherited here, not reproduced*, and a board job is re-measuring it now
+(see the #225/#228 comments). Two records argue against reading it as a limit: D-018's lane (a) is a
+native aarch64 build on Pinkie from a `git archive` of the head with the board's crate cache
+populated, and D-016 already records candle-bearing crates building on the board under
+`RUSTFLAGS="-C target-feature=+fp16"`; an offline cache is copy-aroundable and an unconfigured
+network interface is not an impossibility. If the board job shows the leg is possible, this section
+is replaced with that run's output.
+
+Every run in this capture was on the dev host's 4090. This agent has no ssh to Pinkie — the batch's
+host rules reserve the board to the board job — so the DoD's board limb is not this agent's to
+exercise here; the host limb above is recorded with its own measurement.
 
 ## Files
 
