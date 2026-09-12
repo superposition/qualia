@@ -18,7 +18,7 @@ pub use stats::{
 
 #[cfg(not(windows))]
 use std::ffi::CString;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{fence, Ordering};
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
@@ -900,9 +900,13 @@ impl<'a> LayerWriter<'a> {
     }
 
     /// Flip the index so readers see what the back buffer just received.
+    ///
+    /// The counter advances rather than toggling: its low bit still selects the
+    /// front buffer, and its value lets a reader that re-reads it after its
+    /// copy tell whether *any* publish landed inside that copy — two toggles
+    /// would otherwise return it to where it started.
     pub fn publish(&self) {
-        let front = self.slot.write_idx.load(Ordering::Acquire) & 1;
-        self.slot.write_idx.store(1 - front, Ordering::Release);
+        self.slot.write_idx.fetch_add(1, Ordering::AcqRel);
     }
 }
 
@@ -920,5 +924,24 @@ impl<'a> LayerReader<'a> {
     pub fn read(&self) -> &BeliefSlot {
         let front = self.slot.write_idx.load(Ordering::Acquire) & 1;
         &self.slot.buffers[front]
+    }
+
+    /// Copies the front buffer, retrying at most `max_attempts` times.
+    ///
+    /// `None` means every attempt saw a publish land inside its copy. The
+    /// acquire fence orders the copy before the closing load, so a publish that
+    /// happened during it is observed on a machine that may reorder the load
+    /// ahead of the copy, and the caller gets a whole belief or nothing.
+    pub fn snapshot(&self, max_attempts: usize) -> Option<BeliefSlot> {
+        for _ in 0..max_attempts.max(1) {
+            let before = self.slot.write_idx.load(Ordering::Acquire);
+            let belief = *self.read();
+            fence(Ordering::Acquire);
+            let after = self.slot.write_idx.load(Ordering::Acquire);
+            if before == after {
+                return Some(belief);
+            }
+        }
+        None
     }
 }

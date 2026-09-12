@@ -301,15 +301,17 @@ fn layer_writer_publishes_and_reader_follows() {
     writer.back_buffer().layer = 1;
     writer.publish();
 
-    assert_eq!(slot.write_idx.load(Ordering::Acquire), 1);
+    assert_eq!(slot.write_idx.load(Ordering::Acquire), 1, "one publish, one step");
     assert_eq!(reader.read().mean[0], 42.0);
     assert_eq!(reader.read().layer, 1);
+    assert_eq!(reader.snapshot(1).expect("a stable slot reads").mean[0], 42.0);
 
     // The second publish flips the pair back and the reader follows.
     writer.back_buffer().mean[0] = 7.0;
     writer.publish();
-    assert_eq!(slot.write_idx.load(Ordering::Acquire), 0);
+    assert_eq!(slot.write_idx.load(Ordering::Acquire), 2);
     assert_eq!(reader.read().mean[0], 7.0);
+    assert_eq!(reader.snapshot(1).expect("a stable slot reads").mean[0], 7.0);
 
     drop(region);
 }
