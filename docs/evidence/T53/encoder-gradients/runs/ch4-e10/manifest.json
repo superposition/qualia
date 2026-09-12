@@ -1,0 +1,54 @@
+{
+  "schema_version": "qualia.jepa-checkpoint.v1",
+  "architecture_id": "qualia.jepa.grounded-tiny-cnn.v1",
+  "checkpoint_id": "t53-ch4-e10",
+  "dataset_digest": "26e2dfac396e343f09b27b350366b24ef06f33b65f0c90ca48919ac035245b8e",
+  "training_seed": 42,
+  "backend": "cuda",
+  "dtype": "F32",
+  "target_encoder": "ema",
+  "parameter_count": 3856848,
+  "weights_sha256": "3e0c77c5ec4ab796a7e9abdbc2ba9fe90fe23dd5ca14619e442b8d4f23a4d762",
+  "training_report_path": "/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e10/jepa-training-report-b515fd790adb4dab8c7d5ecca60fddd3b91094d3dcf7bb9c9245d4ebdd32aa1b.json",
+  "training_report_sha256": "b515fd790adb4dab8c7d5ecca60fddd3b91094d3dcf7bb9c9245d4ebdd32aa1b",
+  "baseline_gate": {
+    "dataset_digest": "26e2dfac396e343f09b27b350366b24ef06f33b65f0c90ca48919ac035245b8e",
+    "valid_transitions": 50400,
+    "sessions": 12,
+    "conditions": 3,
+    "environments": 12,
+    "constant": {
+      "transition_nll": -0.6638802832781914,
+      "rollout_error": 0.5747282583443891
+    },
+    "flat_mlp": {
+      "transition_nll": -1.5774902906871977,
+      "rollout_error": 0.1775675579674897
+    },
+    "tiny_cnn": {
+      "transition_nll": -4.173535336085728,
+      "rollout_error": 0.010183599216605737
+    }
+  },
+  "action_support": {
+    "sample_count": 42000,
+    "min_left": -0.4,
+    "max_left": 0.4,
+    "min_right": -0.4,
+    "max_right": 0.4,
+    "min_effective_forward": -0.4,
+    "max_effective_forward": 0.2,
+    "min_effective_turn": -0.2,
+    "max_effective_turn": 0.2,
+    "min_speed_scale": 0.5,
+    "max_speed_scale": 1.0,
+    "min_delta_seconds": 0.001,
+    "max_delta_seconds": 0.001
+  },
+  "grounding_geometry": {
+    "width": 64,
+    "height": 64,
+    "resolution_m": 0.05
+  },
+  "status": "candidate"
+}

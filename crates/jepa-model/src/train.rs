@@ -825,6 +825,134 @@ mod tests {
         assert_eq!(encoded[0].len(), CORE_DIM);
     }
 
+    fn host_rows(tensor: &Tensor) -> Vec<Vec<f32>> {
+        tensor
+            .to_device(&Device::Cpu)
+            .unwrap()
+            .to_vec2::<f32>()
+            .unwrap()
+    }
+
+    /// Largest absolute change in one parameter scope between two snapshots.
+    fn max_abs_delta(before: &[(String, Vec<f32>)], after: &[(String, Vec<f32>)]) -> f32 {
+        assert_eq!(before.len(), after.len(), "snapshot scopes must match");
+        after
+            .iter()
+            .map(|(name, values)| {
+                let previous = before
+                    .iter()
+                    .find(|(other, _)| other == name)
+                    .map(|(_, values)| values.as_slice())
+                    .expect("snapshot names must match");
+                values
+                    .iter()
+                    .zip(previous.iter())
+                    .map(|(value, previous)| (value - previous).abs())
+                    .fold(0.0_f32, f32::max)
+            })
+            .fold(0.0_f32, f32::max)
+    }
+
+    fn snapshot(var_map: &VarMap, prefix: &str) -> Vec<(String, Vec<f32>)> {
+        let variables = var_map.data().lock().expect("Candle VarMap lock");
+        let mut entries = variables
+            .iter()
+            .filter(|(name, _)| name.starts_with(prefix))
+            .map(|(name, variable)| {
+                (
+                    name.clone(),
+                    variable
+                        .as_detached_tensor()
+                        .flatten_all()
+                        .unwrap()
+                        .to_vec1::<f32>()
+                        .unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+        entries
+    }
+
+    /// The objective is supposed to shape the representation it predicts from:
+    /// after optimiser steps on a fixed batch the online encoder must have
+    /// moved, the EMA target must have followed it, and the predictor must
+    /// still update the way it always did. Non-zero gradients are not the
+    /// claim; the parameters and the emitted latents move.
+    #[test]
+    fn the_encoder_moves_when_the_objective_steps() {
+        let config = TrainerConfig {
+            weight_decay: 0.0,
+            ..TrainerConfig::default()
+        };
+        let mut trainer = OfflineTrainer::new(Device::Cpu, 11, config).unwrap();
+        let batch = [example(0.1), example(0.2), example(0.4), example(0.8)];
+        let probe = [vec![0.3_f32; OBS_DIM]];
+        let probe_tensor = observation_tensor(&probe, &Device::Cpu).unwrap();
+
+        let online_before = digest_of(&trainer.online_vars, "encoder.");
+        let target_before = digest_of(&trainer.target_vars, "encoder.");
+        let predictor_before = digest_of(&trainer.online_vars, "predictor.");
+        let encoder_before = snapshot(&trainer.online_vars, "encoder.");
+        let ema_before = snapshot(&trainer.target_vars, "encoder.");
+        let latent_before = host_rows(
+            &trainer
+                .model()
+                .encode_observation(&probe_tensor)
+                .unwrap(),
+        );
+
+        for _ in 0..8 {
+            trainer.train_batch(&batch).unwrap();
+        }
+        assert_eq!(trainer.steps(), 8);
+
+        let online_after = digest_of(&trainer.online_vars, "encoder.");
+        let target_after = digest_of(&trainer.target_vars, "encoder.");
+        let predictor_after = digest_of(&trainer.online_vars, "predictor.");
+        let latent_after = host_rows(
+            &trainer
+                .model()
+                .encode_observation(&probe_tensor)
+                .unwrap(),
+        );
+
+        assert_ne!(
+            online_after, online_before,
+            "the prediction objective must move the online encoder's parameters"
+        );
+        assert_ne!(
+            predictor_after, predictor_before,
+            "the predictor's own update is expected to continue"
+        );
+        assert_ne!(
+            target_after, target_before,
+            "the EMA target encoder must follow the online encoder it averages"
+        );
+
+        let encoder_moved = max_abs_delta(&encoder_before, &snapshot(&trainer.online_vars, "encoder."));
+        let target_moved = max_abs_delta(&ema_before, &snapshot(&trainer.target_vars, "encoder."));
+        let emitted = latent_after[0]
+            .iter()
+            .zip(latent_before[0].iter())
+            .map(|(after, before)| (after - before).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            encoder_moved > 1.0e-4,
+            "the prediction objective must move the encoder's parameters, moved {encoder_moved}"
+        );
+        assert!(
+            target_moved > 0.0 && target_moved < encoder_moved,
+            "the EMA target must trail the online encoder it tracks, \
+             moved {target_moved} against {encoder_moved}"
+        );
+        assert!(
+            emitted > 1.0e-3,
+            "the encoder's emitted latent must change for the reason the loss defines, \
+             moved {emitted}"
+        );
+    }
+
     #[test]
     fn singleton_batches_and_non_positive_elapsed_time_are_rejected() {
         let mut trainer = OfflineTrainer::new(Device::Cpu, 7, TrainerConfig::default()).unwrap();

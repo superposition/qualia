@@ -1,0 +1,37 @@
+jepa materialize source=1/12 session=session-0-0
+jepa materialized session=session-0-0 train=4200 validation=0 test=0
+jepa materialize source=2/12 session=session-1-0
+jepa materialized session=session-1-0 train=4200 validation=0 test=0
+jepa materialize source=3/12 session=session-10-0
+jepa materialized session=session-10-0 train=4200 validation=0 test=0
+jepa materialize source=4/12 session=session-11-0
+jepa materialized session=session-11-0 train=4200 validation=0 test=0
+jepa materialize source=5/12 session=session-2-0
+jepa materialized session=session-2-0 train=0 validation=4200 test=0
+jepa materialize source=6/12 session=session-3-0
+jepa materialized session=session-3-0 train=0 validation=0 test=4200
+jepa materialize source=7/12 session=session-4-0
+jepa materialized session=session-4-0 train=4200 validation=0 test=0
+jepa materialize source=8/12 session=session-5-0
+jepa materialized session=session-5-0 train=4200 validation=0 test=0
+jepa materialize source=9/12 session=session-6-0
+jepa materialized session=session-6-0 train=4200 validation=0 test=0
+jepa materialize source=10/12 session=session-7-0
+jepa materialized session=session-7-0 train=4200 validation=0 test=0
+jepa materialize source=11/12 session=session-8-0
+jepa materialized session=session-8-0 train=4200 validation=0 test=0
+jepa materialize source=12/12 session=session-9-0
+jepa materialized session=session-9-0 train=4200 validation=0 test=0
+jepa train epoch=1/10 backend=cuda samples=42000 batches=1313 cnn_total=22.952908 cnn_nll=-2.655534 cnn_var=0.798979 cnn_cov=5.632340 cnn_ground=0.001635 flat_total=23.531972 flat_nll=-0.470702 seconds=32.706 samples_per_second=1284.18
+jepa train epoch=2/10 backend=cuda samples=42000 batches=1313 cnn_total=18.066245 cnn_nll=-3.566832 cnn_var=0.804708 cnn_cov=1.515385 cnn_ground=0.000000 flat_total=12.817787 flat_nll=-1.571197 seconds=32.863 samples_per_second=1278.03
+jepa train epoch=3/10 backend=cuda samples=42000 batches=1313 cnn_total=17.451318 cnn_nll=-3.801061 cnn_var=0.802779 cnn_cov=1.182915 cnn_ground=0.000000 flat_total=12.249263 flat_nll=-1.708072 seconds=32.836 samples_per_second=1279.07
+jepa train epoch=4/10 backend=cuda samples=42000 batches=1313 cnn_total=17.129311 cnn_nll=-3.951642 cnn_var=0.799111 cnn_cov=1.103186 cnn_ground=0.000000 flat_total=11.786287 flat_nll=-1.821031 seconds=31.990 samples_per_second=1312.93
+jepa train epoch=5/10 backend=cuda samples=42000 batches=1313 cnn_total=16.959658 cnn_nll=-4.034037 cnn_var=0.796956 cnn_cov=1.069794 cnn_ground=0.000000 flat_total=11.432736 flat_nll=-1.862609 seconds=32.007 samples_per_second=1312.21
+jepa train epoch=6/10 backend=cuda samples=42000 batches=1313 cnn_total=16.808356 cnn_nll=-4.111416 cnn_var=0.794420 cnn_cov=1.059260 cnn_ground=0.000000 flat_total=11.106433 flat_nll=-1.869032 seconds=31.991 samples_per_second=1312.87
+jepa train epoch=7/10 backend=cuda samples=42000 batches=1313 cnn_total=16.692772 cnn_nll=-4.161720 cnn_var=0.792114 cnn_cov=1.051640 cnn_ground=0.000000 flat_total=10.844440 flat_nll=-1.840803 seconds=33.847 samples_per_second=1240.87
+jepa train epoch=8/10 backend=cuda samples=42000 batches=1313 cnn_total=16.585503 cnn_nll=-4.203232 cnn_var=0.789142 cnn_cov=1.060195 cnn_ground=0.000000 flat_total=10.629359 flat_nll=-1.835760 seconds=32.702 samples_per_second=1284.32
+jepa train epoch=9/10 backend=cuda samples=42000 batches=1313 cnn_total=16.473397 cnn_nll=-4.242461 cnn_var=0.785640 cnn_cov=1.074851 cnn_ground=0.000000 flat_total=10.424452 flat_nll=-1.859130 seconds=33.259 samples_per_second=1262.80
+jepa train epoch=10/10 backend=cuda samples=42000 batches=1313 cnn_total=16.355194 cnn_nll=-4.285090 cnn_var=0.782372 cnn_cov=1.080990 cnn_ground=0.000000 flat_total=10.267035 flat_nll=-1.883358 seconds=33.271 samples_per_second=1262.36
+jepa calibrate constant_baseline_samples=42000
+candidate=t53-ch4-e10 weights=/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e10/t53-ch4-e10/weights.safetensors manifest=/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e10/t53-ch4-e10/manifest.json report=/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e10/jepa-training-report-b515fd790adb4dab8c7d5ecca60fddd3b91094d3dcf7bb9c9245d4ebdd32aa1b.json gate=false
+qualia-jepa-train: candidate failed held-out predictive, grounding, or calibration gates
