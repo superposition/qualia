@@ -55,7 +55,8 @@ ticket's "125 million synaptic connections" at neuron level. Σ`weight` over the
 | --- | --- | --- | --- | --- |
 | dev host CPU (one thread, i9-14900KF) | 20.615 | 48.5 | 1,241.0 | — |
 | dev host RTX 4090 (NVRTC, sm_89) | 1.381 | 723.9 | 18,519.0 | 182,247,874 B |
-| Jetson Orin NX (Pinkie, sm_87 cubin) | see below | | | |
+| Jetson Orin NX, Pinkie (sm_87 cubin, 6 cores) | 11.840 | 84.5 | 2,160.6 | 182,247,874 B |
+| Jetson Orin NX, Pinkie, CPU reference | 49.140 | 20.4 | 520.6 | — |
 
 A free-running network is silent: with no input every membrane sits at rest and there is no noise
 term, so the bench's last tick reports 0 spikes. That is the model, not a bug; the loop's drive is
@@ -73,6 +74,12 @@ cns-loop: decoder reads 2012 descending/motor neurons (1011 L, 1001 R)
 cns-loop: device NVIDIA GeForce RTX 4090
 cns-loop: 200 ticks in 1.775 s (112.7 ticks/s), 10048960 spikes, 196 non-hold commands
 ```
+
+On the board the same loop ran 300 ticks at **31.3 ticks/s** (camera-bound: the leash serves ~33
+snapshots/s, so the tick rate is the sensor rate, not the runner's) with 15,168,990 spikes and 296
+non-hold commands, and every section digest re-verified on the board before the run. **60 Hz needs
+16.7 ms/tick and the Orin does 11.840 ms/tick, so the imported artifact sustains 60 Hz with ~1.4x
+headroom** at 2,160.6 M synapse-updates/s.
 
 The trace (`host-loop-gpu-trace.csv`) is per tick: luminance, firing input count, both output rates,
 `command` and `throttle`. Over those 200 ticks the command was `-1` (steer left) 130 times, `+1`

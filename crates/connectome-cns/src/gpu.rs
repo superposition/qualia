@@ -31,7 +31,6 @@ pub struct LifDevice {
     // The module owns the loaded image; the function handle must not outlive it.
     _module: Arc<CudaModule>,
     step: CudaFunction,
-    free: CudaFunction,
     device_name: String,
     pub rowptr: CudaSlice<u64>,
     pub cols: CudaSlice<u32>,
@@ -75,10 +74,6 @@ impl LifDevice {
         let step = module
             .load_function("lif_step")
             .map_err(|error| format!("lif_step missing: {error:?}"))?;
-        let free = module
-            .load_function("lif_step_free")
-            .map_err(|error| format!("lif_step_free missing: {error:?}"))?;
-
         let neurons = graph.neuron_count();
         let rowptr = stream
             .clone_htod(graph.rowptr.as_slice())
@@ -112,7 +107,6 @@ impl LifDevice {
             stream,
             _module: module,
             step,
-            free,
             device_name,
             rowptr,
             cols,
@@ -167,8 +161,9 @@ impl LifDevice {
 
     /// Launch one tick, leaving the result in `spike_out`.
     ///
-    /// `driven` selects the kernel variant: with no external buffer the free
-    /// kernel is launched, so a free-running network allocates nothing.
+    /// One kernel serves both cases: a free-running network simply leaves the
+    /// external buffer zeroed, because a `__global__` function cannot call
+    /// another one without dynamic parallelism (nvcc rejects it).
     pub fn step(&mut self, params: &LifParams, driven: bool) -> Result<(), String> {
         let config = LaunchConfig {
             grid_dim: (self.neuron_count.div_ceil(BLOCK), 1, 1),
@@ -184,45 +179,29 @@ impl LifDevice {
         // SAFETY: the argument order and types match kernels/cns_lif.cu, both
         // spike buffers are distinct device allocations, and the stream is
         // synchronized before either is read back.
+        let _ = driven;
+        // SAFETY: the argument order and types match kernels/cns_lif.cu, both
+        // spike buffers are distinct device allocations, and the stream is
+        // synchronized before either is read back.
         unsafe {
-            if driven {
-                stream
-                    .launch_builder(&self.step)
-                    .arg(&self.rowptr)
-                    .arg(&self.cols)
-                    .arg(&self.sign)
-                    .arg(&self.weight)
-                    .arg(&self.spike)
-                    .arg(&self.external)
-                    .arg(&mut self.v)
-                    .arg(&mut self.refractory)
-                    .arg(&mut self.spike_out)
-                    .arg(&count)
-                    .arg(&decay)
-                    .arg(&threshold)
-                    .arg(&reset)
-                    .arg(&refractory_ticks)
-                    .launch(config)
-                    .map_err(|error| format!("lif_step launch: {error:?}"))?;
-            } else {
-                stream
-                    .launch_builder(&self.free)
-                    .arg(&self.rowptr)
-                    .arg(&self.cols)
-                    .arg(&self.sign)
-                    .arg(&self.weight)
-                    .arg(&self.spike)
-                    .arg(&mut self.v)
-                    .arg(&mut self.refractory)
-                    .arg(&mut self.spike_out)
-                    .arg(&count)
-                    .arg(&decay)
-                    .arg(&threshold)
-                    .arg(&reset)
-                    .arg(&refractory_ticks)
-                    .launch(config)
-                    .map_err(|error| format!("lif_step_free launch: {error:?}"))?;
-            }
+            stream
+                .launch_builder(&self.step)
+                .arg(&self.rowptr)
+                .arg(&self.cols)
+                .arg(&self.sign)
+                .arg(&self.weight)
+                .arg(&self.spike)
+                .arg(&self.external)
+                .arg(&mut self.v)
+                .arg(&mut self.refractory)
+                .arg(&mut self.spike_out)
+                .arg(&count)
+                .arg(&decay)
+                .arg(&threshold)
+                .arg(&reset)
+                .arg(&refractory_ticks)
+                .launch(config)
+                .map_err(|error| format!("lif_step launch: {error:?}"))?;
         }
         std::mem::swap(&mut self.spike, &mut self.spike_out);
         Ok(())
