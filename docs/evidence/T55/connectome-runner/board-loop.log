@@ -1,0 +1,466 @@
++ date
+Sat Sep 12 02:55:02 AM EDT 2026
++ export PATH=/home/jetson/.cargo/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
++ PATH=/home/jetson/.cargo/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
++ uptime
+ 02:55:02 up 21:16,  0 users,  load average: 0.34, 0.70, 1.33
++ pgrep -af cargo
++ pgrep -af nvcc
++ cd /home/jetson/t55
++ mkdir -p /home/jetson/t55-run
++ CUDAARCHS=87-real
++ cargo build -p qualia-connectome-cns --features cuda -j 2 --release --offline
+   Compiling qualia-connectome-cns v0.1.0 (/home/jetson/t55/crates/connectome-cns)
+warning: qualia-connectome-cns@0.1.0: qualia-connectome-cns: /home/jetson/t55/crates/connectome-cns/../../kernels/cns_lif.cu -> /home/jetson/t55/target/release/build/qualia-connectome-cns-20d52c7de52b0d1e/out/cns_lif.fatbin (5880 bytes)
+    Finished `release` profile [optimized] target(s) in 19.43s
+build exit: 0
++ BUILD=0
++ echo 'build exit: 0'
++ '[' 0 -ne 0 ']'
++ ./target/release/qualia-connectome-cns verify --artifact /home/jetson/t55-artifact
+cns-verify: neurons 166700 edges 25582938 synapses 124177617
+cns-verify: sign +94542746 -26402637 ?3232234
+cns-verify: positioned 139662 types 11752 nodes 166700
+cns-verify: weights.bin 180414198 bytes, every section digest verified
+verify exit: 0
++ echo 'verify exit: 0'
+++ date +%s%N
++ SNAP_START=1789196123649649184
+++ seq 200
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
++ for i in $(seq 200)
++ curl -sS -o /dev/null http://127.0.0.1:8000/camera/snapshot
+++ date +%s%N
+snapshot probe: 200 fetches in 2485 ms
++ SNAP_END=1789196126134751040
++ echo 'snapshot probe: 200 fetches in 2485 ms'
++ ./target/release/qualia-connectome-cns loop --artifact /home/jetson/t55-artifact --camera http://127.0.0.1:8000/camera/snapshot --ticks 300 --spikes /home/jetson/t55-run/spikes-fixed.bin --trace /home/jetson/t55-run/trace-fixed.csv --device gpu --session leash-camera
+cns-loop: session leash-camera; input live JPEG camera at http://127.0.0.1:8000/camera/snapshot
+cns-loop: encoder drives 95494 visual-stage cells (ol_intrinsic + R1-R6/R7/R8) over 8 columns, gain 0.5
+cns-loop: decoder reads 2012 descending/motor neurons (1011 L, 1001 R)
+cns-loop: device Orin
+cns-loop: 300 ticks in 9.358 s (32.1 ticks/s), 15085686 spikes, 294 non-hold commands
+cns-loop: /home/jetson/t55-run/spikes-fixed.bin -> /home/jetson/t55-run/trace-fixed.csv
+loop exit: 0
++ echo 'loop exit: 0'
++ ./target/release/qualia-connectome-cns replay --spikes /home/jetson/t55-run/spikes-fixed.bin
+cns-replay: frames 300
+cns-replay: spikes 15085686
+cns-replay: first tick 0 0 ids
+cns-replay: last tick 299 63020 ids wall 9301706976 ns
+replay exit: 0
++ echo 'replay exit: 0'
++ ls -l /home/jetson/t55-run/
+total 118228
+-rw-rw-r-- 1 jetson jetson 60681968 Sep 12 02:08 spikes.bin
+-rw-rw-r-- 1 jetson jetson 60348752 Sep 12 02:55 spikes-fixed.bin
+-rw-rw-r-- 1 jetson jetson    13137 Sep 12 02:08 trace.csv
+-rw-rw-r-- 1 jetson jetson    13034 Sep 12 02:55 trace-fixed.csv
++ sha256sum /home/jetson/t55-run/spikes-fixed.bin
+3fb91bd14f6c166265c3c3119906b7b03e3b582a970b936b1c71f6abe4fa742f  /home/jetson/t55-run/spikes-fixed.bin
++ head -3 /home/jetson/t55-run/trace-fixed.csv
+# session leash-camera; frames 640x480; input live JPEG camera at http://127.0.0.1:8000/camera/snapshot
+tick,luminance,fired_input,rate_l,rate_r,command,throttle
+0,0.3841,0,0.00000,0.00000,0,0.00000
++ tail -2 /home/jetson/t55-run/trace-fixed.csv
+298,0.3811,22882,0.33729,0.36464,1,0.70193
+299,0.3811,49666,0.08309,0.10090,1,0.18399
++ date
+Sat Sep 12 02:55:38 AM EDT 2026

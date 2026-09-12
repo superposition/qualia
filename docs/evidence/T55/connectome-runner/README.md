@@ -28,9 +28,11 @@ Logs in this directory:
   section is a *failed* read-back by the binary built before `71c9900` (the 12-byte-header reader). Its
   bench rows are the Orin numbers below; its loop section proves nothing and is superseded by
   `board-loop.log`.
-* `board-loop.log` — the 300-tick board loop re-run with the fixed reader, with the leash snapshot-rate
-  probe and the `replay` read-back. (Added in the review-fix commit; see the log itself.)
-* `board-loop-trace.csv` — the board loop's per-tick trace.
+* `board-loop.log` — the 300-tick board loop re-run with the fixed reader under a D-024 lease
+  (`14dae29`, 2026-09-12 02:55 board-local): the extract/build, `verify`, a 200-fetch leash snapshot-rate
+  probe, the loop and the `replay` read-back, at `set -x` fidelity.
+* `board-loop-trace.csv` — the earlier board loop's per-tick trace (2026-09-12 02:0x).
+* `board-loop-trace-rerun.csv` — the per-tick trace of the `board-loop.log` re-run.
 * `cpu-aliasing-demo.log` — the before/after run for the CPU spike-buffer fix (review item N1).
 
 The board run's 57.9 MB `spikes.bin` recording is deliberately **not** committed (it is a recording,
@@ -75,6 +77,26 @@ A free-running network is silent: with no input every membrane sits at rest and 
 term, so the bench's last tick reports 0 spikes. That is the model, not a bug; the loop's drive is
 what makes it spike.
 
+### The board window's commands
+
+The build and both benches behind the Orin rows and the loop were run by this script on Pinkie
+(`--warmup` was 100 for the 600-tick GPU bench and 20 for the 200-tick CPU one):
+
+```console
+$ CUDAARCHS=87-real cargo build -p qualia-connectome-cns --features cuda -j 2 --release --offline
+$ ./target/release/qualia-connectome-cns verify --artifact /home/jetson/t55-artifact
+$ ./target/release/qualia-connectome-cns bench --artifact /home/jetson/t55-artifact --ticks 600 --warmup 100 --device gpu
+$ ./target/release/qualia-connectome-cns bench --artifact /home/jetson/t55-artifact --ticks 200 --warmup 20 --device cpu
+$ ./target/release/qualia-connectome-cns loop --artifact /home/jetson/t55-artifact \
+      --camera http://127.0.0.1:8000/camera/snapshot --ticks 300 \
+      --spikes /home/jetson/t55-run/spikes.bin --trace /home/jetson/t55-run/trace.csv \
+      --device gpu --session leash-camera
+$ ./target/release/qualia-connectome-cns replay --spikes /home/jetson/t55-run/spikes.bin
+```
+
+The 300-tick loop was re-run with the fixed reader under a D-024 lease in the review-fix commit; its
+transcript is `board-loop.log`.
+
 ## The closed loop, on the robot's own camera
 
 The hardware is owned by the `leash` service, which serves the camera as JPEG
@@ -88,20 +110,19 @@ cns-loop: device NVIDIA GeForce RTX 4090
 cns-loop: 200 ticks in 1.775 s (112.7 ticks/s), 10048960 spikes, 196 non-hold commands
 ```
 
-On the board the same loop ran 300 ticks at **31.3 ticks/s** with 15,168,990 spikes and 296 non-hold
-commands, one camera JPEG per tick from the leash over USB with `--device gpu`, and every section digest
-re-verified on the board before the run. That is **31.9 ms/tick end to end**, ~20 ms above the 11.840 ms
-bare step. **The 60 Hz figure is a property of the bench, not of the loop**: the free-running bench feeds
-no external current, nothing fires, and its 11.840 ms/tick sits 1.41x under the 16.7 ms a 60 Hz frame
-allows — so 60 Hz bounds the kernel's step over the 25,582,938 edges, while the closed loop as run was
-**~31 Hz end to end**. The host loop takes the same fetch path and ran 200 ticks in 1.775 s
-(**112.7 ticks/s**, 8.9 ms/tick) on the RTX 4090, so the leash endpoint served at least 112.7 snapshots/s
-that run; the board loop's extra ~20 ms/tick is not attributed to a snapshot rate here, because no such
-measurement is committed. What is claimed is the observed loop rate under the conditions above. Note
-that the host loop fetched the **same** leash endpoint, Pinkie's camera at
-`http://192.168.55.1:8000/camera/snapshot`, once per tick and completed 200 ticks in 1.775 s
-(**112.7 ticks/s**) on the RTX 4090, so that endpoint demonstrably served 112.7 snapshots/s then — which
-is why this README no longer calls the board's 31.3 ticks/s camera-bound.
+On the board the same loop ran 300 ticks at **32.1 ticks/s** with 15,085,686 spikes and 294 non-hold
+commands — one camera JPEG per tick over USB, `--device gpu`, every section digest re-verified on the
+board before the run, and the fixed QLSP reader (`board-loop.log` is the re-run's transcript). That is
+**31.2 ms/tick end to end**, ~19 ms above the 11.840 ms bare step.
+
+**The 60 Hz figure is a property of the bench, not of the loop.** 16.7 ms is a 60 Hz frame and the
+free-running bench's 11.840 ms/tick sits 1.41x under it, so 60 Hz bounds the kernel's step over the
+25,582,938 edges; the closed loop as run was **~32 Hz end to end**. It is not camera-bound: a 200-fetch
+probe of the leash's own snapshot endpoint *on the board* measured **2.485 s = 80.5 snapshots/s**, well
+above the 32.1 ticks/s the loop consumed, and the host loop fetching the same endpoint
+(`http://192.168.55.1:8000/camera/snapshot`, Pinkie's camera) ran 200 ticks in 1.775 s
+(**112.7 ticks/s**, 8.9 ms/tick) on the RTX 4090. What is claimed is the observed loop rate under those
+conditions; the earlier "~33 snapshots/s, camera-bound" line was never measured and is withdrawn.
 
 The trace (`host-loop-gpu-trace.csv`) is per tick: luminance, firing input count, both output rates,
 `command` and `throttle`. Over those 200 ticks the command was `-1` (steer left) 130 times, `+1`
