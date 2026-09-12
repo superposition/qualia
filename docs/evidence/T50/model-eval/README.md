@@ -56,8 +56,9 @@ facts, both measured here:
    chains short — 156 sessions × 330 frames, 51 324 transitions, also gate-minimum — refuses with
    `inf` at depth 329. The exact lines are in `trainer-refusals.txt`; the cause is the predictor's
    recursion (`crates/jepa-model/src/lib.rs:182-198`: an unbounded two-layer map applied to its own
-   mean for every example of a split, `crates/jepa-model/src/train.rs:455-479`), which is row D's
-   owner's (#47, T30–T31) territory, not this ticket's.
+   mean for every example of a split, `crates/jepa-model/src/train.rs:455-479`). That is row D's
+   territory (#47, T30–T31); for rows E and F the residual is carried by **T52
+   ([#225](https://github.com/superposition/qualia/issues/225))**, not by this ticket.
 2. **Both binaries refuse anything that is not promotion-ready.** `CoherentJepaRuntime::from_checkpoint`
    rejects a manifest whose baseline gate does not pass (`crates/jepa-model/src/runtime.rs:110-113`),
    and `qualia-jepa-plan-eval` additionally requires a training report that clears
@@ -129,12 +130,12 @@ The two blockers, restated as the ticket's closure question:
 1. **A promotable checkpoint.** Neither a fresh manifest nor a finite one is enough: the loader and
    the planner both require a model that clears the promotion gates, and no artifact this host can
    produce does. Whether a synthetic fixture can ever clear them (calibration slope 0.9–1.1,
-   `clamp_fraction ≤ 0.01`, a held-out rollout that beats both frozen baselines) is #47's question,
-   and the slope figure (3.375, against the gate's 0.9–1.1) lives in #172's 21:33Z profiling comment
-   rather than in `trainer-refusals.txt`, which records the refusals only;
-   together with row D; the residual — this run, the rollout divergence and F1's batching refactor —
-   is tracked as **T52, [#225](https://github.com/superposition/qualia/issues/225)**, `blocked_on:` a
-   promotion-passing checkpoint.
+   `clamp_fraction ≤ 0.01`, a held-out rollout that beats both frozen baselines) is **T52's question
+   ([#225](https://github.com/superposition/qualia/issues/225))**, which carries this run, the rollout
+   divergence and F1's batching refactor and is `blocked_on:` a promotion-passing checkpoint; row D's
+   own record stays #47's capture at `docs/evidence/T31/training-step/`. The slope figure (3.375,
+   against the gate's 0.9–1.1) lives in #172's 21:33Z profiling comment rather than in
+   `trainer-refusals.txt`, which records the refusals only.
 
 2. **Pinkie.** The board's offline registry cache carries no `candle-core` and the board has no DNS,
    so the model steps cannot be built or run there; the step-5 bar ("including on Pinkie") is
