@@ -12,15 +12,18 @@
 //!   per-tick trace is written beside it.
 //! * `replay` reads a recorded firing stream back and summarises it.
 //!
-//! Nothing here is trained and nothing here is synthetic: the encoder's grid
-//! and gain, and the read-out rule, are fixed constants stated in the README,
-//! and the frames come from a camera.
+//! Camera/sensor observations drive a simulated neuron model. The encoder
+//! and decoder are engineering approximations, not measured neural activity
+//! or a calibrated biological sensor-to-motor model.
 
 use std::fs;
+use std::cell::RefCell;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
+
+mod fusion;
 
 use clap::{Parser, Subcommand};
 use qualia_connectome_cns::{
@@ -90,6 +93,12 @@ enum Command {
         /// leash serves `/camera/snapshot`.
         #[arg(long, conflicts_with = "frames")]
         camera: Option<String>,
+        /// Live /telemetry/compact supplying IMU, lidar and timestamped odometry.
+        #[arg(long, requires = "camera", requires = "fusion_evidence", conflicts_with = "frames")]
+        sensors: Option<String>,
+        /// New JSONL file recording measured inputs, conditioning and holds.
+        #[arg(long, requires = "sensors")]
+        fusion_evidence: Option<PathBuf>,
         /// Frame width in pixels (raw `--frames` only).
         #[arg(long, default_value_t = 640)]
         width: usize,
@@ -228,6 +237,8 @@ fn run(command: &Command) -> Result<(), CnsError> {
             artifact,
             frames,
             camera,
+            sensors,
+            fusion_evidence,
             width,
             height,
             ticks,
@@ -241,6 +252,8 @@ fn run(command: &Command) -> Result<(), CnsError> {
             artifact,
             frames.as_deref(),
             camera.as_deref(),
+            sensors.as_deref(),
+            fusion_evidence.as_deref(),
             *width,
             *height,
             *ticks,
@@ -307,6 +320,7 @@ fn bench(artifact: &Path, ticks: u64, warmup: u64, device: &str) -> Result<(), C
             {
                 let mut lif = qualia_connectome_cns::gpu::LifDevice::new(&incoming)
                     .map_err(CnsError::Artifact)?;
+                drop(incoming);
                 for _ in 0..warmup {
                     lif.step(&params).map_err(CnsError::Artifact)?;
                 }
@@ -409,8 +423,8 @@ impl FrameSource {
     /// The leash's JPEG snapshot endpoint.
     fn camera(url: &str) -> Self {
         let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(2))
-            .timeout(std::time::Duration::from_secs(5))
+            .timeout_connect(std::time::Duration::from_millis(700))
+            .timeout(std::time::Duration::from_millis(1500))
             .build();
         Self::Camera {
             agent,
@@ -441,14 +455,24 @@ impl FrameSource {
             } => {
                 let response = agent
                     .get(url)
+                    .set("Connection", "close")
                     .call()
                     .map_err(|error| CnsError::Read(format!("camera {url}: {error}")))?;
                 let mut jpeg = Vec::new();
                 response
                     .into_reader()
+                    .take(4 * 1024 * 1024 + 1)
                     .read_to_end(&mut jpeg)
                     .map_err(|error| CnsError::Read(format!("camera {url}: {error}")))?;
-                let image = image::load_from_memory_with_format(&jpeg, image::ImageFormat::Jpeg)
+                if jpeg.len() > 4 * 1024 * 1024 {
+                    return Err(CnsError::Read("Camera response exceeds 4 MiB".into()));
+                }
+                let mut reader = image::ImageReader::with_format(std::io::Cursor::new(jpeg), image::ImageFormat::Jpeg);
+                let mut limits = image::Limits::default();
+                limits.max_image_width = Some(4096);
+                limits.max_image_height = Some(4096);
+                reader.limits(limits);
+                let image = reader.decode()
                     .map_err(|error| CnsError::Read(format!("camera {url}: decode: {error}")))?
                     .to_luma8();
                 *width = image.width() as usize;
@@ -472,27 +496,12 @@ impl FrameSource {
     }
 }
 
-/// The encoder: put each visual-stage cell's soma on a grid column.
-///
-/// The input population is the release's optic-lobe intrinsic cells
-/// (`superclass = ol_intrinsic`: lamina, medulla and lobula intrinsic neurons,
-/// 89,403 of which 81,055 carry a soma) together with the photoreceptors
-/// themselves (`R1-R6`, `R7*`, `R8*` — the cells that transduce light; only 28
-/// of the 6,091 carry a released soma).
-///
-/// The photoreceptors are **histaminergic, and 100% of their 74,557 outgoing
-/// edges in this artifact are inhibitory** — measured, not assumed — so feeding
-/// them luminance plus a plain LIF (no rebound, no NMDA) silences the lamina
-/// instead of driving it. The optic-lobe intrinsic population is the stage that
-/// carries the drive onward: 79.8% of its 10,866,800 outgoing edges are
-/// excitatory. Both populations are fed; the intrinsic cells are what propagates.
-///
-/// A cell's column is its soma's position along the eye axis, normalised over
-/// the input population and quantised to [`GRID_COLUMNS`]; a cell with no
-/// released soma takes the column of the nearest positioned cell in the same
-/// population, by index. Its current is that column's mean luminance times
-/// [`SENSORY_GAIN`]. The axis, the grid and the gain are fixed here and stated
-/// in the README; nothing is fitted.
+/// Direct visual current enters only annotated R1-R6/R7/R8 receptors.
+/// Soma Y provides an explicitly uncalibrated column proxy for the 28
+/// positioned receptors. The other 6,063 receive global image brightness;
+/// body-ID order does not establish a retinal location.
+/// In this artifact every receptor outgoing edge is inhibitory. The current
+/// zero-resting LIF model cannot establish downstream firing from these inputs.
 fn encoder(
     nodes: &[NodeMeta],
     neurons: &[qualia_connectome_cns::Neuron],
@@ -502,8 +511,9 @@ fn encoder(
         let is_photoreceptor = node.type_name == "R1-R6"
             || node.type_name.starts_with("R7")
             || node.type_name.starts_with("R8");
-        let is_optic_intrinsic = node.superclass == "ol_intrinsic";
-        if !is_photoreceptor && !is_optic_intrinsic {
+        // External visual current enters through the annotated receptors.
+        // Stimulating the intrinsic optic population bypasses its synapses.
+        if !is_photoreceptor {
             continue;
         }
         targets.push((index as u32, neurons[index].soma.map(|soma| soma[1])));
@@ -515,21 +525,11 @@ fn encoder(
             (acc.0.min(axis), acc.1.max(axis))
         });
     let span = (max - min).max(1.0);
-    // Cells without a released soma borrow the previous positioned cell's
-    // column, which keeps the column counts proportional to the positioned
-    // population rather than to the release's indexing.
-    let mut last = GRID_COLUMNS / 2;
     let indices: Vec<u32> = targets.iter().map(|(index, _)| *index).collect();
-    let columns: Vec<usize> = targets
-        .iter()
-        .map(|(_, axis)| {
-            if let Some(axis) = axis {
-                let column = (((axis - min) / span) * GRID_COLUMNS as f32) as usize;
-                last = column.min(GRID_COLUMNS - 1);
-            }
-            last
-        })
-        .collect();
+    let columns: Vec<usize> = targets.iter().map(|(_, axis)| {
+        axis.map(|axis| ((((axis - min) / span) * GRID_COLUMNS as f32) as usize).min(GRID_COLUMNS - 1))
+            .unwrap_or(usize::MAX)
+    }).collect();
     (indices, columns)
 }
 
@@ -563,6 +563,8 @@ fn close_loop(
     artifact: &Path,
     frames_path: Option<&Path>,
     camera_url: Option<&str>,
+    sensor_url: Option<&str>,
+    fusion_evidence: Option<&Path>,
     width: usize,
     height: usize,
     ticks: u64,
@@ -589,6 +591,14 @@ fn close_loop(
             )));
         }
     }
+    if sensor_url.is_some() != fusion_evidence.is_some() {
+        return Err(CnsError::Artifact("--sensors and --fusion-evidence are required together".into()));
+    }
+    if let Some(path) = fusion_evidence {
+        if path.try_exists().map_err(|e| read_error(path, e))? {
+            return Err(CnsError::Artifact(format!("fusion evidence {} already exists; use a new path", path.display())));
+        }
+    }
     let loaded = Artifact::load(artifact)?;
     let incoming = loaded.incoming();
     let params = LifParams::default();
@@ -607,9 +617,11 @@ fn close_loop(
     let right_count = right_index.iter().filter(|flag| **flag).count();
     eprintln!("cns-loop: session {session}; input {}", source.describe());
     eprintln!(
-        "cns-loop: encoder drives {} visual-stage cells (ol_intrinsic + R1-R6/R7/R8) over {GRID_COLUMNS} columns, gain {SENSORY_GAIN}",
+        "cns-loop: camera drives {} annotated photoreceptors (R1-R6/R7/R8); intrinsic optic cells receive synaptic input; {GRID_COLUMNS} columns, gain {SENSORY_GAIN}",
         input_indices.len()
     );
+    let positioned_inputs = input_columns.iter().filter(|column| **column != usize::MAX).count();
+    eprintln!("cns-loop: {positioned_inputs} soma-column proxies; {} uniform measured inputs without retinal mapping", input_indices.len() - positioned_inputs);
     eprintln!(
         "cns-loop: decoder reads {} descending/motor neurons ({left_count} L, {right_count} R)",
         left_count + right_count
@@ -623,7 +635,7 @@ fn close_loop(
     let mut trace_writer = fs::File::create(trace).map_err(|error| read_error(trace, error))?;
     // Open after the evidence files: create_new also refuses aliases of either
     // file, so a frame destination cannot truncate its own evidence.
-    let mut wheel_writer: Option<Box<dyn std::io::Write>> = match frames_out {
+    let wheel_writer: RefCell<Option<Box<dyn std::io::Write>>> = RefCell::new(match frames_out {
         Some(path) if path == Path::new("-") => Some(Box::new(std::io::stdout())),
         Some(path) => Some(Box::new(
             fs::OpenOptions::new()
@@ -633,15 +645,27 @@ fn close_loop(
                 .map_err(|error| read_error(path, error))?,
         )),
         None => None,
+    });
+    // create_new also refuses an alias of the already opened trace, spike or
+    // wheel file. Existing destinations were rejected before any evidence open.
+    let mut sensory_fusion = match (sensor_url, fusion_evidence) {
+        (Some(url), Some(path)) => Some(fusion::LiveFusion::new(url, path)?),
+        _ => None,
     };
     let mut total_spikes = 0u64;
     let mut commands = 0u64;
+    let mut stepped_ticks = 0u64;
     let mut input_set = vec![false; loaded.nodes.len()];
     for index in &input_indices {
         input_set[*index as usize] = true;
     }
+    // The live loop now owns its population masks and incoming graph. Release
+    // the outgoing artifact before allocating CUDA memory on the shared-RAM Orin.
+    drop(loaded);
     let source_description = source.describe();
-    let mut record = |frame: SpikeFrame, luminance: f32, width: usize, height: usize| {
+    write!(trace_writer, "# session {session}; input {source_description}\ntick,luminance,fired_input,rate_l,rate_r,command,throttle\n")
+        .and_then(|()| trace_writer.flush()).map_err(|error| read_error(trace, error))?;
+    let mut record = |frame: SpikeFrame, luminance: f32, _width: usize, _height: usize, allow_drive: bool, valid_until_ms: u64| {
         let fired_left = frame
             .ids
             .iter()
@@ -659,22 +683,18 @@ fn close_loop(
             .count();
         let rate_l = fired_left as f32 / left_count.max(1) as f32;
         let rate_r = fired_right as f32 / right_count.max(1) as f32;
-        let command = if (rate_r - rate_l).abs() < DECISION_MARGIN {
+        let neural_command = if (rate_r - rate_l).abs() < DECISION_MARGIN {
             0
         } else if rate_r > rate_l {
             1
         } else {
             -1
         };
+        let input_fresh = unix_ns() / 1_000_000 <= valid_until_ms;
+        let command = if allow_drive && input_fresh { neural_command } else { 0 };
         let throttle = (rate_l + rate_r).min(1.0);
         writer.write_frame(&frame)?;
-        if frame.tick == 0 {
-            write!(
-                trace_writer,
-                "# session {session}; frames {width}x{height}; input {source_description}\ntick,luminance,fired_input,rate_l,rate_r,command,throttle\n"
-            )
-            .map_err(|error| read_error(trace, error))?;
-        }
+        writer.flush()?;
         writeln!(
             trace_writer,
             "{},{luminance:.4},{fired_input},{rate_l:.5},{rate_r:.5},{command},{throttle:.5}",
@@ -682,7 +702,16 @@ fn close_loop(
         )
         .and_then(|()| trace_writer.flush())
         .map_err(|error| read_error(trace, error))?;
-        if let Some(output) = wheel_writer.as_mut() {
+        // Trace/spike storage can block. A candidate recorded before a stall
+        // must never turn into a late nonzero wheel frame.
+        let output_fresh = unix_ns() / 1_000_000 <= valid_until_ms;
+        if command != 0 && !output_fresh {
+            emit_hold(&wheel_writer, frame.tick)?;
+            writeln!(trace_writer, "# tick {} candidate canceled: input expired during evidence write; emitted zero", frame.tick)
+                .and_then(|()| trace_writer.flush()).map_err(|error| read_error(trace, error))?;
+            return Err(CnsError::Read("input expired before wheel output; emitted zero and ended run".into()));
+        }
+        if let Some(output) = wheel_writer.borrow_mut().as_mut() {
             // The trace contains neural rates, not wheel speeds. Translate
             // its decision into a pivot: -1 left, +1 right, 0 a real zero.
             let turn = command as f32 * throttle * max_wheel_speed;
@@ -705,14 +734,17 @@ fn close_loop(
             commands += 1;
         }
         total_spikes += frame.ids.len() as u64;
-        Ok::<(), CnsError>(())
+        stepped_ticks += 1;
+        Ok::<(i32, i32, f32, bool), CnsError>((neural_command, command, throttle, output_fresh))
     };
 
     match device {
         "cpu" => {
             let mut state = LifState::new(incoming.neuron_count());
             for tick in 0..ticks {
-                let frame = source.frame(tick)?;
+                let camera_start = unix_ns() / 1_000_000;
+                let Some(frame) = acquire_frame(&mut source, tick, &wheel_writer, &mut sensory_fusion)? else { continue; };
+                let camera_end = unix_ns() / 1_000_000;
                 if let FrameSource::Camera {
                     width: w,
                     height: h,
@@ -723,9 +755,10 @@ fn close_loop(
                     height = *h;
                 }
                 let columns = column_luminance(&frame, width, height);
+                let Some((columns, allow_drive, valid_until_ms)) = conditioned_input(&mut sensory_fusion, &columns, tick, camera_start, camera_end, &wheel_writer)? else { continue; };
                 drive(&mut external, &input_indices, &input_columns, &columns);
                 step_cpu(&incoming, &params, &mut state, &external);
-                record(
+                let output = record(
                     SpikeFrame {
                         tick,
                         t_ns: started.elapsed().as_nanos() as u64,
@@ -734,7 +767,10 @@ fn close_loop(
                     columns.iter().sum::<f32>() / GRID_COLUMNS as f32,
                     width,
                     height,
+                    allow_drive,
+                    valid_until_ms,
                 )?;
+                if let Some(fusion) = &mut sensory_fusion { fusion.output(tick, output.0, output.1, output.2, max_wheel_speed, output.3)?; }
             }
         }
         "gpu" => {
@@ -742,9 +778,12 @@ fn close_loop(
             {
                 let mut lif = qualia_connectome_cns::gpu::LifDevice::new(&incoming)
                     .map_err(CnsError::Artifact)?;
+                drop(incoming);
                 eprintln!("cns-loop: device {}", lif.device_name());
                 for tick in 0..ticks {
-                    let frame = source.frame(tick)?;
+                    let camera_start = unix_ns() / 1_000_000;
+                    let Some(frame) = acquire_frame(&mut source, tick, &wheel_writer, &mut sensory_fusion)? else { continue; };
+                    let camera_end = unix_ns() / 1_000_000;
                     if let FrameSource::Camera {
                         width: w,
                         height: h,
@@ -755,11 +794,12 @@ fn close_loop(
                         height = *h;
                     }
                     let columns = column_luminance(&frame, width, height);
+                    let Some((columns, allow_drive, valid_until_ms)) = conditioned_input(&mut sensory_fusion, &columns, tick, camera_start, camera_end, &wheel_writer)? else { continue; };
                     drive(&mut external, &input_indices, &input_columns, &columns);
                     lif.set_external(&external).map_err(CnsError::Artifact)?;
                     lif.step(&params).map_err(CnsError::Artifact)?;
                     let fired = lif.fired().map_err(CnsError::Artifact)?;
-                    record(
+                    let output = record(
                         SpikeFrame {
                             tick,
                             t_ns: started.elapsed().as_nanos() as u64,
@@ -768,7 +808,10 @@ fn close_loop(
                         columns.iter().sum::<f32>() / GRID_COLUMNS as f32,
                         width,
                         height,
+                        allow_drive,
+                        valid_until_ms,
                     )?;
+                    if let Some(fusion) = &mut sensory_fusion { fusion.output(tick, output.0, output.1, output.2, max_wheel_speed, output.3)?; }
                 }
                 lif.synchronize().map_err(CnsError::Artifact)?;
             }
@@ -788,27 +831,77 @@ fn close_loop(
     }
     let elapsed = started.elapsed().as_secs_f64();
 
-    if ticks == 0 {
-        write!(
-            trace_writer,
-            "# session {session}; frames {width}x{height}; input {source_description}\ntick,luminance,fired_input,rate_l,rate_r,command,throttle\n"
-        )
-        .map_err(|error| read_error(trace, error))?;
-    }
     writer.finish()?;
 
     eprintln!(
-        "cns-loop: {ticks} ticks in {elapsed:.3} s ({:.1} ticks/s), {total_spikes} spikes, {commands} non-hold commands",
-        ticks as f64 / elapsed
+        "cns-loop: {ticks} acquisition attempts; {stepped_ticks} neural steps; {} acquisition holds in {elapsed:.3} s; {total_spikes} spikes; {commands} non-hold decoded decisions",
+        ticks - stepped_ticks
     );
     eprintln!("cns-loop: {} -> {}", spikes.display(), trace.display());
+    if ticks > 0 && stepped_ticks == 0 { return Err(CnsError::Read("no fresh sensor bundle was processed".into())); }
     Ok(())
 }
 
 /// Set each photoreceptor's external current from its column's luminance.
 fn drive(external: &mut [f32], indices: &[u32], columns: &[usize], luminance: &[f32]) {
     external.fill(0.0);
+    let global = luminance.iter().sum::<f32>() / luminance.len().max(1) as f32;
     for (neuron, column) in indices.iter().zip(columns) {
-        external[*neuron as usize] += luminance[*column] * SENSORY_GAIN;
+        external[*neuron as usize] += luminance.get(*column).copied().unwrap_or(global) * SENSORY_GAIN;
+    }
+}
+
+fn unix_ns() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64).unwrap_or(0)
+}
+
+fn conditioned_input(fusion: &mut Option<fusion::LiveFusion>, columns: &[f32], tick: u64, camera_start: u64, camera_end: u64,
+    wheels: &RefCell<Option<Box<dyn std::io::Write>>>) -> Result<Option<(Vec<f32>, bool, u64)>, CnsError> {
+    let Some(fusion) = fusion else { return Ok(Some((columns.to_vec(), true, camera_end.saturating_add(1000)))); };
+    match fusion.acquire(columns, tick, camera_start, camera_end) {
+        Ok(input) => {
+            let valid_until = input.measured.imu_ts_ms.min(input.measured.lidar_ts_ms).min(input.measured.odometry_ts_ms)
+                .min(camera_end).saturating_add(1000);
+            if unix_ns() / 1_000_000 > valid_until {
+                emit_hold(wheels, tick)?;
+                let error = CnsError::Read("input expired during evidence write; no neural step".into());
+                fusion.failure(tick, &error)?;
+                return Ok(None);
+            }
+            Ok(Some((input.conditioned_columns, input.hold_reason.is_none(), valid_until)))
+        }
+        Err(error) => {
+            emit_hold(wheels, tick)?;
+            fusion.failure(tick, &error)?;
+            eprintln!("cns-loop: tick {tick} held; no neural step: {error}");
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            Ok(None)
+        }
+    }
+}
+
+fn emit_hold(wheels: &RefCell<Option<Box<dyn std::io::Write>>>, tick: u64) -> Result<(), CnsError> {
+    if let Some(output) = wheels.borrow_mut().as_mut() {
+        writeln!(output, "{{\"T\":{tick},\"L\":0,\"R\":0}}")
+            .and_then(|()| output.flush()).map_err(|e| CnsError::Artifact(format!("sensor hold: {e}")))?;
+    }
+    Ok(())
+}
+
+fn acquire_frame(source: &mut FrameSource, tick: u64, wheels: &RefCell<Option<Box<dyn std::io::Write>>>, fusion: &mut Option<fusion::LiveFusion>) -> Result<Option<Vec<u8>>, CnsError> {
+    match source.frame(tick) {
+        Ok(frame) => Ok(Some(frame)),
+        Err(error) if matches!(source, FrameSource::Camera { .. }) => {
+            // Failed acquisition never steps the model with old pixels and
+            // never emits a fabricated spike frame. A connected transport
+            // receives an explicit hold; its own deadman remains independent.
+            emit_hold(wheels, tick)?;
+            if let Some(fusion) = fusion { fusion.failure(tick, &error)?; }
+            eprintln!("cns-loop: tick {tick} held; no neural step: {error}");
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            Ok(None)
+        }
+        Err(error) => Err(error),
     }
 }
