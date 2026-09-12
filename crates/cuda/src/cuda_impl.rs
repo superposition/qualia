@@ -13,7 +13,7 @@
 pub use crate::cpu::CostmapStats;
 
 use qualia_shm::{
-    LayerReader, LayerWriter, ShmRegion, LAYER_SLOTS_OFFSET, LAYER_SLOT_SIZE,
+    LayerReader, LayerWriter, ShmRegion, StatsWriter, LAYER_SLOTS_OFFSET, LAYER_SLOT_SIZE,
 };
 use qualia_types::{
     default_params, BeliefSlot, JEPA_OCCUPANCY_CELLS, LayerParams, LayerSlot, MAX_QUESTION_TEXT,
@@ -1289,6 +1289,10 @@ fn run_layer_inner(layer_id: u8, name: &str, prior: FlyPrior, scale: f32) {
         panic!("qualia-{name}: failed to open shm: {error}");
     });
 
+    // The layer's telemetry frame, published beside the arena it writes into
+    // under the process name the stack manifest spawns it as.
+    let mut telemetry = StatsWriter::attach(&shm_name, &format!("qualia-{name}"));
+
     let params = default_params(layer_id);
     let context = CudaContext::new(&params).unwrap_or_else(|error| {
         panic!("qualia-{name}: CUDA init failed: {error}");
@@ -1558,6 +1562,20 @@ fn run_layer_inner(layer_id: u8, name: &str, prior: FlyPrior, scale: f32) {
         previous_vfe = vfe;
         previous_compression = compression;
         previous_streak = streak;
+
+        // The layer's own telemetry frame: cycles/s, the belief it just
+        // published and the loop's clock. The name is the process name the
+        // stack manifest spawns, so a frame and a stack row are the same word.
+        if let Some(telemetry) = telemetry.as_mut() {
+            telemetry.tick();
+            telemetry.set_value(0, "vfe", previous_vfe);
+            telemetry.set_value(1, "compression", previous_compression as f32);
+            telemetry.set_value(2, "cycle", cycle as f32);
+            telemetry.set_value(3, "hz", params.freq_hz);
+            telemetry.set_backlog(
+                u32::from(my_slot.question.pending.load(Ordering::Relaxed)),
+            );
+        }
 
         let compute_time = cycle_start.elapsed();
         if compute_time < tick {

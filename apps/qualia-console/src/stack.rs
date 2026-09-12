@@ -64,3 +64,39 @@ pub fn load_sensing_set() -> Result<SensingSet, String> {
         None => Ok(SensingSet::EverySlot),
     }
 }
+
+/// The product's default stack, compiled in: what runs when no manifest names
+/// another one.
+const DEFAULT_MANIFEST: &str = include_str!("../../../config/stack-manifest.default.json");
+
+/// Every runner the console should expect a telemetry frame from: the stack's
+/// own runner list, then the ABI's sensing slots, in that order and without
+/// repeats.
+///
+/// This is the gap list, not a row table: a runner named here that publishes no
+/// frame is a runner the HUD names as missing rather than a panel it invents.
+/// The stack is the named deployment manifest, or the compiled-in default when
+/// none is named — the product's default stack is what a bare `qualia-init`
+/// starts, so its runners are exactly the ones that ought to be publishing.
+pub fn load_runner_names() -> Vec<String> {
+    let text = match std::env::var_os("QUALIA_STACK_MANIFEST").filter(|path| !path.is_empty()) {
+        Some(path) => std::fs::read_to_string(std::path::PathBuf::from(&path)).unwrap_or_default(),
+        None => DEFAULT_MANIFEST.to_owned(),
+    };
+    let mut names: Vec<String> = parse_stack_manifest(&text)
+        .map(|manifest| {
+            manifest
+                .runners
+                .iter()
+                .map(|runner| runner.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    for slot in SensingRunner::ALL {
+        let name = slot.runner_name().to_owned();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}

@@ -14,12 +14,16 @@ use qualia_camera::{
     capture_once, frame_quality, ingest_snapshot_bytes, init_camera_frame, init_camera_preview,
     CameraConfig, CaptureOutcome, MjpegFrameReader, SnapshotSource, LOG_EVERY_FRAMES,
 };
-use qualia_shm::ShmRegion;
+use qualia_shm::{ShmRegion, StatsWriter};
 
 /// Seqlock attempts for the readback line; a torn read is retried, not fatal.
 const SNAPSHOT_ATTEMPTS: usize = 8;
 /// Pause before reconnecting an MJPEG stream that ended or refused to open.
 const RECONNECT_DELAY: Duration = Duration::from_millis(500);
+
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-camera`.
+const RUNNER_NAME: &str = "qualia-camera";
 
 fn main() {
     let config = CameraConfig::from_env();
@@ -38,12 +42,16 @@ fn main() {
     init_camera_frame(shm.camera_frame_mut());
     init_camera_preview(shm.camera_preview_mut());
 
+    // The runner's own telemetry frame: frames/s, bytes/s and the sequence the
+    // arena holds, published beside the region the frames land in.
+    let mut telemetry = StatsWriter::attach(&config.shm_name, RUNNER_NAME);
+
     let poll_ms = config.poll.as_millis();
     if let Some(url) = &config.stream_url {
         println!(
             "qualia-camera: consuming live MJPEG stream {url}; publishing at most every {poll_ms}ms"
         );
-        run_http_mjpeg_stream(&shm, url, config.http_timeout, config.poll);
+        run_http_mjpeg_stream(&shm, url, config.http_timeout, config.poll, &mut telemetry);
     }
 
     match &config.source {
@@ -63,6 +71,10 @@ fn main() {
             CaptureOutcome::Published { seq, mtime_ns } => {
                 failures = 0;
                 watermark_ns = mtime_ns;
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.tick();
+                    telemetry.set_value(0, "seq", seq as f32);
+                }
                 if seq == 2 || seq >= last_log_seq.saturating_add(LOG_EVERY_FRAMES) {
                     log_camera_frame(&shm, seq);
                     last_log_seq = seq;
@@ -71,6 +83,10 @@ fn main() {
             CaptureOutcome::Unchanged => {}
             CaptureOutcome::Unavailable(reason) | CaptureOutcome::Corrupt(reason) => {
                 failures = failures.saturating_add(1);
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.record_error();
+                    telemetry.set_value(1, "failures", failures as f32);
+                }
                 if failures == 1 || failures % 20 == 0 {
                     eprintln!("qualia-camera: live snapshot unavailable (failure {failures}): {reason}");
                 }
@@ -90,6 +106,7 @@ fn run_http_mjpeg_stream(
     url: &str,
     timeout: Duration,
     min_interval: Duration,
+    telemetry: &mut Option<StatsWriter>,
 ) -> ! {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(timeout)
@@ -109,6 +126,10 @@ fn run_http_mjpeg_stream(
             Ok(response) => response,
             Err(error) => {
                 failures = failures.saturating_add(1);
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.record_error();
+                    telemetry.set_value(2, "failures", failures as f32);
+                }
                 if failures == 1 || failures % 20 == 0 {
                     eprintln!(
                         "qualia-camera: MJPEG stream unavailable (failure {failures}): GET {url}: {error}"
@@ -151,6 +172,13 @@ fn run_http_mjpeg_stream(
                 Ok(seq) => {
                     failures = 0;
                     last_published = Some(Instant::now());
+                    if let Some(telemetry) = telemetry.as_mut() {
+                        telemetry.tick();
+                        telemetry.add_bytes(bytes.len() as u64);
+                        telemetry.set_value(0, "seq", seq as f32);
+                        telemetry.set_value(1, "frame bytes", bytes.len() as f32);
+                        telemetry.set_value(2, "failures", failures as f32);
+                    }
                     if seq == 2 || seq >= last_log_seq.saturating_add(LOG_EVERY_FRAMES) {
                         log_camera_frame(shm, seq);
                         last_log_seq = seq;
@@ -158,6 +186,10 @@ fn run_http_mjpeg_stream(
                 }
                 Err(error) => {
                     failures = failures.saturating_add(1);
+                    if let Some(telemetry) = telemetry.as_mut() {
+                        telemetry.record_error();
+                        telemetry.set_value(2, "failures", failures as f32);
+                    }
                     if failures == 1 || failures % 20 == 0 {
                         eprintln!(
                             "qualia-camera: MJPEG frame rejected (failure {failures}): {error}"

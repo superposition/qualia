@@ -13,7 +13,7 @@
 
 use qualia_braid::{observe, BraidError, BraidEvent, BraidState};
 use qualia_jepa::prior::{clamp_coupling_scale, CouplingPrior, COUPLING_SCALE_DEFAULT};
-use qualia_shm::ShmRegion;
+use qualia_shm::{ShmRegion, StatsWriter};
 use qualia_types::{BinaryMapGrid, NavGoal};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -29,6 +29,10 @@ use tokio::time::{sleep, timeout, Duration};
 
 /// Re-evaluation period when nothing is planned.
 const DEFAULT_INTERVAL_MS: u64 = 1_000;
+
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-explore`.
+const RUNNER_NAME: &str = "qualia-explore";
 /// Deadline for each connect/write/read against the compute socket.
 const DEFAULT_TIMEOUT_MS: u64 = 300;
 #[cfg(windows)]
@@ -221,6 +225,11 @@ async fn main() {
         );
     }
 
+    // The runner's own telemetry frame: goals published/s and the frontier they
+    // came from. The frame's rate is therefore the decision rate, and a
+    // planner that never accepts a goal publishes a flat line with the last
+    // frontier size still visible.
+    let mut telemetry = StatsWriter::attach(&config.shm_name, RUNNER_NAME);
     loop {
         match explore_once(
             &shm,
@@ -231,15 +240,24 @@ async fn main() {
         )
         .await
         {
-            Some(outcome) => println!(
-                "qualia-explore: selected frontier goal=({}, {}) world=({:.2}, {:.2}) path_len={} frontier_size={}",
-                outcome.goal_cell_x,
-                outcome.goal_cell_z,
-                outcome.goal_x_m,
-                outcome.goal_z_m,
-                outcome.path_len,
-                outcome.frontier_size
-            ),
+            Some(outcome) => {
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.tick();
+                    telemetry.set_value(0, "goal x m", outcome.goal_x_m);
+                    telemetry.set_value(1, "goal z m", outcome.goal_z_m);
+                    telemetry.set_value(2, "path len", outcome.path_len as f32);
+                    telemetry.set_value(3, "frontier", outcome.frontier_size as f32);
+                }
+                println!(
+                    "qualia-explore: selected frontier goal=({}, {}) world=({:.2}, {:.2}) path_len={} frontier_size={}",
+                    outcome.goal_cell_x,
+                    outcome.goal_cell_z,
+                    outcome.goal_x_m,
+                    outcome.goal_z_m,
+                    outcome.path_len,
+                    outcome.frontier_size
+                )
+            }
             None => println!("qualia-explore: no reachable frontier found"),
         }
 

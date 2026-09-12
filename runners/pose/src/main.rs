@@ -26,7 +26,7 @@
 //! - `QUALIA_POSE_LOG_EVERY_UPDATES` (default `10`)
 //! - `QUALIA_BELIEF_PACE_MS` (default `250`)
 
-use qualia_shm::{LayerReader, ShmRegion, NUM_LAYERS};
+use qualia_shm::{LayerReader, ShmRegion, StatsWriter, NUM_LAYERS};
 use qualia_types::{LidarScanSnapshot, NavPose, LIDAR_MAX_POINTS};
 use std::f32::consts::PI;
 use std::process;
@@ -34,6 +34,10 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_SHM_NAME: &str = "/qualia_body";
+
+/// The name this runner publishes its telemetry frame under: the crate and the
+/// stack manifest both call it `qualia-pose`.
+const RUNNER_NAME: &str = "qualia-pose";
 const POLL_MS_FALLBACK: u64 = 20;
 const LOG_EVERY_FALLBACK: u64 = 10;
 /// Default belief pace window, overridable with `QUALIA_BELIEF_PACE_MS`.
@@ -380,6 +384,8 @@ fn main() {
 
     println!("qualia-pose: starting lidar pose graph from shm={region_name}");
 
+    // The runner's own telemetry frame: poses/s, the last pose and its score.
+    let mut telemetry = StatsWriter::attach(&region_name, RUNNER_NAME);
     let mut tracker = Tracker::new();
     let mut last_report = Instant::now();
     let belief_pace = BeliefPaceGate::new(belief_pace_ms, now_ns());
@@ -407,6 +413,13 @@ fn main() {
                 stamp_ns,
             } => {
                 publish(&region, pose, stamp_ns, BOOT_CONFIDENCE);
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.tick();
+                    telemetry.set_value(0, "east m", pose.east_m);
+                    telemetry.set_value(1, "north m", pose.north_m);
+                    telemetry.set_value(2, "yaw deg", pose.heading_rad.to_degrees());
+                    telemetry.set_value(3, "confidence", BOOT_CONFIDENCE);
+                }
                 println!("qualia-pose: initialized pose from first scan points={points}");
                 last_report = Instant::now();
             }
@@ -423,6 +436,13 @@ fn main() {
                     );
                 }
                 publish(&region, tick.pose, tick.stamp_ns, tick.confidence);
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.tick();
+                    telemetry.set_value(0, "east m", tick.pose.east_m);
+                    telemetry.set_value(1, "north m", tick.pose.north_m);
+                    telemetry.set_value(2, "yaw deg", tick.pose.heading_rad.to_degrees());
+                    telemetry.set_value(3, "matches", tick.quality.count as f32);
+                }
                 if tick.tick == 1 || tick.tick % report_every == 0 {
                     println!(
                         "qualia-pose: pose_seq={} x_m={:.3} z_m={:.3} yaw_deg={:.2} score={:.3} matches={} keyframes={} edges={} odom_edges={} loop_edges={}",
@@ -441,6 +461,10 @@ fn main() {
                 }
             }
             Outcome::Lost { seq, points } => {
+                if let Some(telemetry) = telemetry.as_mut() {
+                    telemetry.record_error();
+                    telemetry.set_value(3, "matches", 0.0);
+                }
                 if last_report.elapsed() >= Duration::from_secs(2) {
                     println!("qualia-pose: scan match rejected seq={seq} points={points}");
                     last_report = Instant::now();

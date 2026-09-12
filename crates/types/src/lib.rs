@@ -17,6 +17,9 @@ use std::sync::atomic::{fence, AtomicBool, AtomicU32, AtomicU64, AtomicU8, Atomi
 mod entity;
 pub use entity::*;
 
+mod stats;
+pub use stats::*;
+
 pub const STATE_DIM: usize = 1024;
 pub const SHM_MAGIC: u64 = 0x5155414C3141454E; // "QUAL1AEN"
 pub const SHM_VERSION: u32 = 3;

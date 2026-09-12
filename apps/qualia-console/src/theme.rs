@@ -139,7 +139,9 @@ pub fn apply(ctx: &egui::Context) {
 }
 
 /// One styled string in the console's single family.
-fn text(value: &str, size: f32, color: Color32) -> RichText {
+/// The one type helper: every string in the console is one of three sizes, so a
+/// panel cannot invent a fourth. Public so the HUD panels share it.
+pub fn text(value: &str, size: f32, color: Color32) -> RichText {
     RichText::new(value)
         .font(FontId::new(size, FontFamily::Monospace))
         .color(color)
@@ -391,6 +393,62 @@ pub fn menu_strip(ui: &mut Ui, state: &mut crate::ConsoleState) {
                     if ui.button("Poll now").clicked() {
                         state.refresh_requested = true;
                         ui.close();
+                    }
+                });
+                ui.menu_button(text("HUD", SIZE_BODY, TEXT_SECOND), |ui| {
+                    let mut on = state.hud_layout.on;
+                    if ui
+                        .checkbox(&mut on, "HUD panels (Ctrl+H)")
+                        .changed()
+                    {
+                        state.hud_layout.set_on(on);
+                    }
+                    ui.separator();
+                    if state.hud.rows.is_empty() {
+                        // Nothing published: name the reason rather than draw an
+                        // empty panel per runner the stack declares.
+                        let reason = state
+                            .hud
+                            .error
+                            .as_deref()
+                            .unwrap_or("no runner has published a frame yet");
+                        ui.label(text(reason, SIZE_LABEL, MUTED));
+                    } else {
+                        if ui.button("Show all").clicked() {
+                            let runners: Vec<String> = state
+                                .hud
+                                .rows
+                                .iter()
+                                .map(|row| row.runner.clone())
+                                .collect();
+                            state.hud_layout.set_all(&runners, true);
+                        }
+                        if ui.button("Hide all").clicked() {
+                            let runners: Vec<String> = state
+                                .hud
+                                .rows
+                                .iter()
+                                .map(|row| row.runner.clone())
+                                .collect();
+                            state.hud_layout.set_all(&runners, false);
+                        }
+                        ui.separator();
+                        for row in &state.hud.rows {
+                            let mut open = state.hud_layout.is_open(&row.runner);
+                            if ui
+                                .checkbox(&mut open, text(&row.runner, SIZE_BODY, TEXT))
+                                .changed()
+                            {
+                                state.hud_layout.set(&row.runner, open);
+                            }
+                        }
+                    }
+                    if !state.hud.gaps.is_empty() {
+                        ui.separator();
+                        ui.label(text("no producer yet", SIZE_LABEL, TEXT_SECOND));
+                        for gap in &state.hud.gaps {
+                            ui.label(text(&format!("{gap} — no producer"), SIZE_LABEL, MUTED));
+                        }
                     }
                 });
             });
