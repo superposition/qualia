@@ -172,6 +172,38 @@ pub trait RolloutPredictor {
         action: [f32; ACTION_DIM],
         dt_seconds: f32,
     ) -> PlannerResult<PredictedRolloutStep>;
+
+    /// Score several independent transitions, one row each.
+    ///
+    /// `latents` is row-major with `CORE_DIM` values per row, `actions` is
+    /// row-major with `ACTION_DIM` values per row, and `dt_seconds` carries one
+    /// elapsed time per row. The rows share no state: the outcome for a row
+    /// depends only on that row's inputs.
+    ///
+    /// The default walks the rows through `predict_step` in order, so a
+    /// predictor that knows only the single-row call still batches correctly.
+    /// A device predictor overrides this to pay one launch/synchronize/copy
+    /// round trip per batch instead of one per row.
+    fn predict_steps(
+        &self,
+        latents: &[f32],
+        actions: &[f32],
+        dt_seconds: &[f32],
+    ) -> PlannerResult<Vec<PredictedRolloutStep>> {
+        let rows = dt_seconds.len();
+        let shaped = latents.len() == rows * CORE_DIM && actions.len() == rows * ACTION_DIM;
+        if !shaped {
+            return Err("batched rollout input does not match its row count".into());
+        }
+        let mut steps = Vec::with_capacity(rows);
+        for row in 0..rows {
+            let latent = &latents[row * CORE_DIM..(row + 1) * CORE_DIM];
+            let mut action = [0.0_f32; ACTION_DIM];
+            action.copy_from_slice(&actions[row * ACTION_DIM..(row + 1) * ACTION_DIM]);
+            steps.push(self.predict_step(latent, action, dt_seconds[row])?);
+        }
+        Ok(steps)
+    }
 }
 
 /// The cost decomposition of one scored candidate.
@@ -236,17 +268,7 @@ pub fn evaluate_rollout_proposals<P: RolloutPredictor>(
     }
     validate_request(request)?;
 
-    let mut scored = Vec::with_capacity(request.candidates.len());
-    for candidate in request.candidates.iter() {
-        let entry = score_candidate(
-            predictor,
-            request.start_latent.as_slice(),
-            &request.goal,
-            candidate,
-            &request.config,
-        )?;
-        scored.push(entry);
-    }
+    let mut scored = score_candidates_batched(predictor, request)?;
     scored.sort_by(rank_candidates);
 
     let selected_candidate_id = scored
@@ -404,6 +426,215 @@ fn validate_goal(goal: &CanonicalPhysicalGoal, max_distance_m: f32) -> PlannerRe
     Ok(())
 }
 
+/// Accumulated state of one candidate's walk through its own steps.
+///
+/// A walk depends only on its own belief and its own steps, so a batched
+/// predictor can score rows belonging to different walks in one call without
+/// any walk observing another.
+struct RolloutWalk {
+    candidate_id: String,
+    horizon_steps: usize,
+    belief: Vec<f32>,
+    lateral_m: f32,
+    forward_m: f32,
+    yaw_rad: f32,
+    worst_collision: f32,
+    variance_sum: f64,
+    variance_terms: u64,
+    effort_seconds: f32,
+    slew_total: f32,
+    previous_step: Option<CandidateActionStep>,
+    horizon_seconds: f32,
+}
+
+impl RolloutWalk {
+    fn start(candidate: &RolloutCandidate, start_latent: &[f32]) -> Self {
+        Self {
+            candidate_id: candidate.candidate_id.clone(),
+            horizon_steps: candidate.steps.len(),
+            belief: start_latent.to_vec(),
+            lateral_m: 0.0_f32,
+            forward_m: 0.0_f32,
+            yaw_rad: 0.0_f32,
+            worst_collision: 0.0_f32,
+            variance_sum: 0.0_f64,
+            variance_terms: 0_u64,
+            effort_seconds: 0.0_f32,
+            slew_total: 0.0_f32,
+            previous_step: None,
+            horizon_seconds: 0.0_f32,
+        }
+    }
+
+    /// Fold one predicted transition into the walk.
+    ///
+    /// The term order here is the single-step walk's: collision, uncertainty,
+    /// kinematics, effort, slew, horizon, then the belief hand-off. Reordering
+    /// it would move the accumulated floating-point sums.
+    fn absorb(
+        &mut self,
+        prediction: PredictedRolloutStep,
+        step: &CandidateActionStep,
+        config: &RolloutPlannerConfig,
+        footprint_radius_m: f32,
+    ) -> PlannerResult<()> {
+        validate_prediction(&prediction)?;
+        let collision = central_collision_probability(
+            prediction.occupancy_logits.as_slice(),
+            config.grounding_resolution_m,
+            footprint_radius_m,
+        )?;
+        self.worst_collision = self.worst_collision.max(collision);
+        for entry in prediction.log_variance.iter() {
+            self.variance_sum += f64::from((0.5 * entry.clamp(-20.0, 20.0)).exp());
+            self.variance_terms += 1;
+        }
+        integrate_kinematics(
+            &mut self.lateral_m,
+            &mut self.forward_m,
+            &mut self.yaw_rad,
+            step,
+            config,
+        );
+        self.effort_seconds +=
+            ((step.left.abs() + step.right.abs()) * 0.5) * step.speed_scale * step.dt_seconds;
+        if let Some(previous) = self.previous_step {
+            self.slew_total += slew_between(step, &previous);
+        }
+        self.previous_step = Some(*step);
+        self.horizon_seconds += step.dt_seconds;
+        self.belief = prediction.mean;
+        Ok(())
+    }
+
+    fn finish(
+        self,
+        goal: &CanonicalPhysicalGoal,
+        config: &RolloutPlannerConfig,
+    ) -> PlannerResult<ScoredRolloutCandidate> {
+        let Self {
+            candidate_id,
+            horizon_steps,
+            belief: _,
+            lateral_m,
+            forward_m,
+            yaw_rad,
+            worst_collision,
+            variance_sum,
+            variance_terms,
+            effort_seconds,
+            slew_total,
+            previous_step: _,
+            horizon_seconds,
+        } = self;
+        if variance_terms == 0 {
+            return Err("rollout produced no predictive uncertainty".into());
+        }
+        let mean_latent_uncertainty_stddev = (variance_sum / variance_terms as f64) as f32;
+        let terminal_goal_distance_m =
+            ((lateral_m - goal.lateral_m).hypot(forward_m - goal.forward_m) - goal.tolerance_m)
+                .max(0.0);
+        let weighted_goal_cost = terminal_goal_distance_m * config.goal_cost_per_meter;
+        let weighted_collision_cost = worst_collision * config.collision_cost;
+        let weighted_uncertainty_cost =
+            mean_latent_uncertainty_stddev * config.uncertainty_cost_per_latent_stddev;
+        let weighted_action_cost = effort_seconds * config.action_cost_per_second;
+        let weighted_action_slew_cost = slew_total * config.action_slew_cost;
+        let rollout_cost = weighted_goal_cost
+            + weighted_collision_cost
+            + weighted_uncertainty_cost
+            + weighted_action_cost
+            + weighted_action_slew_cost;
+        if !rollout_cost.is_finite() {
+            return Err("rollout cost is non-finite".into());
+        }
+        Ok(ScoredRolloutCandidate {
+            candidate_id,
+            horizon_steps,
+            horizon_seconds,
+            terminal_lateral_m: lateral_m,
+            terminal_forward_m: forward_m,
+            terminal_yaw_rad: yaw_rad,
+            admissible: worst_collision <= config.collision_probability_limit,
+            cost: RolloutCostTerms {
+                terminal_goal_distance_m,
+                max_collision_probability: worst_collision,
+                mean_latent_uncertainty_stddev,
+                action_effort_seconds: effort_seconds,
+                action_slew: slew_total,
+                weighted_goal_cost,
+                weighted_collision_cost,
+                weighted_uncertainty_cost,
+                weighted_action_cost,
+                weighted_action_slew_cost,
+                rollout_cost,
+            },
+        })
+    }
+}
+
+/// Score every candidate by walking the proposal set one step index at a time.
+///
+/// Candidates whose horizon still covers `step_index` are gathered into one
+/// row each and scored in a single `predict_steps` call, so a device predictor
+/// pays one launch/synchronize/copy round trip per index rather than one per
+/// candidate step. Every row is then folded back into its own walk, which
+/// keeps each candidate's step order — and therefore its accumulation order —
+/// exactly as the per-candidate walk had it.
+fn score_candidates_batched<P: RolloutPredictor>(
+    predictor: &P,
+    request: &RolloutEvaluationRequest,
+) -> PlannerResult<Vec<ScoredRolloutCandidate>> {
+    let config = &request.config;
+    let footprint_radius_m = config.robot_radius_m + config.collision_margin_m;
+    let mut walks: Vec<RolloutWalk> = request
+        .candidates
+        .iter()
+        .map(|candidate| RolloutWalk::start(candidate, &request.start_latent))
+        .collect();
+    let horizon = walks.iter().map(|walk| walk.horizon_steps).max().unwrap_or(0);
+
+    let mut latents: Vec<f32> = Vec::new();
+    let mut actions: Vec<f32> = Vec::new();
+    let mut deltas: Vec<f32> = Vec::new();
+    let mut rows: Vec<usize> = Vec::new();
+    for step_index in 0..horizon {
+        latents.clear();
+        actions.clear();
+        deltas.clear();
+        rows.clear();
+        for (candidate_index, candidate) in request.candidates.iter().enumerate() {
+            if step_index >= walks[candidate_index].horizon_steps {
+                continue;
+            }
+            let step = &candidate.steps[step_index];
+            latents.extend_from_slice(&walks[candidate_index].belief);
+            actions.extend_from_slice(&step.model_action());
+            deltas.push(step.dt_seconds);
+            rows.push(candidate_index);
+        }
+        if rows.is_empty() {
+            break;
+        }
+        let predictions = predictor.predict_steps(&latents, &actions, &deltas)?;
+        if predictions.len() != rows.len() {
+            return Err("rollout predictor returned the wrong batch width".into());
+        }
+        let scored_rows = predictions.into_iter().zip(rows.iter().copied());
+        for (prediction, candidate_index) in scored_rows {
+            let step = &request.candidates[candidate_index].steps[step_index];
+            walks[candidate_index].absorb(prediction, step, config, footprint_radius_m)?;
+        }
+    }
+    walks
+        .into_iter()
+        .map(|walk| walk.finish(&request.goal, config))
+        .collect()
+}
+
+/// Pre-batching reference walk, retained as the oracle for
+/// `the same emitted values across the batched planner step`.
+#[cfg(test)]
 fn score_candidate<P: RolloutPredictor>(
     predictor: &P,
     start_latent: &[f32],
@@ -412,85 +643,13 @@ fn score_candidate<P: RolloutPredictor>(
     config: &RolloutPlannerConfig,
 ) -> PlannerResult<ScoredRolloutCandidate> {
     let footprint_radius_m = config.robot_radius_m + config.collision_margin_m;
-    let mut belief = start_latent.to_vec();
-    let mut lateral_m = 0.0_f32;
-    let mut forward_m = 0.0_f32;
-    let mut yaw_rad = 0.0_f32;
-    let mut worst_collision = 0.0_f32;
-    let mut variance_sum = 0.0_f64;
-    let mut variance_terms = 0_u64;
-    let mut effort_seconds = 0.0_f32;
-    let mut slew_total = 0.0_f32;
-    let mut previous_step: Option<CandidateActionStep> = None;
-    let mut horizon_seconds = 0.0_f32;
-
+    let mut walk = RolloutWalk::start(candidate, start_latent);
     for step in candidate.steps.iter() {
-        let prediction = predictor.predict_step(&belief, step.model_action(), step.dt_seconds)?;
-        validate_prediction(&prediction)?;
-        let collision = central_collision_probability(
-            prediction.occupancy_logits.as_slice(),
-            config.grounding_resolution_m,
-            footprint_radius_m,
-        )?;
-        worst_collision = worst_collision.max(collision);
-        for entry in prediction.log_variance.iter() {
-            variance_sum += f64::from((0.5 * entry.clamp(-20.0, 20.0)).exp());
-            variance_terms += 1;
-        }
-        integrate_kinematics(&mut lateral_m, &mut forward_m, &mut yaw_rad, step, config);
-        effort_seconds +=
-            ((step.left.abs() + step.right.abs()) * 0.5) * step.speed_scale * step.dt_seconds;
-        if let Some(previous) = previous_step {
-            slew_total += slew_between(step, &previous);
-        }
-        previous_step = Some(*step);
-        horizon_seconds += step.dt_seconds;
-        belief = prediction.mean;
+        let prediction =
+            predictor.predict_step(&walk.belief, step.model_action(), step.dt_seconds)?;
+        walk.absorb(prediction, step, config, footprint_radius_m)?;
     }
-
-    if variance_terms == 0 {
-        return Err("rollout produced no predictive uncertainty".into());
-    }
-    let mean_latent_uncertainty_stddev = (variance_sum / variance_terms as f64) as f32;
-    let terminal_goal_distance_m =
-        ((lateral_m - goal.lateral_m).hypot(forward_m - goal.forward_m) - goal.tolerance_m)
-            .max(0.0);
-    let weighted_goal_cost = terminal_goal_distance_m * config.goal_cost_per_meter;
-    let weighted_collision_cost = worst_collision * config.collision_cost;
-    let weighted_uncertainty_cost =
-        mean_latent_uncertainty_stddev * config.uncertainty_cost_per_latent_stddev;
-    let weighted_action_cost = effort_seconds * config.action_cost_per_second;
-    let weighted_action_slew_cost = slew_total * config.action_slew_cost;
-    let rollout_cost = weighted_goal_cost
-        + weighted_collision_cost
-        + weighted_uncertainty_cost
-        + weighted_action_cost
-        + weighted_action_slew_cost;
-    if !rollout_cost.is_finite() {
-        return Err("rollout cost is non-finite".into());
-    }
-    Ok(ScoredRolloutCandidate {
-        candidate_id: candidate.candidate_id.clone(),
-        horizon_steps: candidate.steps.len(),
-        horizon_seconds,
-        terminal_lateral_m: lateral_m,
-        terminal_forward_m: forward_m,
-        terminal_yaw_rad: yaw_rad,
-        admissible: worst_collision <= config.collision_probability_limit,
-        cost: RolloutCostTerms {
-            terminal_goal_distance_m,
-            max_collision_probability: worst_collision,
-            mean_latent_uncertainty_stddev,
-            action_effort_seconds: effort_seconds,
-            action_slew: slew_total,
-            weighted_goal_cost,
-            weighted_collision_cost,
-            weighted_uncertainty_cost,
-            weighted_action_cost,
-            weighted_action_slew_cost,
-            rollout_cost,
-        },
-    })
+    walk.finish(goal, config)
 }
 
 /// Advance the robot pose by one differential-drive step.
@@ -877,6 +1036,40 @@ mod tests {
         }
     }
 
+    /// A predictor whose every head depends on the belief it is handed.
+    ///
+    /// `FixturePredictor`'s heads depend only on the action, so it is blind to a
+    /// row folded into the wrong candidate or a step scored out of order; this
+    /// one makes both visible in the emitted costs.
+    struct BeliefSensitivePredictor;
+
+    impl RolloutPredictor for BeliefSensitivePredictor {
+        fn predict_step(
+            &self,
+            latent: &[f32],
+            action: [f32; ACTION_DIM],
+            dt_seconds: f32,
+        ) -> PlannerResult<PredictedRolloutStep> {
+            let (left, right) = (action[0], action[1]);
+            let mean = latent
+                .iter()
+                .map(|value| value * 0.5 + (left + right) * dt_seconds)
+                .collect();
+            let log_variance = latent
+                .iter()
+                .map(|value| (value * 0.25 - 3.0).clamp(-10.0, 5.0))
+                .collect();
+            let mut occupancy_logits = vec![-6.0_f32; GROUNDING_CELLS];
+            let centre = (GROUNDING_HEIGHT / 2) * GROUNDING_WIDTH + GROUNDING_WIDTH / 2;
+            occupancy_logits[centre] = -1.0 + latent[0];
+            Ok(PredictedRolloutStep {
+                mean,
+                log_variance,
+                occupancy_logits,
+            })
+        }
+    }
+
     fn step(left: f32, right: f32) -> CandidateActionStep {
         CandidateActionStep {
             left,
@@ -974,5 +1167,102 @@ mod tests {
         let mut saturated_action = request();
         saturated_action.candidates[0].steps[0].left = 1.01;
         assert!(evaluate_rollout_proposals(&predictor, &saturated_action, true).is_err());
+    }
+
+    /// A proposal set wide enough to make step-index batching visible: the
+    /// config's own maxima (64 candidates, 16 steps), with horizons shortened
+    /// from the tail so candidates leave the batch at different step indices.
+    fn wide_request() -> RolloutEvaluationRequest {
+        let mut request = request();
+        request.candidates = (0..64)
+            .map(|index| {
+                let horizon = 16 - (index % 4);
+                let steps = (0..horizon)
+                    .map(|step_index| {
+                        let turn = if (index + step_index) % 3 == 0 { -1.0 } else { 1.0 };
+                        CandidateActionStep {
+                            left: turn * (0.1 + 0.01 * ((index + step_index) % 7) as f32),
+                            right: 0.1 + 0.01 * (step_index % 5) as f32,
+                            speed_scale: 0.5 + 0.01 * (index % 10) as f32,
+                            dt_seconds: 0.2,
+                        }
+                    })
+                    .collect();
+                RolloutCandidate {
+                    candidate_id: format!("candidate-{index:02}"),
+                    steps,
+                }
+            })
+            .collect();
+        request
+    }
+
+    fn assert_same_bits(left: f32, right: f32, candidate_id: &str, field: &str) {
+        assert_eq!(
+            left.to_bits(),
+            right.to_bits(),
+            "{field} moved for {candidate_id}: {left:?} != {right:?}"
+        );
+    }
+
+    fn assert_candidate_identical(batched: &ScoredRolloutCandidate, reference: &ScoredRolloutCandidate) {
+        let id = reference.candidate_id.as_str();
+        assert_eq!(batched.candidate_id, reference.candidate_id);
+        assert_eq!(batched.horizon_steps, reference.horizon_steps);
+        assert_eq!(batched.admissible, reference.admissible);
+        assert_same_bits(batched.horizon_seconds, reference.horizon_seconds, id, "horizon_seconds");
+        assert_same_bits(batched.terminal_lateral_m, reference.terminal_lateral_m, id, "terminal_lateral_m");
+        assert_same_bits(batched.terminal_forward_m, reference.terminal_forward_m, id, "terminal_forward_m");
+        assert_same_bits(batched.terminal_yaw_rad, reference.terminal_yaw_rad, id, "terminal_yaw_rad");
+        let (batched, reference) = (&batched.cost, &reference.cost);
+        let fields: [(&str, f32, f32); 11] = [
+            ("terminal_goal_distance_m", batched.terminal_goal_distance_m, reference.terminal_goal_distance_m),
+            ("max_collision_probability", batched.max_collision_probability, reference.max_collision_probability),
+            ("mean_latent_uncertainty_stddev", batched.mean_latent_uncertainty_stddev, reference.mean_latent_uncertainty_stddev),
+            ("action_effort_seconds", batched.action_effort_seconds, reference.action_effort_seconds),
+            ("action_slew", batched.action_slew, reference.action_slew),
+            ("weighted_goal_cost", batched.weighted_goal_cost, reference.weighted_goal_cost),
+            ("weighted_collision_cost", batched.weighted_collision_cost, reference.weighted_collision_cost),
+            ("weighted_uncertainty_cost", batched.weighted_uncertainty_cost, reference.weighted_uncertainty_cost),
+            ("weighted_action_cost", batched.weighted_action_cost, reference.weighted_action_cost),
+            ("weighted_action_slew_cost", batched.weighted_action_slew_cost, reference.weighted_action_slew_cost),
+            ("rollout_cost", batched.rollout_cost, reference.rollout_cost),
+        ];
+        for (field, left, right) in fields {
+            assert_same_bits(left, right, id, field);
+        }
+    }
+
+    /// The ticket's test: the batched walk must emit the values the
+    /// per-candidate walk emitted, bit for bit, for every scored candidate.
+    #[test]
+    fn the_same_emitted_values_across_the_batched_planner_step() {
+        let predictor = BeliefSensitivePredictor;
+        let request = wide_request();
+        let reference: Vec<ScoredRolloutCandidate> = request
+            .candidates
+            .iter()
+            .map(|candidate| {
+                score_candidate(
+                    &predictor,
+                    &request.start_latent,
+                    &request.goal,
+                    candidate,
+                    &request.config,
+                )
+                .expect("the reference walk scores every candidate")
+            })
+            .collect();
+
+        let batched = evaluate_rollout_proposals(&predictor, &request, true).unwrap();
+        assert_eq!(batched.candidates.len(), reference.len());
+        for reference in &reference {
+            let matched = batched
+                .candidates
+                .iter()
+                .find(|entry| entry.candidate_id == reference.candidate_id)
+                .expect("every reference candidate is scored by the batched walk");
+            assert_candidate_identical(matched, reference);
+        }
     }
 }

@@ -253,15 +253,12 @@ impl CoherentJepaRuntime {
         let action_tensor = row_tensor(&action, ACTION_DIM, &self.device)?;
         let delta_tensor = dt_tensor(delta_seconds, &self.device)?;
 
-        let prediction = self
-            .model
-            .predictor
-            .forward(&latent_tensor, &action_tensor, &delta_tensor)?;
-        let occupancy = self.model.occupancy_decoder.forward(&prediction.mean)?;
+        let (mean, log_variance, occupancy_logits) =
+            self.predict_row(&latent_tensor, &action_tensor, &delta_tensor)?;
         let output = PredictedRolloutStep {
-            mean: tensor_values(&prediction.mean, CORE_DIM)?,
-            log_variance: tensor_values(&prediction.log_variance, CORE_DIM)?,
-            occupancy_logits: tensor_values(&occupancy, GROUNDING_CELLS)?,
+            mean: tensor_values(&mean, CORE_DIM)?,
+            log_variance: tensor_values(&log_variance, CORE_DIM)?,
+            occupancy_logits: tensor_values(&occupancy_logits, GROUNDING_CELLS)?,
         };
         let all_finite = output
             .mean
@@ -274,6 +271,109 @@ impl CoherentJepaRuntime {
         }
         Ok(output)
     }
+
+    /// The transition and grounding heads of one row, still on the device.
+    ///
+    /// Both the single-row and the batched entry point call this, so a row
+    /// scored inside a batch runs the same kernels on the same tensor shapes as
+    /// the row scored alone; only the readback is shared.
+    fn predict_row(
+        &self,
+        latent: &Tensor,
+        action: &Tensor,
+        delta_seconds: &Tensor,
+    ) -> candle_core::Result<(Tensor, Tensor, Tensor)> {
+        let prediction = self
+            .model
+            .predictor
+            .forward(latent, action, delta_seconds)?;
+        let occupancy = self.model.occupancy_decoder.forward(&prediction.mean)?;
+        Ok((prediction.mean, prediction.log_variance, occupancy))
+    }
+
+    /// Advance a batch of already-encoded latents through the transition and
+    /// grounding heads.
+    ///
+    /// Rows share no state, and the planner walks the proposal set one step
+    /// index at a time, so a whole step's rows arrive together. The inputs are
+    /// uploaded once and every row then runs the single-row forward unchanged —
+    /// the arithmetic a batched matrix multiply would re-associate stays out of
+    /// the value contract (D-009/D-020) — while the three heads of all rows are
+    /// joined into one concatenated device-to-host readback. A 64-row step
+    /// therefore pays three uploads and one readback instead of seven uploads
+    /// and three readbacks per row.
+    fn predict_latent_steps(
+        &self,
+        latents: &[f32],
+        actions: &[f32],
+        delta_seconds: &[f32],
+    ) -> candle_core::Result<Vec<PredictedRolloutStep>> {
+        let rows = delta_seconds.len();
+        let latents_bad =
+            latents.len() != rows * CORE_DIM || latents.iter().any(|value| !value.is_finite());
+        let actions_bad =
+            actions.len() != rows * ACTION_DIM || actions.iter().any(|value| !value.is_finite());
+        let steps_bad = delta_seconds
+            .iter()
+            .any(|value| !value.is_finite() || *value <= 0.0);
+        if latents_bad || actions_bad || steps_bad {
+            candle_core::bail!(
+                "rollout input must contain finite {CORE_DIM}-latents, finite actions, and positive dt"
+            )
+        }
+        if rows == 0 {
+            return Ok(Vec::new());
+        }
+        let latent_rows = Tensor::from_slice(latents, (rows, CORE_DIM), &self.device)?;
+        let action_rows = Tensor::from_slice(actions, (rows, ACTION_DIM), &self.device)?;
+        let delta_rows = Tensor::from_slice(delta_seconds, (rows, 1), &self.device)?;
+
+        let mut means = Vec::with_capacity(rows);
+        let mut log_variances = Vec::with_capacity(rows);
+        let mut occupancies = Vec::with_capacity(rows);
+        for row in 0..rows {
+            let (mean, log_variance, occupancy) = self.predict_row(
+                &latent_rows.narrow(0, row, 1)?,
+                &action_rows.narrow(0, row, 1)?,
+                &delta_rows.narrow(0, row, 1)?,
+            )?;
+            means.push(mean);
+            log_variances.push(log_variance);
+            occupancies.push(occupancy);
+        }
+
+        let stacked = |heads: &[Tensor]| -> candle_core::Result<Tensor> {
+            Tensor::cat(&heads.iter().collect::<Vec<_>>(), 0)
+        };
+        let joined = Tensor::cat(
+            &[&stacked(&means)?, &stacked(&log_variances)?, &stacked(&occupancies)?],
+            1,
+        )?;
+        let width = CORE_DIM * 2 + GROUNDING_CELLS;
+        let values = tensor_values(&joined, rows * width)?;
+        let mut steps = Vec::with_capacity(rows);
+        for row in 0..rows {
+            let row_values = &values[row * width..(row + 1) * width];
+            let (mean, rest) = row_values.split_at(CORE_DIM);
+            let (log_variance, occupancy_logits) = rest.split_at(CORE_DIM);
+            steps.push(PredictedRolloutStep {
+                mean: mean.to_vec(),
+                log_variance: log_variance.to_vec(),
+                occupancy_logits: occupancy_logits.to_vec(),
+            });
+        }
+        let all_finite = steps.iter().all(|step| {
+            step.mean
+                .iter()
+                .chain(&step.log_variance)
+                .chain(&step.occupancy_logits)
+                .all(|value| value.is_finite())
+        });
+        if !all_finite {
+            candle_core::bail!("JEPA rollout runtime produced non-finite output")
+        }
+        Ok(steps)
+    }
 }
 
 impl RolloutPredictor for CoherentJepaRuntime {
@@ -285,6 +385,18 @@ impl RolloutPredictor for CoherentJepaRuntime {
     ) -> PlannerResult<PredictedRolloutStep> {
         match self.predict_latent_step(latent, action, dt_seconds) {
             Ok(step) => Ok(step),
+            Err(error) => Err(error.to_string().into()),
+        }
+    }
+
+    fn predict_steps(
+        &self,
+        latents: &[f32],
+        actions: &[f32],
+        dt_seconds: &[f32],
+    ) -> PlannerResult<Vec<PredictedRolloutStep>> {
+        match self.predict_latent_steps(latents, actions, dt_seconds) {
+            Ok(steps) => Ok(steps),
             Err(error) => Err(error.to_string().into()),
         }
     }
@@ -549,5 +661,58 @@ mod tests {
         assert!(runtime
             .predict_latent_step(short_latent, [0.0; ACTION_DIM], 0.1)
             .is_err());
+    }
+
+    fn bits(values: &[f32]) -> Vec<u32> {
+        values.iter().map(|value| value.to_bits()).collect()
+    }
+
+    /// Every row of one batched forward must equal the same row scored alone.
+    fn assert_batch_matches_single_rows(device: Device) {
+        let runtime = CoherentJepaRuntime::frozen_fixture(device, 0x5eed).unwrap();
+        let rows = 6;
+        let latents: Vec<f32> = (0..rows * CORE_DIM)
+            .map(|index| ((index % 89) as f32 - 44.0) / 44.0)
+            .collect();
+        let actions: Vec<f32> = (0..rows * ACTION_DIM)
+            .map(|index| ((index % 5) as f32 - 2.0) * 0.1)
+            .collect();
+        let deltas: Vec<f32> = (0..rows).map(|row| 0.1 + 0.01 * row as f32).collect();
+
+        let batched = runtime
+            .predict_latent_steps(&latents, &actions, &deltas)
+            .unwrap();
+        assert_eq!(batched.len(), rows);
+        for row in 0..rows {
+            let latent = &latents[row * CORE_DIM..(row + 1) * CORE_DIM];
+            let mut action = [0.0_f32; ACTION_DIM];
+            action.copy_from_slice(&actions[row * ACTION_DIM..(row + 1) * ACTION_DIM]);
+            let single = runtime.predict_latent_step(latent, action, deltas[row]).unwrap();
+            assert_eq!(bits(&batched[row].mean), bits(&single.mean), "mean row {row}");
+            assert_eq!(
+                bits(&batched[row].log_variance),
+                bits(&single.log_variance),
+                "log_variance row {row}"
+            );
+            assert_eq!(
+                bits(&batched[row].occupancy_logits),
+                bits(&single.occupancy_logits),
+                "occupancy_logits row {row}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_batched_latent_step_matches_single_row_steps_bit_for_bit() {
+        assert_batch_matches_single_rows(Device::Cpu);
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn a_batched_cuda_latent_step_matches_single_row_steps_bit_for_bit() {
+        match Device::new_cuda(0) {
+            Ok(device) => assert_batch_matches_single_rows(device),
+            Err(_) => eprintln!("skipping CUDA batched-step parity: no CUDA adapter"),
+        }
     }
 }

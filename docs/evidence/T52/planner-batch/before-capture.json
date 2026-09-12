@@ -1,0 +1,40 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "<target>/release/t52-probe-before",
+    "propose",
+    "--checkpoint",
+    "<scratch>/cand/t52-candidate",
+    "--request",
+    "<scratch>/propose-request.json",
+    "--backend",
+    "cuda",
+    "--output",
+    "<scratch>/runs/nsys-before-proposal.json"
+  ],
+  "profiler_argv": [
+    "/usr/local/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "<scratch>/nsys/before/mage-nsys-d782g5fl/capture",
+    "<target>/release/t52-probe-before",
+    "propose",
+    "--checkpoint",
+    "<scratch>/cand/t52-candidate",
+    "--request",
+    "<scratch>/propose-request.json",
+    "--backend",
+    "cuda",
+    "--output",
+    "<scratch>/runs/nsys-before-proposal.json"
+  ],
+  "command": "<scratch>/cand/t52-candidate --request /mnt/c/tmp/Impl225PlannerBatch/propose-request.json --backend cuda --output /mnt/c/tmp/Impl225PlannerBatch/runs/nsys-before-proposal.json",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 15360
+}

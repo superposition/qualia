@@ -1,0 +1,38 @@
+[
+  {
+    "backend": "cuda",
+    "candidates": 64,
+    "checkpoint_id": "t52-candidate",
+    "direct_planner_write": false,
+    "load_ms": 131.855783,
+    "mode": "propose",
+    "predict_calls": 1024,
+    "selected_candidate_id": null,
+    "step_ms": 315.73021,
+    "steps_per_candidate": 16
+  },
+  {
+    "backend": "cuda",
+    "candidates": 64,
+    "checkpoint_id": "t52-candidate",
+    "direct_planner_write": false,
+    "load_ms": 127.81356899999999,
+    "mode": "propose",
+    "predict_calls": 1024,
+    "selected_candidate_id": null,
+    "step_ms": 322.59873300000004,
+    "steps_per_candidate": 16
+  },
+  {
+    "backend": "cuda",
+    "candidates": 64,
+    "checkpoint_id": "t52-candidate",
+    "direct_planner_write": false,
+    "load_ms": 128.740726,
+    "mode": "propose",
+    "predict_calls": 1024,
+    "selected_candidate_id": null,
+    "step_ms": 341.588242,
+    "steps_per_candidate": 16
+  }
+]
