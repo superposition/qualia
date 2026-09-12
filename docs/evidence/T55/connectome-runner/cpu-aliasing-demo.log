@@ -1,0 +1,54 @@
+# N1 — the CPU step's single spike buffer, and its fix
+
+Review item N1 on PR #246: `step_cpu` used one `state.spike` vector as both the
+previous tick's input and this tick's output, so a neuron whose presynaptic
+partner had a lower index read that partner's *current* tick spike. The update
+was sequential (Gauss-Seidel), not the synchronous recurrence the module doc
+claimed and the kernel performs. Fixed by a second buffer and a swap, exactly as
+`gpu.rs` already does.
+
+## The demonstration
+
+Throwaway driver at `C:/tmp/Impl246Fixes/aliasdemo/` (not committed). It compiles
+two modules side by side with `rustc -O --edition 2021`:
+
+* `old_lif.rs` — `git show 7c09881:crates/connectome-cns/src/lif.rs`
+* `new_lif.rs` — the fixed worktree file
+
+(only the leading `//!` module doc is turned into `//` so `include!` accepts it;
+every code line is the literal source).
+
+Input: 2 neurons, one edge **neuron 0 -> neuron 1** (excitatory, weight 1) — so
+neuron 1's presynaptic partner has the **lower index**, the case the old buffer
+aliased. Params `decay 0.9, threshold 1.0, reset 0.0, refractory 0`. Tick 0 is
+driven with `external = [1.0, 0.0]`; ticks 1-3 are free-running.
+
+```
+graph: 2 neurons, edge 0 -> 1 (+1, weight 1); params decay 0.9 threshold 1.0 reset 0.0 refractory 0
+tick 0 external = [1.0, 0.0]; ticks 1-3 external = []
+
+tick 0: single-buffer(7c09881) fired [0, 1]   double-buffered(HEAD) fired [0]
+tick 1: single-buffer(7c09881) fired []   double-buffered(HEAD) fired [1]
+tick 2: single-buffer(7c09881) fired []   double-buffered(HEAD) fired []
+tick 3: single-buffer(7c09881) fired []   double-buffered(HEAD) fired []
+
+the first tick differs: the single buffer fires neuron 1 one tick early (it read neuron 0's spike written earlier in the same pass);
+the double-buffered path defers it to tick 1. total_spikes: 7c09881 2 vs fixed 2
+```
+
+Neuron 0 crosses threshold at tick 0 and fires; with one buffer, neuron 1 is
+processed after it and reads the spike that was written microseconds earlier in
+the same pass, so it fires at tick 0. The fixed path reads the previous tick's
+zero and fires at tick 1: the spike moves one tick later, which is the
+order-dependence the review named. A free-running bench cannot show this: with no
+external current no neuron ever fires, so `spikes on the last tick` is 0 and the
+two paths agree trivially.
+
+## Why the headline numbers are unaffected
+
+The kernel path (`kernels/cns_lif.cu`, driven through `gpu.rs`) already read
+`spike_in` and wrote `spike_out` separately and swapped per launch, so the Orin,
+4090 and CPU bench-*kernel* figures are unchanged. `bench --device cpu` and
+`loop --device cpu` were the affected paths; they now run the synchronous
+recurrence. The committed host CPU figure (20.615 ms/tick) is a timing, not a
+correctness claim, and is unchanged.

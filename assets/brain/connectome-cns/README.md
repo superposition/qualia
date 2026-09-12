@@ -22,15 +22,16 @@ SoA sections `id u32[N] | x f32[N] | y f32[N] | z f32[N] | cell_type u32[N]` —
 and checks every section digest against `manifest.json`). **Row `k` is CSR node `k`**, in the order
 `weights.bin`'s rows are in, so a firing id from `spikes.bin` indexes a row directly and no lookup
 table sits between them. `id` is the released body id; `cell_type` indexes `types.txt`, one interned
-label per line. `nodes.txt` is the same mapping for a human: body id, type, superclass, side and
-instance name, one line per node.
+label per line (line 0 is the empty label). `nodes.txt` is the same mapping for a human: body id,
+type, superclass, side and instance name, one line per node. Of the 166,700 released neurons,
+**164,506** carry a `type` in the annotation table; the other 2,194 index the empty label.
 
 | | |
 | --- | --- |
 | nodes | 166,700 (the CSR node count) |
 | placed | 139,662 rows carry a `somaLocation` |
 | unplaced | 27,038 rows have `x = y = z = NaN` |
-| cell types | 11,752 interned labels |
+| cell types | 11,752 interned labels — 11,751 distinct non-null `type` values in the annotation table, plus the empty label the importer interns for the 2,194 neurons that have no type |
 | coordinates | the dataset's raw 8 nm EM voxel units, unrescaled and uncentred; the runtime centres and scales them into the scene's unit frame, nothing is written back |
 | source table | `body-annotations-male-cns-v1.0-minconf-0.5.feather`, 211,577 bodies |
 
@@ -40,7 +41,7 @@ reports the placed count beside the node count. **The cloud therefore shows the 
 every neuron** — 139,662 of the 211,577 bodies in the annotation table.
 
 The network these nodes belong to, on the importer's measurement: **166,700 neurons, 25,582,938
-neuron-level edges, 124,177,617 synapses** (Σ weight), +94,542,746 excitatory / −26,403,637
+neuron-level edges, 124,177,617 synapses** (Σ weight), +94,542,746 excitatory / −26,402,637
 inhibitory / 3,232,234 unknown. The release's 151,856,684 weight rows and Σweight 311,833,243 are the
 segment-resolution totals and are not the neuron-level number.
 

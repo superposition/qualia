@@ -1,0 +1,33 @@
+# HISTORICAL RECORD — kept as committed, NOT the loop evidence for this ticket.
+# The binary that produced it was built before 71c9900, so its reader expected a
+# 12-byte QLSP header while the writer emits 8: the loop section below is a FAILED
+# read-back (`malformed: spikes: frame … ids are not strictly ascending`), not the
+# loop's stdout. The build/verify/bench sections above it are unaffected (the writer
+# path was always correct) and remain the Orin bench numbers. The loop transcript
+# from the fixed reader is board-loop.log, and the 300-frame recording itself is
+# recoverable byte-exactly from fe8c4f4 (60,681,968 B = 8 + 300*20 + 4*15,168,990).
+$ # Pinkie (Jetson Orin NX, sm_87); board-local 2026-09-12 02:0x EDT
+$ ssh pinkie
+$ export PATH=/home/jetson/.cargo/bin:/usr/local/cuda/bin:$PATH
+$ cd /home/jetson/t55
+$ CUDAARCHS=87-real cargo build -p qualia-connectome-cns --features cuda -j 2 --release
+
+cns-verify: neurons 166700 edges 25582938 synapses 124177617
+cns-verify: sign +94542746 -26402637 ?3232234
+cns-verify: positioned 139662 types 11752 nodes 166700
+cns-verify: weights.bin 180414198 bytes, every section digest verified
+cns-bench: 166700 neurons, 25582938 edges, 124177617 synapses, device gpu
+cns-bench: resident device bytes 182247874
+cns-bench: 600 ticks in 7.104 s on Orin
+cns-bench: 11.840 ms/tick
+cns-bench: 84.5 ticks/s
+cns-bench: 2160.6 M synapses/s
+cns-bench: 0 spikes on the last tick
+cns-bench: 166700 neurons, 25582938 edges, 124177617 synapses, device cpu
+cns-bench: 200 ticks in 9.828 s on cpu
+cns-bench: 49.140 ms/tick
+cns-bench: 20.4 ticks/s
+cns-bench: 520.6 M synapses/s
+cns-bench: 0 spikes on the last tick
+--- loop ---
+connectome-cns: malformed: spikes: frame 83464099482600 ids are not strictly ascending

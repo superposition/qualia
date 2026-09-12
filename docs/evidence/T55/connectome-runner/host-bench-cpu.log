@@ -1,0 +1,19 @@
+$ # dev host: Intel i9-14900KF, RTX 4090; artifact = the real Male CNS import
+$ qualia-connectome-cns bench --artifact artifact --ticks 200 --warmup 20 --device cpu
+
+cns-bench: 166700 neurons, 25582938 edges, 124177617 synapses, device cpu
+cns-bench: 200 ticks in 4.123 s on cpu
+cns-bench: 20.615 ms/tick
+cns-bench: 48.5 ticks/s
+cns-bench: 1241.0 M synapses/s
+cns-bench: 0 spikes on the last tick
+
+$ qualia-connectome-cns bench --artifact artifact --ticks 500 --warmup 100 --device gpu   # CUDAARCHS unset: NVRTC compiles kernels/cns_lif.cu at start-up
+
+cns-bench: 166700 neurons, 25582938 edges, 124177617 synapses, device gpu
+cns-bench: resident device bytes 182247874
+cns-bench: 500 ticks in 0.691 s on NVIDIA GeForce RTX 4090
+cns-bench: 1.381 ms/tick
+cns-bench: 723.9 ticks/s
+cns-bench: 18519.0 M synapses/s
+cns-bench: 0 spikes on the last tick

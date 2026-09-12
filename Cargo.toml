@@ -4,6 +4,7 @@ members = [
     "apps/qualia-console",
     "crates/braid",
     "crates/connectome-prior",
+    "crates/connectome-cns",
     "crates/connectome-stream",
     "crates/connectome-view",
     "crates/fly-circuit",
