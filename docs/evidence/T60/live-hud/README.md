@@ -125,22 +125,106 @@ agent answered — re-run it with the token read from its file before concluding
 - **`live-hud-live.png` — the figure, rendered headlessly.** No window on any desktop:
   `cargo run -p qualia-console --example live_hud_evidence` samples the live region and the live
   agent through the console's own read paths and draws the real `render_view` through
-  `egui_kittest`'s wgpu backend. It printed:
+  `egui_kittest`'s wgpu backend. Re-rendered for #247 (T64) at 1900x1060 with the three panels in a
+  **two-column** right margin (a single column needed a 1500 px page before every row fit).
+
+  The committed image is the re-render on the **rebased** tree (2026-09-12 02:28 local; branch
+  rebased onto `main` `4f2a8ab`, D-026 below) — 90,569 px differ from the 02:11 render, bbox
+  (87, 45)–(1898, 843), because the 02:11 figure was drawn before main's T56 brain view and theme
+  landed and so showed a Brain view main had already replaced. It printed:
 
   ```text
-  live_hud_evidence: region /qualia_body, 3 live runner panel(s): qualia-camera 2.55 Hz, qualia-health 9.96 Hz, qualia-vision 4.99 Hz
-  live_hud_evidence: no producer: qualia-l0-superposition, … qualia-l6-semantic, qualia-agent, qualia-lidar, qualia-vslam
-  Updated snapshot: live_hud_evidence.png
+  live_hud_evidence: region /qualia_body, 3 live runner panel(s)
+    qualia-camera | 2.50 Hz | publishing | updated 102 ms ago | uptime 20 m 21 s | seq 6106.000, frame bytes 36036.000, failures 0.000
+    qualia-health | 9.97 Hz | publishing | updated 58 ms ago | uptime 20 m 30 s | layers 8.000, l0 vfe 0.000, l0 comp 0.000, l0 cycle us 0.000
+    qualia-vision | 4.99 Hz | publishing | updated 52 ms ago | uptime 20 m 30 s | objects 2.000, brightness 0.000, frames 6136.000, scene objs 2.000
+  live_hud_evidence: no producer: qualia-l0-superposition, qualia-l1-belief, qualia-l2-belief, qualia-l3-belief, qualia-l4-behavior, qualia-l5-behavior, qualia-l6-semantic, qualia-agent, qualia-lidar, qualia-vslam
+  Updated snapshot: tests/snapshots\live_hud_evidence.png
   ```
 
   The figure shows Mission live against `https://127.0.0.1:8080`, the region panels (Belief, World,
-  Telemetry, Brain) reading `/qualia_body`, and the three HUD panels with those real rates.
+  Telemetry, Brain) reading `/qualia_body`, and the three HUD panels with those real rates, the
+  `uptime` each runner's own `started_at_ns` gives, and every row — including all four labelled
+  values — inside its panel.
 
-- **`live-hud.png` — historical.** The windowed capture from earlier in the session (private
-  `/qualia_t60_body` region, before the no-visible-window directive). Kept only as the record of the
-  windowed surface: `qualia-camera` live 2.61 Hz / 121.49 KiB/s / 343 ticks / 0 errors,
-  `qualia-vision` live 4.99 Hz / 715 ticks / 0 errors / objects 2 / frames 714, and the Telemetry row
-  `qualia-camera | 640x480 luma 0.46±0.16 | 323 ms ago` — a real frame.
+- **`live-hud.png` — the pre-#247 capture of the windowed surface.** The windowed capture from
+  earlier in the session (private `/qualia_t60_body` region, before the no-visible-window directive),
+  kept as the record of the windowed surface: `qualia-camera` live 2.61 Hz / 121.49 KiB/s / 343 ticks
+  / 0 errors, `qualia-vision` live 4.99 Hz / 715 ticks / 0 errors / objects 2 / frames 714, and the
+  Telemetry row `qualia-camera | 640x480 luma 0.46±0.16 | 323 ms ago` — a real frame.
+
+  It is the **before** half of #247's label fix: it was drawn by the build whose vision panel reads
+  `scene object` (the wire field cut `scene objects` at 12 bytes) and whose health panel, clipped at
+  300 px, never reached `l0 compressi`. Both are fixed and re-rendered in `live-hud-live.png`; D-023
+  forbids opening a window, so this capture cannot be re-shot and is left as the dated record rather
+  than passed off as current.
+
+## #247 (T64) — the four honesty fixes, and how each was checked
+
+Ticket [#247](https://github.com/superposition/qualia/issues/247), from the #245 correctness review.
+Branch `ticket/T64-hud-defects`; the four fixes are commit `13c86cf`, and this figure and section ride
+with the same branch. The `/qualia_body` producers were restarted
+from that build so the live frames carry the fixes: the old PIDs were killed in one pass
+(`taskkill /F /PID 18488 /PID 11028 /PID 27440 /PID 14484` — T60's supervisor and its health/vision
+children, plus the hand-started camera), leaving one publisher per runner, and
+`target/debug/qualia-init.exe` from the T64 worktree then created the arena and spawned health and
+vision while `target/debug/qualia-camera.exe` took
+`QUALIA_CAMERA_STREAM_URL=http://192.168.55.1:8000/camera/stream.mjpg`. The agent on 8080 was left
+running: it is the console's `/braid`, not a producer.
+
+| defect | before | after | where it is visible |
+|---|---|---|---|
+| `started_at_ns` never written | every frame carried 0; no panel could show a start | `StatsWriter::from_region` stamps its attach instant; the panel reads `uptime` | the live rows above: `uptime 2 m 06 s`, `2 m 15 s` |
+| `PUBLISHING` never cleared | `hud.rs:328`'s `!row.publishing` branch was dead; a stopped runner kept its last state | `impl Drop for StatsWriter` clears the flag and stamps the frame, so the panel reads `stopped`; a runner that is killed cannot run `Drop` and still ages out to `stale` | the probe below: `0x0001` -> `0x0000` |
+| 12-byte labels cut mid-word | `l0 compressi`, `scene object`, and lidar's `buffered poi` | the field stays 12 bytes — it is ABI under `RUNNER_STATS_VERSION` — and the three names move: `l0 comp`, `scene objs`, `buffered pts` | the live rows above |
+| README claimed "the last two minutes" | `HISTORY_LEN` is 120 samples and `POLL_INTERVAL` is 250 ms (`poller.rs:19`), so the window is 30 s | the README says the last half-minute, the same figure the constant's own doc names | `apps/qualia-console/README.md` |
+
+The flag clearing is the one claim a reader cannot check against a running stack, since it needs a
+writer to be dropped; it was measured with a throwaway example that attached to its own region,
+published once, and dropped the writer. The example was deleted after the run:
+
+```text
+$ cargo run -p qualia-console --example stop_probe
+probe: publishing flags=0x0001 publishing=true label0="l0 comp"
+probe: dropped   flags=0x0000 publishing=false label0="l0 comp" stamped_at_ns=1789193475679664200
+```
+
+The console's `StatsRow.publishing` is exactly that flag, so the second line is the panel's `stopped`
+state; the `label0` round-trip is the third fix — `l0 comp` is what comes back out of the 12-byte
+field.
+
+**The seven committed snapshots were re-blessed.** `cargo test -p qualia-console -j 2` failed 7/7
+before this ticket's first commit, by exactly 152 px in the same 23x11 box at (218, 16) — the `HUD`
+menu button that T60 added to `theme::menu_strip` (`cc9eb6e`, 2026-09-12) while the snapshots were
+last blessed by T51 (`a65f94f`, 2026-09-11). Every diff was measured to be that button and nothing
+else, so `UPDATE_SNAPSHOTS=1 cargo test -p qualia-console -j 2` was run once (rc 0), and the suite
+then passed without it (rc 0, 7/7 snapshots, no stray `*.new.png`).
+
+**On the tree rebased onto `main` the seven images are `main`'s, and that is measured, not sided.**
+Rebased onto `main` `4f2a8ab` the branch conflicted on the same seven PNGs (and on
+`examples/live_hud_evidence.rs`, where `main`'s four-line `coach:` field in `Sample` was re-added to
+the branch's rewrite). `main`'s bytes were taken as the starting point, then all seven were
+**re-rendered on the rebased tree** — `UPDATE_SNAPSHOTS=1 cargo test -p qualia-console --test
+snapshots -j 2` (rc 0, 7/7) — and the write was made provable rather than assumed by first moving the
+seven PNGs out of `tests/snapshots/` and re-running: the render recreated all seven, byte for byte
+identical to `main`'s blobs (`1c8bec68`, `807f2714`, `fa72d545`, `d10d546f`, `c4be5a6d`, `737a3f25`,
+`02e9c706`).
+
+That is the point D-026 names: siding with `539d188`'s binaries would have reverted main's render.
+Measured against `main`'s committed images, the branch's seven differed by `belief_stale` 73,967 px
+(bbox 441,44–1273,189), `brain_fresh` 132,009 px (857,44–1273,813), `default_arrangement` 109,475 px
+(857,44–1273,813), `evidence_empty` 73,942 px (25,44–1273,437), `mission_degraded` 73,962 px
+(25,44–1273,189), `mission_healthy` 73,962 px (25,44–1273,189) and `world_fresh` 23,657 px
+(857,44–1273,189) — all of T56's brain re-render plus main's theme. And nothing the branch drew is
+lost: `086017e` → `539d188` is still exactly 152 px in the one 23x11 box at (218, 16)–(240, 26), the
+`HUD` menu button, which `main`'s images already carry (the `086017e` → `main` bbox starts at that
+same box). The rebased tree changes no snapshot at all; the suite is green there without
+`UPDATE_SNAPSHOTS` (rc 0, 35 tests: lib 16, `brain_frame` 1, `brain_sample` 1, `evidence` 2,
+`shm_views` 5, `snapshots` 7, `stack` 3), and a second run left every blob unchanged.
+
+Nothing else changed: the frame layout, `RUNNER_STATS_VERSION`, `RUNNER_STATS_SLOTS` and the region
+name are untouched, and the three renamed labels are display names their publishers choose, not a
+wire change.
 
 ## What is live, and what is a gap
 
