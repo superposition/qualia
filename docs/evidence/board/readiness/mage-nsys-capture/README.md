@@ -58,7 +58,7 @@ of the export and printed its table on the board.
 | --- | --- |
 | `capture.json` | mage's manifest — `backend`, `argv`, `profiler_argv`, `command`, `capture_range`, `status: "complete"`, `returncode: 0`, `kernel_count: 494` — with the absolute output path elided to `<output-dir>/mage-nsys-doiq0b7c` and the target to `<binary>`, as `docs/evidence/README.md` requires. |
 | `capture.sqlite` | The `nsys` SQLite export, **trimmed** to the two tables mage's `nsys` backend reads (`StringIds`, `CUPTI_ACTIVITY_KIND_KERNEL`), with the 326 `StringIds` rows the kernel table does not reference dropped (32 of 358 kept — the raw export also interns the host's `PATH`, `HOME`, distro and session names) and `VACUUM`ed: 49 152 B from 884 736 B. It parses to the same 494 launches. |
-| `kernels.json` | mage's own 494 parsed rows, unmodified — 459 131 B, the largest file this tree carries, committed whole because the convention commits `kernels.json` always and a hand-normalised projection would no longer be mage's reader output. |
+| `kernels.json` | mage's own 494 parsed rows, unmodified — 459 131 B (larger than the tree's `Cargo.lock` at ~248 KB, and inside what the evidence tree already carries: `T50/model-step`'s `kernels.json` files are 740 800 and 782 910 B, `T52/planner-batch`'s exports 1.09 and 1.31 MB), committed whole because the convention commits `kernels.json` always and a hand-normalised projection would no longer be mage's reader output. |
 | `kernels.csv` | The same rows as CSV (66 544 B). |
 | `README.md` | This file. |
 
