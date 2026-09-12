@@ -60,6 +60,11 @@ impl SpikeWriter {
     }
 
     /// Flush buffered frames to the file.
+    pub fn flush(&mut self) -> Result<(), CnsError> {
+        self.inner.flush().map_err(|error| CnsError::Artifact(format!("spikes: {error}")))
+    }
+
+    /// Finish a recorded stream, including any remaining buffered frames.
     pub fn finish(mut self) -> Result<(), CnsError> {
         self.inner
             .flush()
@@ -155,5 +160,22 @@ impl SpikeWriter {
             .open(path)
             .map_err(|error| crate::read_error(path, error))?;
         Ok(Self::from_file(file))
+    }
+}
+
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    #[test]
+    fn a_zero_firing_frame_is_visible_before_the_writer_finishes() {
+        let path = std::env::temp_dir().join(format!("qualia-live-flush-{}.bin", std::process::id()));
+        let mut writer = SpikeWriter::create(&path).unwrap();
+        let frame = SpikeFrame {tick: 0, t_ns: 1, ids: vec![]};
+        writer.write_frame(&frame).unwrap();
+        writer.flush().unwrap();
+        assert_eq!(read_spikes(&path).unwrap(), vec![frame]);
+        writer.finish().unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 }
