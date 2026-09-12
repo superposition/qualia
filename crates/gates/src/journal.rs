@@ -6,8 +6,9 @@
 //! * `checklists` — `docs/journal-review.md` holds three distinct checklists;
 //! * `roles` — the PR carries an editorial comment per role, each opening with
 //!   the `braid-review` fenced block; the last comment per role wins;
-//! * `entry` — the entry's added lines (or `--entry`/`--diff`) carry no
-//!   surviving `<!-- ASK: -->` and hold the style form;
+//! * `entry` — the entry text (`--entry`, or the file the PR changes read at
+//!   its head commit, or `--diff`'s added lines for an entry-creating diff)
+//!   carries no surviving `<!-- ASK: -->` and holds the style form;
 //! * `gate` — `journal-gate: OK`, exit 0, only when BOTH the roles and the entry
 //!   legs were evaluated and all three verdicts are `approve`; with `--url` the
 //!   live entry and every absolute figure URL must return 200.
@@ -341,6 +342,94 @@ pub fn added_lines(diff_text: &str) -> String {
     lines.join("\n")
 }
 
+/// The `b/<path>` side of a `diff --git a/<path> b/<path>` header, if any.
+fn diff_header_path(rest: &str) -> Option<String> {
+    rest.rsplit_once(" b/")
+        .map(|(_, path)| path.to_string())
+        .or_else(|| {
+            rest.rsplit(' ')
+                .next()
+                .and_then(|token| token.strip_prefix("b/").map(str::to_string))
+        })
+}
+
+/// `diff_markdown_files`: the markdown paths a unified diff names, and the
+/// subset it *creates* (`new file mode`), both in diff order. A diff that names
+/// markdown but creates none is a **revision**: its `+` lines are the changed
+/// lines, not the entry, so the entry's unchanged headings never appear there.
+pub fn diff_markdown_files(diff_text: &str) -> (Vec<String>, Vec<String>) {
+    let mut named: Vec<String> = Vec::new();
+    let mut created: Vec<String> = Vec::new();
+    let mut current: Option<String> = None;
+    let mut is_new = false;
+    let flush =
+        |path: Option<String>, is_new: bool, named: &mut Vec<String>, created: &mut Vec<String>| {
+            if let Some(path) = path {
+                if path.to_lowercase().ends_with(".md") {
+                    if is_new {
+                        created.push(path.clone());
+                    }
+                    named.push(path);
+                }
+            }
+        };
+    for line in diff_text.replace("\r\n", "\n").split('\n') {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            flush(current.take(), is_new, &mut named, &mut created);
+            current = diff_header_path(rest);
+            is_new = false;
+            continue;
+        }
+        if line.starts_with("new file mode") {
+            is_new = true;
+        }
+    }
+    flush(current, is_new, &mut named, &mut created);
+    (named, created)
+}
+
+/// `is_entry_shape`: the two shapes an entry takes — a figure directory's
+/// `README.md` in this repository, and a `_posts/*.md` entry in the journal
+/// site.
+fn is_entry_shape(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    (path.starts_with("docs/figures/")
+        && path.ends_with("/README.md")
+        && path.matches('/').count() == 3)
+        || path.starts_with("_posts/")
+}
+
+/// `entry_path_of`: which of a PR's changed files is the entry. `Err` names the
+/// candidates when it cannot tell, because the remedy (`--entry <path>`) needs
+/// the path.
+fn entry_path_of(changed: &[String]) -> Result<String, String> {
+    let markdown: Vec<String> = changed
+        .iter()
+        .filter(|path| path.to_lowercase().ends_with(".md"))
+        .cloned()
+        .collect();
+    let shaped: Vec<String> = markdown
+        .iter()
+        .filter(|path| is_entry_shape(path))
+        .cloned()
+        .collect();
+    if shaped.len() == 1 {
+        return Ok(shaped[0].clone());
+    }
+    if markdown.len() == 1 {
+        return Ok(markdown[0].clone());
+    }
+    Err(format!(
+        "the PR changes {} markdown file(s) ({}); cannot tell which is the entry — pass --entry <path>. A revision PR's entry already exists on the base, so the diff shows only its changed lines and never its headings",
+        markdown.len(),
+        if markdown.is_empty() {
+            "none".to_string()
+        } else {
+            markdown.join(", ")
+        }
+    ))
+}
+
 /// `figure_refs`: every `src="…"` and markdown image reference, without
 /// duplicates.
 pub fn figure_refs(text: &str) -> Vec<String> {
@@ -446,6 +535,56 @@ fn fetch_comments(repo: &str, pr: i64) -> Result<Vec<String>, String> {
         .unwrap_or_default())
 }
 
+/// `fetch_pr_entry`: the entry text at the PR's head commit, its label, and the
+/// note naming that source. The entry leg is a *content* check, and for a
+/// revision PR the entry already exists on the base, so its source is the file
+/// at `headRefOid` — never the diff's added lines, which hold only the changed
+/// lines and would report the entry's unchanged headings as missing.
+fn fetch_pr_entry(repo: &str, pr: i64) -> Result<(String, String, String), String> {
+    let meta = run_gh(&[
+        "pr".to_string(),
+        "view".to_string(),
+        pr.to_string(),
+        "--repo".to_string(),
+        repo.to_string(),
+        "--json".to_string(),
+        "files,headRefOid".to_string(),
+    ])?;
+    let payload: Value = serde_json::from_str(&meta).map_err(|error| {
+        format!("gh pr view --json files,headRefOid did not return JSON: {error}")
+    })?;
+    let head = payload
+        .get("headRefOid")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if head.is_empty() {
+        return Err(format!("PR {pr} has no head commit (headRefOid)"));
+    }
+    let changed: Vec<String> = payload
+        .get("files")
+        .and_then(Value::as_array)
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|file| file.get("path").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let path = entry_path_of(&changed)?;
+    let text = run_gh(&[
+        "api".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github.raw".to_string(),
+        format!("repos/{repo}/contents/{path}?ref={head}"),
+    ])?;
+    let short: String = head.chars().take(12).collect();
+    let note = format!(
+        "entry source: {path} at the PR head {short} (the entry as it exists at the head, not the diff's added lines)"
+    );
+    Ok((text, path, note))
+}
+
 /// `fetch_status`: the HTTP status of a live URL, or `None` when it cannot be
 /// read at all.
 fn fetch_status(url: &str, timeout: u64) -> Option<u16> {
@@ -491,7 +630,7 @@ pub fn finish(
         writeln!(out, "journal-gate: roles OK (entry not checked)").ok();
         writeln!(
             out,
-            "journal-gate: FAIL - the entry leg was not checked; `journal-gate: OK` needs the entry text (--diff <file> or --entry <file>, or a --pr <n> whose diff can be read)"
+            "journal-gate: FAIL - the entry leg was not checked; `journal-gate: OK` needs the entry text (--entry <file>, or --diff <file> for an entry-creating diff, or --pr <n> to read the entry at the PR's head)"
         )
         .ok();
         return 1;
@@ -522,7 +661,7 @@ pub fn drive(
     if args.comments.is_some() && args.diff.is_none() && args.entry.is_none() {
         return usage_error(
             err,
-            "--comments needs an entry source (--diff <file>, the PR's diff, or --entry <file>): the entry leg reads the `<!-- ASK: -->` questions and the style form, and a comment stream alone would let an unchecked entry through",
+            "--comments needs an explicit entry source (--entry <file>, or --diff <file> for an entry-creating diff): the JSON is the comment stream only, so without one the entry leg would go unchecked and an entry carrying an unresolved `<!-- ASK: -->` could pass",
         );
     }
 
@@ -625,27 +764,29 @@ pub fn drive(
                 }
                 Err(error) => problems.push(format!("entry: {entry} could not be read: {error}")),
             }
-        } else {
-            let mut diff_text: Option<String> = None;
-            if let Some(path) = &args.diff {
-                match std::fs::read_to_string(path) {
-                    Ok(text) => diff_text = Some(text),
-                    Err(error) => problems.push(format!("entry: {path} could not be read: {error}")),
+        } else if let Some(path) = &args.diff {
+            match std::fs::read_to_string(path) {
+                Ok(text) => {
+                    let (named, created) = diff_markdown_files(&text);
+                    if !named.is_empty() && created.is_empty() {
+                        problems.push(format!(
+                            "entry: {path} is a revision diff (it changes existing markdown); its added lines are the changed lines, not the entry, and the entry's unchanged headings would read as missing — pass --entry <path> with the entry at the PR head instead"
+                        ));
+                    } else {
+                        entry_text = Some(added_lines(&text));
+                        entry_label = created.first().cloned().unwrap_or_else(|| path.clone());
+                    }
                 }
-            } else if args.pr.is_some() && repo.is_some() {
-                match run_gh(&[
-                    "pr".to_string(),
-                    "diff".to_string(),
-                    args.pr.expect("checked").to_string(),
-                    "--repo".to_string(),
-                    repo.clone().unwrap_or_default(),
-                ]) {
-                    Ok(text) => diff_text = Some(text),
-                    Err(error) => problems.push(format!("entry: {error}")),
-                }
+                Err(error) => problems.push(format!("entry: {path} could not be read: {error}")),
             }
-            if let Some(text) = &diff_text {
-                entry_text = Some(added_lines(text));
+        } else if args.pr.is_some() && repo.is_some() {
+            match fetch_pr_entry(&repo.clone().unwrap_or_default(), args.pr.expect("checked")) {
+                Ok((text, path, note)) => {
+                    writeln!(out, "journal-gate: {note}").ok();
+                    entry_text = Some(text);
+                    entry_label = path;
+                }
+                Err(error) => problems.push(format!("entry: {error}")),
             }
         }
         if let Some(text) = &entry_text {
@@ -854,6 +995,32 @@ pub fn self_test() -> i32 {
 
     let diff = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@\n-old\n+new\n";
     check("added_lines keeps only additions", added_lines(diff) == "new");
+    let revision = "diff --git a/docs/figures/f/README.md b/docs/figures/f/README.md\n--- a/docs/figures/f/README.md\n+++ b/docs/figures/f/README.md\n@@\n-context\n+changed\n";
+    let (named, created) = diff_markdown_files(revision);
+    check(
+        "a revision diff names markdown and creates none",
+        named == vec!["docs/figures/f/README.md"] && created.is_empty(),
+    );
+    let adding = "diff --git a/docs/figures/f/README.md b/docs/figures/f/README.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/figures/f/README.md\n@@\n+## Evidence\n";
+    check(
+        "an entry-creating diff creates its markdown",
+        diff_markdown_files(adding).1 == vec!["docs/figures/f/README.md"],
+    );
+    check(
+        "the entry is the figure README among the PR's markdown",
+        entry_path_of(&[
+            "README.md".to_string(),
+            "docs/figures/f/README.md".to_string(),
+            "docs/figures/f/plot.png".to_string(),
+        ])
+        .ok()
+        .as_deref()
+            == Some("docs/figures/f/README.md"),
+    );
+    check(
+        "two unshaped markdown files are ambiguous",
+        entry_path_of(&["a.md".to_string(), "b.md".to_string()]).is_err(),
+    );
     check(
         "figure_urls finds absolute figures",
         figure_urls("<img src=\"/rel.png\">\n![a](https://e/f.svg)\n") == vec!["https://e/f.svg"],

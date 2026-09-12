@@ -93,6 +93,21 @@ cargo run --quiet -p qualia-gates -- journal --pr <n> --repo OWNER/NAME --commen
 cargo run --quiet -p qualia-gates -- journal --entry _posts/2026-09-11-the-public-record.md
 ```
 
+The entry source depends on the kind of PR, and a **revision PR** is the trap: an **entry-creating PR**
+adds the entry file, so `gh pr diff` shows it whole and plain `--pr <n>` reads it, while a **revision PR**
+changes an entry that already exists on the base, so the diff holds only the changed lines and the entry's
+unchanged headings (`## What we tried`, `## Evidence`, `## What this does not establish`) sit in the diff as
+context, not as additions. The gate therefore reads the entry **as it exists at the PR's head commit** —
+plain `journal --pr <n>` — prints the source it used
+(`entry source: <path> at the PR head <sha> (the entry as it exists at the head, not the diff's added
+lines)`), and, when it cannot tell which of the PR's markdown files is the entry, refuses and names the
+candidates. So the exact commands are: **entry-creating**, `cargo run --quiet -p qualia-gates -- journal --pr <n>`;
+**revision**, the same command, or, when the entry is a local file,
+`cargo run --quiet -p qualia-gates -- journal --pr <n> --entry <path>` to pin the source; **offline**,
+`--entry <path>` — a `--diff` of a revision is refused **by name** (`it changes existing markdown; its added
+lines are the changed lines, not the entry`), because the diff alone cannot show the headings, so the
+`--comments comments.json --diff entry.diff` form is only for an entry-creating diff.
+
 The gate counts the `braid-review` blocks — the last one per role — checks the three distinct
 checklists, and prints `journal-gate: OK` with exit 0 **only when both the roles leg and the entry leg
 were actually evaluated**: the checklists hold, the roles hold, no `<!-- ASK: -->` survives in the
@@ -106,7 +121,8 @@ never print `journal-gate: OK`:
 - an **`--entry`-only run** checks the entry's style form and its `<!-- ASK: -->` questions as well,
   but not the roles: it prints `journal-gate: entry OK (roles not checked: pass --pr <n>)` and exits 1;
 - an **entry-less roles run** — the roles leg read, the entry leg not — never prints `OK`: the
-  `--comments` form needs an entry source (`--diff <file>`, the PR's diff, or `--entry <file>`) the way
+  `--comments` form needs an explicit entry source (`--entry <file>`, or `--diff <file>` for an
+  entry-creating diff) the way
   it needs `--pr <n>`, and without one it is a usage error, exit 2, because the comment stream alone
   would let an entry carrying an unresolved `<!-- ASK: -->` through; if a run reaches the close with
   the roles leg checked and the entry leg not, it prints `journal-gate: roles OK (entry not checked)`
