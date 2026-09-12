@@ -1,3 +1,11 @@
+# HISTORICAL RECORD — kept as committed, NOT the loop evidence for this ticket.
+# The binary that produced it was built before 71c9900, so its reader expected a
+# 12-byte QLSP header while the writer emits 8: the loop section below is a FAILED
+# read-back (`malformed: spikes: frame … ids are not strictly ascending`), not the
+# loop's stdout. The build/verify/bench sections above it are unaffected (the writer
+# path was always correct) and remain the Orin bench numbers. The loop transcript
+# from the fixed reader is board-loop.log, and the 300-frame recording itself is
+# recoverable byte-exactly from fe8c4f4 (60,681,968 B = 8 + 300*20 + 4*15,168,990).
 $ # Pinkie (Jetson Orin NX, sm_87); board-local 2026-09-12 02:0x EDT
 $ ssh pinkie
 $ export PATH=/home/jetson/.cargo/bin:/usr/local/cuda/bin:$PATH

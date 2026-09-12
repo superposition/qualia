@@ -24,8 +24,14 @@ Logs in this directory:
 * `host-verify.log` — `verify`, which re-loads the artifact and checks every section digest.
 * `host-bench-cpu.log` — the CPU reference and the 4090, same artifact.
 * `host-loop-gpu.log`, `host-loop-gpu-trace.csv` — the closed loop against the robot's own camera.
-* `board-bench.log` — the Orin build, verify, both benches and the loop transcript.
+* `board-bench.log` — **historical**, kept for the record: an Orin build/verify/bench excerpt whose loop
+  section is a *failed* read-back by the binary built before `71c9900` (the 12-byte-header reader). Its
+  bench rows are the Orin numbers below; its loop section proves nothing and is superseded by
+  `board-loop.log`.
+* `board-loop.log` — the 300-tick board loop re-run with the fixed reader, with the leash snapshot-rate
+  probe and the `replay` read-back. (Added in the review-fix commit; see the log itself.)
 * `board-loop-trace.csv` — the board loop's per-tick trace.
+* `cpu-aliasing-demo.log` — the before/after run for the CPU spike-buffer fix (review item N1).
 
 The board run's 57.9 MB `spikes.bin` recording is deliberately **not** committed (it is a recording,
 not source, and it is over GitHub's 50 MB recommendation). It is reproducible on the board with the
