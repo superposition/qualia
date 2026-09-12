@@ -293,4 +293,68 @@ that unblocks promotion is **a calibration path plus a driven, localized session
 of synthetic sessions substitutes for either (T52/T53 already measured that: four fixtures and a 10×
 epoch run left `effective_rank` at 1.1–1.45 against the floor of 64).
 
+### The calibration gate's exact acceptance condition (for the ticket that fixes it)
 
+The dataset's camera parse and the two checks that reject a transition, quoted from the tree at this
+commit (`crates/jepa-dataset/src/lib.rs`):
+
+```rust
+                valid: bool_field(&value, "valid")?,
+                luminance_mean: f32_field(&value, "luminance_mean")?,
+                luminance_stddev: f32_field(&value, "luminance_stddev")?,
+                calibration_id: string_field(&value, "calibration_id")?.to_string(),
+            }),
+            TOPIC_LIDAR => {
+                let mask = value
+```
+
+```rust
+                continue;
+            }
+            if current.calibration_id == "unavailable" || current.calibration_id.is_empty() {
+                reject(&mut audit, "calibration_missing");
+                continue;
+            }
+            if target.calibration_id == "unavailable"
+                || target.calibration_id.is_empty()
+                || target.calibration_id != current.calibration_id
+            {
+                reject(&mut audit, "target_calibration_mismatch");
+```
+
+so the condition is: the camera record's `calibration_id` must be a non-empty string **other than the
+literal `"unavailable"`**, and the observation and target frames of one transition must carry the
+**same** one. The first failure keys `calibration_missing`, the second `target_calibration_mismatch`;
+the accepted value is carried into `TransitionQuality.calibration_id` (`lib.rs:658`) and nothing else
+reads it — no geometry, no intrinsics, only identity.
+
+Where the value comes from today: the recorder takes it from its source config, whose default is the
+sentinel (`runners/arena-recorder/src/main.rs`):
+
+```rust
+        Err(_) => vec![EntitySourceConfig {
+            entity: std::env::var("QUALIA_CAMERA_ENTITY").unwrap_or_else(|_| "unknown".to_owned()),
+            shm_name: std::env::var("QUALIA_SHM_NAME")
+                .unwrap_or_else(|_| "/qualia_body".to_owned()),
+            calibration_id: std::env::var("QUALIA_CALIBRATION_ID")
+                .unwrap_or_else(|_| "unavailable".to_owned()),
+            primary: true,
+```
+
+and stamps it into every camera record:
+
+```rust
+                "schema_version": CAMERA_DOC,
+                "producer_epoch": self.producer_epoch,
+                "entity": entity,
+                "source_sequence": frame.seq,
+                "timestamp_ns": frame.timestamp_ns,
+                "calibration_id": calibration_id,
+                "source_width": frame.source_width,
+```
+
+So the producer a new ticket builds must decide what a calibration *is* for this robot, give it a
+stable identity, and have `QUALIA_CALIBRATION_ID` (or the source config) carry that identity — the
+dataset leg then accepts without any change to the gate, which is exactly the condition #250 (T65)
+sets: a real session whose dataset reports ≥1 valid transition, with the trainer failing at a later
+named gate or not at all.
