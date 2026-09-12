@@ -1,0 +1,14 @@
+Board identity, captured read-only over ssh at 2026-09-12T02:33:55-0400 (no build, no cargo run;
+the lease pass below had already exited):
+
+Linux ubuntu 5.15.148-tegra #1 SMP PREEMPT Thu Sep 18 15:08:33 PDT 2025 aarch64 aarch64 aarch64 GNU/Linux
+6
+rustc 1.94.0 (4a4ef493e 2026-03-02)
+binary: rustc
+commit-hash: 4a4ef493e3a1488c6e321570238084b38948f6db
+commit-date: 2026-03-02
+host: aarch64-unknown-linux-gnu
+release: 1.94.0
+LLVM version: 21.1.8
+cargo 1.94.0 (85eff7c80 2026-01-15)
+RUSTFLAGS used: -C target-feature=+fp16 (D-016)

@@ -3,7 +3,8 @@
 Board evidence for [#235](https://github.com/superposition/qualia/issues/235) (T54, *the remaining
 unfenced reader*), the third instance of the reader protocol class fixed in
 [#234](https://github.com/superposition/qualia/pull/234). `runs/` holds the runs quoted below: dev-host
-logs for the host half, and the board logs once the pending lease pass has run.
+logs for the host half, and the board logs from the lease pass below — the quiet set, with
+`board-identity.txt`, `board-timeline.txt` and each `run_repeats.sh` summary beside them.
 
 ## What was wrong
 
@@ -49,18 +50,21 @@ those two types rather than the index, and the one test that pinned the raw `0/1
 ## Test written first
 
 `a_coherent_read_of_the_recorded_belief_is_never_torn` (in `runners/arena-recorder`'s test module)
-drives the writer from the reader's own progress: it publishes 32 times inside one copy, so the copy
-straddles a rewrite of the buffer it is reading and the even number of flips returns the index to
-where it started. On the pre-fix code, before the fix was applied:
+drives the writer from the reader's own progress: it publishes 500 times inside one copy, each publish
+writing the same marker set spread through the belief, so the copy reads markers from different publishes
+while an even number of flips returns the index to where it started. On the pre-fix shape, committed as
+`runs/host-prefix-guard.log`:
 
 ```text
 assertion `left == right` failed: a coherent read saw two publishes mixed together
-  left: 1
+  left: 1447
  right: 0
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.08s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.07s
 ```
 
-The same test passes with the fix on the host; the board run is the pending lease pass below.
+The same test passes with the fix on the host, and on Pinkie in the quiet set in §Board below. (The
+driver's first form rewrote the whole buffer per publish and showed a single torn copy once; that form is
+superseded and its number is not quoted.)
 
 ## Audit of the remaining workspace
 
@@ -83,7 +87,8 @@ That is a different shape, out of this ticket's scope.
 
 Pinkie, Jetson Orin NX, `aarch64`, 6 cores, kernel `5.15.148-tegra`, rustc 1.94.0, in
 `/home/jetson/remediate/515a506` (a `git archive` of `515a506`, #227's merge), `RUSTFLAGS="-C
-target-feature=+fp16" --offline -j 2`. **The numbers below are the quiet set**, run 02:20:41..02:22:04 board-local after T59's
+target-feature=+fp16" --offline -j 2`. **The numbers below are the quiet set**, run 02:19:52..02:21:49 board-local (the lease itself
+02:11..02:22:04; per-leg windows and the log mtimes are in `board-timeline.txt`) after T59's
 `cargo build --release -p qualia-lidar -p qualia-drive` (started 02:17 inside this lease) was killed:
 no `cargo`/`rustc` anywhere, `uptime` load 1.26 falling from that build. The lease was taken at 02:11
 with the board idle (load 0.25, no `cargo`/`rustc`, `/dev/shm` 4%); the sets I ran after 02:15 were
@@ -112,8 +117,8 @@ test result: ok.  5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s  (shm.rs)
                                                                               (exit 0)
 
-$ sh run_repeats.sh t54_fixed 20
-t54c_fixed summary: pass=20 fail=0    (0.14..0.29s each; runs/board-fixed/01..20.log)
+$ sh run_repeats.sh t54c_fixed 20
+t54c_fixed summary: pass=20 fail=0    (0.14..0.29s each; runs/board-fixed/01..20.log + summary.txt)
 ```
 
 ## Falsification
@@ -124,17 +129,21 @@ runs.
 | mode | what it removes | host | board |
 | --- | --- | --- | --- |
 | `prefix-guard` | the parity writer **and** the fix's pair: the caller-side `coherent_belief` guard is back and the test calls it the way the recorder used to | **fails**, 1447 torn of 2000 (`host-prefix-guard.log`) | **fails 5/5**, 1906..1930 torn of 2000 (`board-prefix/01..05.log`) |
-| `writer-parity` | the counter (parity toggle restored); reader fixed | passes (`host-writer-parity.log`) | — |
-| `reader-fence` | the acquire fence; counter fixed | passes (`host-reader-fence.log`) | — |
-| `both` | both halves, but with the guard inside `snapshot` rather than at the caller | passes (`host-both.log`) | — |
+| `writer-parity` | the counter (parity toggle restored); reader fixed | passes (`host-writer-parity.log`), supportive-only, not run on the board | — |
+| `reader-fence` | the acquire fence; counter fixed | passes (`host-reader-fence.log`), supportive-only, not run on the board | — |
+| `both` | both halves, but with the guard inside `snapshot` rather than at the caller | passes (`host-both.log`), supportive-only | — |
 
-The test drives the writer from the reader's progress: 500 publishes while the reader is inside one
-copy, each writing the same marker set (three elements spread through each belief array plus the
-scalars), so the copy reads markers from different publishes and the even number of flips returns the
-index to where it started. The pre-fix guard — parity index, no fence, guard at the caller — accepts
-that copy, and the board shows it in the quiet set: 1906..1930 of 2000 accepted copies mixed two publishes,
-five runs out of five. With the fix the counter rejects every copy a publish touched (20/20 on the board, 20
-repeats).
+What the board runs establish is that the test catches **the pre-fix pair**: the parity writer *with*
+the guard at the caller and no fence. Five of five board runs fail there, 1906..1930 mixed copies out of
+2000 accepted (`board-prefix/`), and the dev host fails the same revert (1447 of 2000).
+
+They do **not** isolate the parity hole on their own. `writer-parity` — the parity index with the guard
+moved inside `snapshot` — passes on the host and was not run on the board, so the ~95 % tear rate above
+is the guard-placement/ordering half of the pair: the closing check itself was being observed before the
+copy on the caller-side shape. The parity half is argued from the code rather than from a live failure —
+a two-valued index cannot express "no publish happened", so an even number of flips satisfies the guard —
+and this directory claims it only that far. With the fix the counter rejects every copy a publish touched
+(20/20 on the board, 20 repeats).
 
 Two honest notes. First, getting there needed the writer's *cycle* to be much faster than the reader's
 copy: with each publish rewriting 16 KiB the copy finished before the writer reached the copied buffer,
@@ -149,7 +158,7 @@ thread 'tests::a_coherent_read_of_the_recorded_belief_is_never_torn' panicked at
 assertion `left == right` failed: a coherent read saw two publishes mixed together
   left: 1930
  right: 0
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.10s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.09s
 ```
 
 ## Host

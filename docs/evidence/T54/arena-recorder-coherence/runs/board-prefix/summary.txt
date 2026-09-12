@@ -1,0 +1,6 @@
+t54c_prefix run 1: EXIT=101 left: 1930 right: 0 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.09s
+t54c_prefix run 2: EXIT=101 left: 1917 right: 0 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.08s
+t54c_prefix run 3: EXIT=101 left: 1906 right: 0 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.09s
+t54c_prefix run 4: EXIT=101 left: 1923 right: 0 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.08s
+t54c_prefix run 5: EXIT=101 left: 1909 right: 0 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.08s
+t54c_prefix SUMMARY: pass=0 fail=5
