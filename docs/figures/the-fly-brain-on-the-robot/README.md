@@ -383,7 +383,7 @@ connectome produced left/right/hold commands from the robot's own camera at the 
   re-serialized struct; `serde_json/float_roundtrip` fixed it (D-027, PR #257). The trainer command
   quoted in "What we tried" is the post-fix refusal T52/promoted-e2e records, run on the dev host (WSL2
   Ubuntu-22.04, RTX 4090); the T65 transcript before the fix carries the digest error instead
-  (`docs/evidence/T65/calibration/README.md` §7, `docs/evidence/T52/promoted-e2e/`).
+  (`docs/evidence/T65/calibration/README.md` §7, `docs/evidence/T52/promoted-e2e/digest-fix/trainer-after.txt`).
 * **Session 1's zero is a missing producer, not a bad robot.** `calibration_missing` rejected all 4,501
   candidates because no runner in the tree wrote a `calibration_id`; that is a finding about our
   software, and it is why session 2, with the producer, reached 1,499.
