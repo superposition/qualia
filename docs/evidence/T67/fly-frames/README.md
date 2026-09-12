@@ -16,6 +16,13 @@ to the robot. The server's deliberate gap and error were local fault injection. 
 `input live JPEG camera at http://127.0.0.1:53812/...` label describes the runner's HTTP input mode;
 the image was a recording, not a live camera view.
 
+Input SHA-256 hashes:
+
+```text
+snap_test.jpg: 01c66c745b0eae7d7e307322db3a56dd1076f3ea4927349a8ef9ba6324c22128
+artifact/manifest.json: 3c52a54404e4f80b29697c7010bf55862b5f9ccccd0206add77be928c6dc4fbc
+```
+
 The temporary driver is `C:/tmp/qualia-driving/check_stream.py`; no test file is a deliverable. It
 held the second JPEG response until it had consumed the first JSON frame. A producer that waited
 until the loop finished would fail this check. It then delayed the response by 800 ms and verified
@@ -49,6 +56,14 @@ a trace row nor a successful pipe write asserts that leash applied a command.
 Four invalid limits (`NaN`, `inf`, `-0.1`, `1.1`) were refused before loading the artifact or emitting
 anything. Spikes used for the independent comparison remain in the named scratch directory; they
 are recordings, not source, and are not committed.
+
+The correctness review found an existing frame destination could be truncated before refusal if it
+also named the trace or spike file. The fix checks for an existing destination before opening any
+output and retains `create_new` at the actual frame-file open. The rebuilt binary passed all three
+existing-destination checks (trace alias, spike alias and independent path), preserving every prior
+byte and refusing before artifact loading. A new frame file at wheel limit zero also recorded six
+ticks with zero wheel values and no stdout. See [`file-handling.log`](file-handling.log); the temporary
+driver is `C:/tmp/qualia-driving/check_file_handling.py`. The fix rebuild exited 0 in 3.95 s.
 
 ## Build and repository checks
 

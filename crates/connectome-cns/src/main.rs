@@ -578,6 +578,17 @@ fn close_loop(
             "--max-wheel-speed must be finite and in 0..=1".into(),
         ));
     }
+    if let Some(path) = frames_out.filter(|path| *path != Path::new("-")) {
+        // Refuse before opening the trace or spikes: this destination might
+        // be an existing alias of either evidence file. create_new below
+        // still protects the actual frame-file open against concurrent creation.
+        if path.try_exists().map_err(|error| read_error(path, error))? {
+            return Err(CnsError::Artifact(format!(
+                "wheel frame destination {} already exists; use a new path or -",
+                path.display()
+            )));
+        }
+    }
     let loaded = Artifact::load(artifact)?;
     let incoming = loaded.incoming();
     let params = LifParams::default();

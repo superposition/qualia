@@ -1,8 +1,8 @@
 # Handoff — getting the fly driving the WaveShare
 
-You are taking over a specific, short piece of work: the fly's wheel commands already reach a transport that
-can drive the robot; the three demonstrations that prove it are owed, and one small shim is missing between
-the fly and the transport. Read `docs/agents.md` (the operating model: breadcrumbs, claims, the board lease,
+You are taking over a specific, short piece of work: the fly's wheel commands have a per-tick shim into
+the merged transport, and the three demonstrations that prove robot actuation are still owed. The shim's
+local checks are recorded below. Read `docs/agents.md` (the operating model: breadcrumbs, claims, the board lease,
 the definition of done) and, if you are running in this session's harness, the batch context file
 `local://qualia-swarm-context.md`. Then read ticket **#262 (T67)** and its review trail — that is the state,
 not this file.
@@ -45,7 +45,7 @@ report the line; if it is accepted, the window is open.
 | The fly that produces commands | `crates/connectome-cns` (`qualia-connectome-cns loop … --trace <csv>`) | Merged. Its live camera loop produced the commands (196/200 host ticks; 296/300 and 294/300 on the board) and writes them to a **trace CSV**, not to a wire frame |
 | The post about all of this | `docs/figures/the-fly-brain-on-the-robot/` | Merged (#261); subject is the robot and the fly driving it |
 
-### The one missing shim
+### The producer shim
 
 Implemented by `loop --frames-out -`: one flushed JSON frame per tick, with that tick in `T` and an
 explicit zero for every hold. The same decoder values write the CSV. The loop now decodes during
