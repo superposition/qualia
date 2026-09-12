@@ -4,9 +4,13 @@
 
 mod support;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use axum::extract::State;
 use axum::http::StatusCode;
+use http_body_util::BodyExt;
 use qualia_shm::ShmRegion;
 use support::Harness;
 
@@ -375,4 +379,153 @@ async fn compute_path_checks_pose_then_lidar_before_the_service() {
     let no_lidar = harness.post_json("/compute/path", None, serde_json::json!({})).await;
     assert_eq!(no_lidar.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(no_lidar.json()["error"]["code"], "lidar_unavailable");
+}
+
+fn jpeg_preview(payload: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![0xff, 0xd8, 0xff];
+    bytes.extend_from_slice(payload);
+    bytes
+}
+
+/// `/perception/frame` serves exactly the bytes the camera runner published,
+/// with the content type the encoding implies, and refuses an empty slot.
+#[tokio::test]
+async fn encoded_frame_serves_the_published_preview_verbatim() {
+    let harness = Harness::new();
+    assert_eq!(
+        harness.get("/perception/frame").await.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "an empty slot is not a frame"
+    );
+
+    let region = ShmRegion::open(&harness.state.config.shm_name).expect("scratch region");
+    let encoded = jpeg_preview(&[0xaa; 4096]);
+    region
+        .camera_preview_mut()
+        .publish(1, 640, 480, qualia_agent::now_ns(), &encoded)
+        .expect("publish the preview");
+
+    let reply = harness.get("/perception/frame").await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.content_type(), Some("image/jpeg"));
+    assert_eq!(reply.bytes, encoded);
+
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend_from_slice(&[0x55; 512]);
+    region
+        .camera_preview_mut()
+        .publish(2, 64, 48, qualia_agent::now_ns(), &png)
+        .expect("publish the preview");
+    let reply = harness.get("/perception/frame").await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.content_type(), Some("image/png"));
+    assert_eq!(reply.bytes, png);
+
+    // A cleared slot carries no bytes: the sequence advanced, the payload did
+    // not, which is what the camera runner leaves behind for an unwanted
+    // encoding.
+    region.camera_preview_mut().clear().expect("clear the slot");
+    assert_eq!(
+        harness.get("/perception/frame").await.status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+/// The preview endpoint must never hand an operator a copy that mixed two
+/// publishes. Its reader is the slot's own snapshot, which copies the payload,
+/// fences acquire, and only then re-reads the sequence, so a copy straddling a
+/// publish is rejected rather than served.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_encoded_frame_endpoint_never_serves_a_torn_preview() {
+    let harness = Harness::new();
+    // The first request creates the scratch region; open it only after that.
+    assert_eq!(
+        harness.get("/perception/frame").await.status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let region = Arc::new(ShmRegion::open(&harness.state.config.shm_name).expect("scratch region"));
+    let small = jpeg_preview(&[0xaa; 4096]);
+    let large = jpeg_preview(&[0x55; 16_384]);
+    let stop = Arc::new(AtomicBool::new(false));
+    let reading = Arc::new(AtomicBool::new(false));
+    let state = harness.state.clone();
+
+    let writer = tokio::task::spawn_blocking({
+        let region = Arc::clone(&region);
+        let stop = Arc::clone(&stop);
+        let reading = Arc::clone(&reading);
+        let (small, large) = (small.clone(), large.clone());
+        move || {
+            let mut round = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                // Wait for the reader to enter a copy, then publish just late
+                // enough that the publish lands inside that copy. This is the
+                // interleaving the endpoint has to survive: a reader that
+                // closes its window before the copy serves both fills.
+                while !reading.load(Ordering::Acquire) {
+                    if stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    std::hint::spin_loop();
+                }
+                let until = Instant::now() + Duration::from_micros(1);
+                while Instant::now() < until {
+                    std::hint::spin_loop();
+                }
+                let bytes = if round % 2 == 0 { &small } else { &large };
+                region
+                    .camera_preview_mut()
+                    .publish(1, 64, 48, 1, bytes)
+                    .expect("publish the preview");
+                round += 1;
+                // Let the reader finish the call (and retry past this write)
+                // before the next one starts, so it always has a window.
+                while reading.load(Ordering::Acquire) && !stop.load(Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            }
+        }
+    });
+
+    let mut accepted = 0u64;
+    let mut torn = 0u64;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while accepted < 2000 && Instant::now() < deadline {
+        reading.store(true, Ordering::Release);
+        // The handler directly rather than through the router, so the reader's
+        // copy starts while the flag above is set; the router path itself is
+        // covered by the contract test.
+        let response = qualia_agent::perception::encoded_frame_get(State(state.clone())).await;
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes()
+            .to_vec();
+        reading.store(false, Ordering::Release);
+        match status {
+            StatusCode::OK => {
+                if body.len() < 4 {
+                    continue;
+                }
+                // Both encodings carry the same three-byte JPEG prefix, so
+                // every payload byte must match: a copy that mixed two
+                // publishes would show both fills.
+                let fill = body[3];
+                if !body[3..].iter().all(|&byte| byte == fill) {
+                    torn += 1;
+                }
+                accepted += 1;
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {}
+            other => panic!("a published preview must be served: {other}"),
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    writer.await.expect("the writer joins");
+
+    assert_eq!(torn, 0, "the endpoint served a frame that mixed two publishes");
+    assert_eq!(accepted, 2000, "the endpoint never served a complete preview");
 }

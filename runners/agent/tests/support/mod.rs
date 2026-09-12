@@ -111,6 +111,11 @@ impl Harness {
             .await
             .expect("router answers");
         let status = response.status();
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let bytes = response
             .into_body()
             .collect()
@@ -118,13 +123,25 @@ impl Harness {
             .expect("body")
             .to_bytes()
             .to_vec();
-        Reply { status, bytes }
+        Reply {
+            status,
+            content_type,
+            bytes,
+        }
     }
 }
 
 pub struct Reply {
     pub status: StatusCode,
+    pub content_type: Option<String>,
     pub bytes: Vec<u8>,
+}
+
+impl Reply {
+    /// The response's `Content-Type`, when it set one.
+    pub fn content_type(&self) -> Option<&str> {
+        self.content_type.as_deref()
+    }
 }
 
 impl Reply {

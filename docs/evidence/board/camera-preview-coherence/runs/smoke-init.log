@@ -1,0 +1,18 @@
++------------------------------------------+
+|QUALIA ENGINE v0.1.0                      |
+|stack: qualia-default                     |
++------------------------------------------+
+
+[init] Creating shared memory '/qualia_smoke'...
+[init] Shared memory created: 64 MB
+[init] Binding control socket '/tmp/fix100/qualia.sock'...
+[init] Owner-only mode: holding shared memory without spawning runners.
+
+[init] 0 runners launched.
+[init] Run 'qualia-watch' in another terminal for the TUI.
+
+
+[init] Shutting down 0 processes...
+[init] All processes stopped.
+[init] Cleaning up...
+[init] Done.

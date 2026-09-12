@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.80s
+     Running tests/surface.rs (target/debug/deps/surface-6fbff1eca58f3c3f)
+
+running 1 test
+test the_encoded_frame_endpoint_never_serves_a_torn_preview ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.38s
+
