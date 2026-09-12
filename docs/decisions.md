@@ -555,8 +555,9 @@ rows out of a capture taken on the board. The measurements, commands and what re
 **Further amended 2026-09-12** — the other two limits that work found are also fixed rather than
 standing. The board's clock, 9 d 12 h 42 m 40 s behind the dev host at the start
 (`2026-09-02T14:50:48Z` vs `2026-09-12T03:33:28Z`), was set from the host's UTC
-(`echo jetson | sudo -S date -u -s …`) and written to the RTC with `hwclock -w`; it now reads within
-a second of the host, and `apt-get download nsight-systems-2024.5.4` — which had failed with
+(`echo jetson | sudo -S date -u -s …`) and written to the RTC with `hwclock -w`; a bracketed
+measurement puts it 1.43 s behind the host and stable (board epoch against the host's before/after
+window, twice), and `apt-get download nsight-systems-2024.5.4` — which had failed with
 `certificate … not yet valid` — fetches 313 MB at 33.0 MB/s with the published sha256, with
 `repo.download.nvidia.com`, `download.pytorch.org`, `index.crates.io` and `pypi.org` all answering
 `200` without `-k`. The host's gadget proxy had a plain-HTTP defect in the same class: it parsed the

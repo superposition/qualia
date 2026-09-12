@@ -18,8 +18,9 @@ end of this work (87 GiB at the start — the batch's builds are what moved it).
 `2026-09-02T14:50:48Z` when this work started, 9 d 12 h 42 m 40 s behind the dev host's
 `2026-09-12T03:33:28Z` (D-010's skew) — that is what made every TLS fetch below fail with
 "certificate … not yet valid" — and it was **set from the host's UTC and written to the RTC on
-2026-09-12**; it now reads within a second of the host (§"Fixed on 2026-09-12, and what is still missing" has the
-before/after).
+2026-09-12**; a bracketed measurement (board epoch against the host's before/after window, twice)
+now puts it **1.43 s** behind the host, stable — trivially inside every certificate's validity window,
+so the `-k` workarounds are gone (§"Fixed on 2026-09-12, and what is still missing").
 
 ## The checklist
 
@@ -314,7 +315,8 @@ It was set from the host's UTC and written to the RTC:
 $ echo jetson | sudo -S date -u -s "$(date -u +'%Y-%m-%d %H:%M:%S')"
 Sat Sep 12 03:33:52 AM UTC 2026          # DATE_SET_RC=0
 $ echo jetson | sudo -S hwclock -w       # HWCLOCK_W_RC=0; hwclock -r → 2026-09-11 23:34:02 -04:00
-BOARD_NOW=2026-09-12 03:33:55 UTC   HOST_NOW=2026-09-12 03:33:57   # ≤2 s, the ssh round trip
+BOARD_NOW=2026-09-12 03:33:55 UTC   HOST_NOW=2026-09-12 03:33:57
+# bracketed later, twice: round_trip=0.772s board_offset=-1.437s / round_trip=0.781s board_offset=-1.432s
 ```
 
 After it, with no `-k` anywhere: `repo.download.nvidia.com` `200`, `download.pytorch.org` `200`,
