@@ -1,0 +1,74 @@
+   Compiling serde_core v1.0.229
+   Compiling tracing v0.1.44
+   Compiling serde_json v1.0.151
+   Compiling fnv v1.0.7
+   Compiling tokio v1.53.1
+   Compiling serde v1.0.229
+   Compiling cmake v0.1.58
+   Compiling fs_extra v1.3.0
+   Compiling dunce v1.0.5
+   Compiling aws-lc-sys v0.45.0
+   Compiling slab v0.4.12
+   Compiling darling_core v0.21.3
+   Compiling darling_macro v0.21.3
+   Compiling futures-macro v0.3.34
+   Compiling aws-lc-rs v1.18.1
+   Compiling tracing-subscriber v0.3.23
+   Compiling futures-util v0.3.34
+   Compiling darling v0.21.3
+   Compiling tokio-util v0.7.19
+   Compiling enumset_derive v0.15.0
+   Compiling httpdate v1.0.3
+   Compiling turso_core v0.7.2
+   Compiling h2 v0.4.19
+   Compiling enumset v1.1.14
+   Compiling qualia-types v0.1.0 (/home/jetson/remediate/515a506/crates/types)
+   Compiling safetensors v0.4.5
+   Compiling futures-channel v0.3.34
+   Compiling rustls v0.23.44
+   Compiling mcap v0.25.0
+   Compiling tracing-appender v0.2.5
+   Compiling ug v0.4.0
+   Compiling hyper v1.11.1
+   Compiling rustls-webpki v0.103.15
+   Compiling unicase v2.9.0
+   Compiling mime v0.3.17
+   Compiling hyper-util v0.1.20
+   Compiling mime_guess v2.0.5
+   Compiling turso_sdk_kit v0.7.2
+   Compiling turso_sync_engine v0.7.2
+   Compiling candle-core v0.9.1
+   Compiling qualia-mcap v0.1.0 (/home/jetson/remediate/515a506/crates/mcap-log)
+   Compiling qualia-jepa v0.1.0 (/home/jetson/remediate/515a506/crates/jepa)
+   Compiling candle-nn v0.9.1
+   Compiling qualia-jepa-dataset v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-dataset)
+   Compiling turso_sync_sdk_kit v0.7.2
+   Compiling tokio-rustls v0.26.5
+   Compiling tower v0.5.3
+   Compiling sha1 v0.10.7
+   Compiling fs-err v3.3.1
+   Compiling data-encoding v2.11.1
+   Compiling tungstenite v0.29.0
+   Compiling qualia-jepa-model v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-model)
+   Compiling turso v0.7.2
+   Compiling serde_urlencoded v0.7.1
+   Compiling http-range-header v0.4.2
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling qualia-jepa-registry v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-registry)
+   Compiling tokio-tungstenite v0.29.0
+   Compiling axum-core v0.5.6
+   Compiling qualia-shm v0.1.0 (/home/jetson/remediate/515a506/crates/shm)
+   Compiling yasna v0.5.2
+   Compiling rustls-pemfile v2.2.0
+   Compiling pem v3.0.6
+   Compiling serde_path_to_error v0.1.20
+   Compiling matchit v0.8.4
+   Compiling rcgen v0.13.2
+   Compiling axum v0.8.9
+   Compiling axum-server v0.7.3
+   Compiling qualia-braid v0.1.0 (/home/jetson/remediate/515a506/crates/braid)
+   Compiling reqwest v0.12.28
+   Compiling qualia-sync-types v0.1.0 (/home/jetson/remediate/515a506/crates/sync-types)
+   Compiling qualia-agent v0.1.0 (/home/jetson/remediate/515a506/runners/agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 07s

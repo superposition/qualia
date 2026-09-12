@@ -1,0 +1,4 @@
+   Compiling qualia-types v0.1.0 (/home/jetson/remediate/515a506/crates/types)
+   Compiling qualia-shm v0.1.0 (/home/jetson/remediate/515a506/crates/shm)
+   Compiling qualia-camera v0.1.0 (/home/jetson/remediate/515a506/runners/camera)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.04s

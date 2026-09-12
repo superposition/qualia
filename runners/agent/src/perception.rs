@@ -9,7 +9,7 @@ use axum::extract::State;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use qualia_types::{CAMERA_THUMB_PIXELS, CAMERA_PREVIEW_MAX_BYTES, LIDAR_MAX_POINTS};
+use qualia_types::{CAMERA_THUMB_PIXELS, LIDAR_MAX_POINTS};
 use serde::Serialize;
 
 use crate::{AppState, CAMERA_STALE_MS, VSLAM_STALE_MS};
@@ -264,41 +264,29 @@ pub async fn encoded_frame_get(State(state): State<AppState>) -> Response {
     let Some(region) = state.shm_opt() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let preview = region.camera_preview();
-    for _ in 0..3 {
-        let before = preview.seq.load(std::sync::atomic::Ordering::Acquire);
-        if before == 0 || before % 2 != 0 {
-            continue;
-        }
-        let len = preview
-            .len
-            .load(std::sync::atomic::Ordering::Acquire)
-            .min(CAMERA_PREVIEW_MAX_BYTES);
-        if len == 0 {
-            continue;
-        }
-        let format = preview.format;
-        let body = preview.bytes[..len].to_vec();
-        let after = preview.seq.load(std::sync::atomic::Ordering::Acquire);
-        if before != after || after % 2 != 0 {
-            continue;
-        }
-        let content_type = match format {
-            1 => "image/jpeg",
-            2 => "image/png",
-            _ => return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
-        };
-        return (
-            StatusCode::OK,
-            [
-                (header::CONTENT_TYPE, content_type),
-                (header::CACHE_CONTROL, "no-store"),
-            ],
-            Bytes::from(body),
-        )
-            .into_response();
+    // The slot's own reader takes the sequence, copies the payload, fences and
+    // re-reads the sequence. A hand-rolled pair here used to close its window
+    // before the copy, which is the torn read the fence prevents.
+    let Ok(preview) = region.camera_preview().snapshot(8) else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    if preview.seq == 0 || preview.bytes.is_empty() {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    StatusCode::SERVICE_UNAVAILABLE.into_response()
+    let content_type = match preview.format {
+        1 => "image/jpeg",
+        2 => "image/png",
+        _ => return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+    };
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        Bytes::from(preview.bytes),
+    )
+        .into_response()
 }
 
 /// `GET /perception/lidar.pgm` — the polar scan drawn from above.

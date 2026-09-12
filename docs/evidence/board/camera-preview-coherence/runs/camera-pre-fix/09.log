@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.47s
+     Running tests/preview.rs (target/debug/deps/preview-377cf3c2783b2ac9)
+
+running 1 test
+test readers_never_observe_a_torn_preview ... FAILED
+
+failures:
+
+---- readers_never_observe_a_torn_preview stdout ----
+
+thread 'readers_never_observe_a_torn_preview' (477030) panicked at runners/camera/tests/preview.rs:164:9:
+assertion `left == right` failed: the reader never caught complete previews
+  left: 55
+ right: 500
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    readers_never_observe_a_torn_preview
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 5.06s
+
+error: test failed, to rerun pass `-p qualia-camera --test preview`

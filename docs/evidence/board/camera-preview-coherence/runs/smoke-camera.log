@@ -1,0 +1,2 @@
+qualia-camera: polling snapshot path /tmp/fix100/snap128x96.png every 100ms
+qualia-camera: frame_seq=2 src=128x96 thumb=64x48 luma_mean=0.502 luma_std=0.000 quality=low-contrast
