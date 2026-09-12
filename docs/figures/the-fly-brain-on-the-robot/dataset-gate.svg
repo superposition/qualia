@@ -45,7 +45,7 @@ L 303.95458 220.248
 L 303.95458 220.248 
 L 203.452736 220.248 
 z
-" clip-path="url(#p1ae3bc777a)" style="fill: #e0a08a"/>
+" clip-path="url(#p1ae3bc777a)" style="fill: #91dbba"/>
    </g>
    <g id="patch_5">
     <path d="M 420.22142 220.248 
@@ -1014,7 +1014,7 @@ z
    </g>
    <g id="text_11">
     <!-- 0 -->
-    <g style="fill: #e0a08a" transform="translate(250.392486 215.393544) scale(0.11 -0.11)">
+    <g style="fill: #91dbba" transform="translate(250.392486 215.393544) scale(0.11 -0.11)">
      <use xlink:href="#DejaVuSansMono-Bold-30"/>
     </g>
    </g>
@@ -1571,7 +1571,7 @@ L 412.137672 292.009411
 L 412.137672 285.149411 
 L 392.537672 285.149411 
 z
-" style="fill: #e0a08a"/>
+" style="fill: #91dbba"/>
     </g>
     <g id="text_17">
      <!-- admitted valid -->

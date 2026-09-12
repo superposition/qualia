@@ -1,6 +1,6 @@
 {
   "entry": "the-fly-brain-on-the-robot",
-  "note": "Every number make_figures.py draws is read from this file, and every value here is a line of a named committed source. A generator that cannot find a value refuses rather than guesses.",
+  "note": "Every number the two charts draw is read from this file, and every value here is a line of a named committed source. The diagram's labels are typed into make_figures.py; each traces to a source named in the entry's Evidence table or figure captions. A generator that cannot find a chart value refuses rather than guesses.",
   "sources": {
     "t55": "docs/evidence/T55/connectome-runner/README.md (and its host-*.log / board-loop.log)",
     "t56": "docs/evidence/T56/floating-brain/README.md",
@@ -161,14 +161,14 @@
     "idempotent_replay": false,
     "requested_model": "deepseek-chat",
     "reported_model": "deepseek-flash",
-    "latency_ms": 435,
+    "latency_ms": 418,
     "key_leak_prefix_chars": 4,
-    "source": "t63"
+    "source": "t63 (live-run.txt:4 = README.md:36; the README's note at :117-119 quotes a superseded 449 ms run)"
   },
   "gates_parity": {
     "streams_identical": 6,
-    "provenance_summary": "provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 28 EOL-identical, 7 code runs over 20, 0 prose runs over 2",
-    "figures_summary": "figures: OK (10 entries, 49 figures, 400 KiB budget)",
+    "provenance_summary": "provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2",
+    "figures_summary": "figures: OK (11 entries, 55 figures, 400 KiB budget)",
     "source": "T57 braid on #238 / PR #253"
   },
   "leash": {

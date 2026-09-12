@@ -5,12 +5,13 @@
                         190 MB artifact, per device, against the 60 Hz frame
     dataset-gate.svg    a chart: two real sessions through the dataset's
                         transition gates, and the promotion floor above both
-    brain-to-robot.svg  a diagram: the release tables to the robot's wheels,
-                        with the leash's ownership boundary drawn
+    brain-to-robot.svg  a diagram: the release tables to the leash's
+                        ownership boundary, drawn as a dashed rule
 
-Data: `wave-numbers.json`, every value a line of the committed evidence named
-in its `source` field. The script refuses to draw a value the file does not
-carry.
+Data: `wave-numbers.json` carries the two charts' numbers, each a line of the
+committed evidence named in its `source` field; a chart value the file does not
+carry is a refusal, not a guess. The diagram's labels are typed below, beside
+the box each appears in.
 
 Run:  python make_figures.py
 """
@@ -143,7 +144,7 @@ def dataset_gate() -> None:
     for pos, session in enumerate(sessions):
         series = [
             ("candidate transitions", session["candidates"], SLATE, pos - width / 1.7),
-            ("admitted valid", session["valid"], GREEN if session["valid"] else SAND, pos + width / 1.7),
+            ("admitted valid", session["valid"], GREEN, pos + width / 1.7),
         ]
         for label, value, colour, x in series:
             ax.bar(x, value, width, color=colour, label=label if pos == 0 else None)
@@ -218,7 +219,7 @@ def brain_to_robot() -> None:
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    ax.text(0.015, 0.975, "From the release tables to the robot's wheels", fontsize=12.5, color=INK)
+    ax.text(0.015, 0.975, "From the release tables to the leash's boundary", fontsize=12.5, color=INK)
     ax.text(
         0.015,
         0.945,
@@ -231,7 +232,7 @@ def brain_to_robot() -> None:
     # Band A: the release into the network.
     box(
         ax, 0.015, 0.735, 0.215, 0.19,
-        "4 public feather tables\nCC-BY 4.0 · 1.05 GB\n151,856,684 source rows",
+        "4 public feather tables\nCC-BY 4.0 · 1.89 GB total\n1.05 GB weights + 0.84 GB more",
         SAND, "FlyEM Male CNS v1.0",
     )
     box(
@@ -269,7 +270,7 @@ def brain_to_robot() -> None:
     )
     box(
         ax, 0.605, 0.45, 0.22, 0.19,
-        "2,012 motor neurons\n(1,011 L, 1,001 R)\n31-32 ticks/s over the leash",
+        "2,012 motor neurons\n(1,011 L, 1,001 R)\n31-32 ticks/s on the board",
         GREEN, "decoder -> command",
     )
     arrow(ax, (0.24, 0.545), (0.30, 0.545), SAND)
