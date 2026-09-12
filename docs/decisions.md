@@ -578,6 +578,8 @@ port is configuration on both ends (`QUALIA_WEB_PORT`, default `8080`; the conso
 `QUALIA_AGENT_URL`, default `http://127.0.0.1:8080`) and the scheme is TLS, which the console's
 validating client cannot accept without that certificate as a root.
 
+(Drafted as D-020; renumbered when the wave's D-020–D-022 landed first.)
+
 Consequences:
 
 - **One agent instance per host.** Two instances on different ports is not a deployment; it is a
