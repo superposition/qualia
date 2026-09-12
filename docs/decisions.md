@@ -622,6 +622,44 @@ Consequences:
 The five-agent cap (D-015) bounds how many agents run; the lease bounds this one resource. Both exist
 for the same reason: parallelism that is not written down cannot be told apart from a hang.
 
+## D-025 — The leash owns the body's hardware; the stack subscribes to its surface
+
+**On this robot the sensors are not free device nodes.** Measured on Pinkie 2026-09-12 for T58
+([#239](https://github.com/superposition/qualia/issues/239)), board-local 00:56–01:05, while
+enumerating the hardware the ticket asked to capture:
+
+- `leash serve http` (`/home/jetson/.local/bin/leash`, pid 1299 at the time, up 19 h) holds the two
+  ports a sensor runner would want: `lsof` shows `/dev/ttyACM0` (`45uW`) and `/dev/ttyTHS1` (`44uW`),
+  and `~/.config/leash/leash.env` names both — `LEASH_SERIAL_PORT=/dev/ttyTHS1` (drive, 115200) and
+  `LEASH_UGV_LIDAR_DEVICE=/dev/ttyACM0` (LD06), with `LEASH_CAMERA_DEVICE=/dev/video0` and
+  `LEASH_PROFILE=waveshare-ugv`. An `open()` of `/dev/ttyACM0` from any other process returns
+  `EBUSY`; the ports are single-owner.
+- The leash republishes what it owns. Its MCP `observe` tool returns `sensors.range_scan`
+  (`source: waveshare-ugv-ld06`, `scan_rate_hz: 9.9958`, 360 ranges + 360 intensities),
+  `sensors.imu` (angular velocity + linear acceleration, 9-DOF with magnetometer in
+  `raw_frame.payload`), `sensors.odometry`, `sensors.battery`, and `sensors.camera` advertising
+  `snapshot_url: /camera/snapshot` and `stream_url: /camera/stream.mjpg`. That stream answered
+  `HTTP 200` with `content-type: multipart/x-mixed-replace; boundary=leashframe` and carried 19
+  complete JPEG frames in 5 s.
+- There is no other inertial source: `ls /dev/iio:device*` and `/sys/bus/iio/devices` are empty, and
+  `i2cdetect` on buses 0/1/2/7 returns only `fusb301`, `ina3221`, `24c02` EEPROMs, `vrs-pseq` and
+  i2c-7's `0x15`/`0x3c`/`0x42` — no MPU/ICM/BNO address.
+
+**The rule.** Killing or displacing the leash to borrow a port is the wrong trade: it is the robot's
+safe-stop and actuation service, and its guarantees are why a drive path is allowed to exist. A
+runner that needs a sensor the leash owns **subscribes** to the leash's surface and publishes into
+the arena; it does not open the device node. T58 lands that rule as code:
+`runners/leash-sensors` polls `observe` and publishes the rotation through `qualia-lidar`'s own
+`publish_scan` (scan + occupancy grid, one implementation), and `qualia-camera`'s existing MJPEG path
+(`QUALIA_CAMERA_STREAM_URL`) reads the camera, so neither opens a device `/dev/video0` already has an
+owner for. This is also why the earlier "add a V4L2 source to `qualia-camera`" plan was dropped: a
+second opener of an owned device is a second owner.
+
+**Consequence for the record.** A device node appearing in `/dev` is not evidence that a runner may
+read it; on this robot the owner is `leash` and the interface is its HTTP surface. "The lidar is
+missing" and "the lidar is present but owned" are different findings, and only the second is true
+here.
+
 ## D-003 — Repository
 
 
