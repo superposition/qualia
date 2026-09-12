@@ -170,11 +170,127 @@ manifest, and for this capture both point at the sessions in section 3. The four
 writers that do exist are compiled out of every shipped binary (`#[cfg(test)]` or `tests/`), and the
 one synthesizer that is not — `build_fixture()` — produces a backend-parity input, not a session.
 
-## 5. Capture, dataset and trainer results
+## 5. The capture, the dataset, the trainer
 
-<pending: filled from the run>
+The bounded capture ran on 2026-09-12, board-local **01:37:51 → 01:52:51 EDT** (epoch
+1789191471964593088 → 1789192381565040000, elapsed **909 s**), bounded by
+`QUALIA_MCAP_DURATION_SECONDS=900`. The exact scripts are `t58-capture.sh` and `t58-dataset.sh` in
+this directory; `capture-01.log` and `dataset-01.log` are their unelided output.
+
+| Session | Sensors taken | Window (board-local) | MCAP | Size | sha256 |
+| --- | --- | --- | --- | --- | --- |
+| `t58-real-smoke` | camera + LD06 lidar | 01:36:28 → 01:37:28 (60 s) | `t58-real-smoke.mcap` | 5 559 657 B | `10a228f60923644adae784f12215bb9a15f1038f45e28bde305966e133665e96` |
+| `t58-real-01` | camera + LD06 lidar | 01:37:51 → 01:52:51 (900 s) | `t58-real-01.mcap` | **83 299 459 B** | `97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334` |
+
+Both files stay on the board at `~/t58-capture/<session>/mcap/` — they are evidence, not repository
+content; the sizes and digests above are what a later agent checks them by.
+
+```text
+$ qualia-mcap-inspect ~/t58-capture/t58-real-01/mcap/t58-real-01.mcap
+INSPECT_RC=0
+/qualia/camera           pinkie   messages=  4502 span_ns=  900076073472 payload_bytes=52452153
+/qualia/lidar            pinkie   messages=  8775 span_ns=  899988080288 payload_bytes=4846499653
+```
+
+4 502 camera records over 900.08 s (5.0 Hz, the leash's configured framerate) and 8 775 LiDAR records
+over 899.99 s (9.75 Hz, the LD06's own rotation rate). Every record is the robot's: the camera
+thumbnails decode at 640×480 with `luma_mean` 0.464–0.468 and `stddev` 0.150 (`quality=usable`) the
+whole way through, and each LiDAR record carries 360 points of which 265–269 carry a return
+(`qualia-leash-sensors: scan 8800 … points=360 valid=268 rate=9.996Hz`). `/qualia/pose`,
+`/qualia/action/*`, `/qualia/belief` and `/qualia/health` are silent channels: nothing publishes
+them on this robot (section 3).
+
+### The dataset built from it
+
+```text
+$ qualia-jepa-dataset --catalog catalog.json --output-dir dataset
+/home/jetson/t58-capture/t58-real-01/dataset/jepa-dataset-fb309e6f160badff5d5493f09ba194cb50727c48e512e4744fd8cc477f8d5a75.json
+valid=0 candidates=4501 sessions=0 environments=0 conditions=0
+qualia-jepa-dataset: every promoted MCAP source must contribute valid transitions
+DATASET_RC=1
+```
+
+The manifest it wrote before refusing, quoted from `dataset-manifest.json`:
+
+```text
+schema qualia.jepa-dataset.v3
+digest fb309e6f160badff5d5493f09ba194cb50727c48e512e4744fd8cc477f8d5a75
+sources 1 samples 0
+valid_transitions 0 candidate_transitions 4501
+sessions 0 environments 0 conditions {}
+rejected {"calibration_missing": 4501}
+split_samples {}
+mean_sensor_skew_ns 0.0 p95_sensor_skew_ns 0
+mean_action_coverage 0.0 overexposed_candidate_fraction 0.0
+```
+
+**4 501 real transitions were formed and all 4 501 were rejected, every one for the same reason.**
+The dataset walks camera pairs in order, so the first gate that fires decides the ledger, and the
+first one is `calibration_missing` — the recorder's `calibration_id` is `unavailable` (its documented
+default when `QUALIA_CALIBRATION_ID` is unset, and the truthful value here: this repository has no
+calibration producer, only the registry's test fixture carries a `calibration_id`). So the real
+capture reaches the dataset's first physical gate with 4 501 candidates and stops there; the streams
+that are missing *after* calibration — pose and applied actions — are not even reached.
+
+### The trainer
+
+```text
+$ qualia-jepa-train --manifest …fb309e6f….json --checkpoint-id t58-real-e1 --output-dir train \
+      --backend cuda --epochs 1 --batch-size 32 --seed 58
+qualia-jepa-train: every promoted MCAP source must contribute valid transitions
+TRAIN_RC=1
+```
+
+The refusal is `preflight`'s (`crates/jepa-model/src/bin/qualia-jepa-train.rs:355-372`), which runs
+`validate_dataset_promotion_gate` **before** `device_for_backend`, so no backend was selected and no
+epoch ran. That is the honest end of the training leg today: **there is no real checkpoint to
+measure**, and the gate metrics T53 published cannot be recomputed on this data because the data
+never reaches the model.
+
+### Against the synthetic baseline (T53's ch4-e1, one epoch, CUDA)
+
+| Quantity | T53 synthetic (`26e2dfac…`, 12 sessions × 4 200) | T58 real (`fb309e6f…`, 1 session) |
+| --- | --- | --- |
+| valid transitions | 50 400 | **0** of 4 501 candidates |
+| sessions / environments / conditions | 12 / 3 / 3 | 0 / 0 / 0 offered as 1 / 1 / 1 |
+| calibration slope (val / test) | 0.531798 / 1.15682 (band 0.9–1.1) | not computable |
+| `mean_std_resid` (val / test) | 1.19997 / 1.15455 (band 0.9–1.1) | not computable |
+| rollout error (val / test) | 0.0150985 / 0.0410029 | not computable |
+| `effective_rank` (floor 64) | **1.20479** | not computable |
+| baseline gate / grounding+calibration gate | true / false | refused before evaluation |
+
+The synthetic column is quoted from the committed `docs/evidence/T53/encoder-gradients/runs/ch4-e1/`
+report; the real column is empty for one reason — the dataset gate refuses the real capture before
+training starts — and that emptiness is the measurement.
 
 ## 6. Handoff to T52 (#225)
 
-<pending: filled from the run>
+**No promotion-passing checkpoint came out of this ticket, and the reason is now a short, ordered
+list rather than "more data".** In the order the pipeline asks for them:
+
+1. **A calibration artifact.** This is the first gate and the only one the real capture reaches: the
+   repository has no producer of a `calibration_id` (grep `calibration_id` — a struct field, the
+   recorder's env default, and one registry test fixture; nothing computes one), so a real session
+   can never admit a transition. This is the cheapest fix of the four and it is a *code* fix, not a
+   data fix, and it is what T52 needs before any of the rest matters.
+2. **A pose stream.** `TOPIC_POSE` needs the arena's canonical pose with a confidence claim. The
+   leash owns the drive and its localization provider reports `pose: null` with the provider
+   `initializing`, so today the only candidate source is wheel odometry, which carries a covariance
+   and no confidence. Either leash localization comes up or `runners/pose` runs against the leash's
+   lidar and camera.
+3. **Applied actions.** `TOPIC_ACTION_APPLIED` requires a `transport_accepted` interval, written by
+   whoever drives the physical layer — leash again, and its port is not ours. A bench capture of a
+   robot nobody drives contributes none, so transitions would still be rejected at
+   `applied_action_missing` even with 1 and 2 fixed.
+4. **The scale and variety the gate names.** 50 000 valid transitions, 12 sessions, 3 environments,
+   3 conditions, ≥4 096 per held-out split. One 15-minute bench session produced 4 501 candidates
+   (≈5/s), so the *magnitude* is reachable — ~3 hours of recording for 50 k — but 3 environments and
+   3 conditions are a physical fact about where the robot is driven, not something a longer recording
+   produces.
+
+What this ticket therefore hands T52 is not a checkpoint but a decision it can act on: the milestone
+that unblocks promotion is **a calibration path plus a driven, localized session set**, and no amount
+of synthetic sessions substitutes for either (T52/T53 already measured that: four fixtures and a 10×
+epoch run left `effective_rank` at 1.1–1.45 against the floor of 64).
+
 

@@ -1,0 +1,120 @@
+{
+  "channels": [
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/action/applied"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/action/clamped"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/action/requested"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/belief"
+    },
+    {
+      "max_log_time_ns": 1789192376878124128,
+      "message_count": 4502,
+      "min_log_time_ns": 1789191476802050656,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/camera"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/health"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/jepa"
+    },
+    {
+      "max_log_time_ns": 1789192376934433344,
+      "message_count": 8775,
+      "min_log_time_ns": 1789191476946353056,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/lidar"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/planner"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/pose"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/prior"
+    },
+    {
+      "max_log_time_ns": 0,
+      "message_count": 0,
+      "min_log_time_ns": 0,
+      "schema": "qualia.evidence.v1",
+      "topic": "/qualia/vslam"
+    }
+  ],
+  "path": "/home/jetson/t58-capture/t58-real-01/mcap/t58-real-01.mcap",
+  "schema_version": "qualia.mcap-inspection.v1",
+  "streams": [
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 208024544,
+      "max_payload_bytes": 11786,
+      "max_timestamp_ns": 1789192376878124128,
+      "mean_gap_ns": 199972466,
+      "mean_payload_bytes": 11650,
+      "messages": 4502,
+      "min_timestamp_ns": 1789191476802050656,
+      "p50_gap_ns": 200001024,
+      "p95_gap_ns": 202732864,
+      "payload_bytes": 52452153,
+      "topic": "/qualia/camera"
+    },
+    {
+      "entity": "pinkie",
+      "max_gap_ns": 116630176,
+      "max_payload_bytes": 553053,
+      "max_timestamp_ns": 1789192376934433344,
+      "mean_gap_ns": 102574433,
+      "mean_payload_bytes": 552307,
+      "messages": 8775,
+      "min_timestamp_ns": 1789191476946353056,
+      "p50_gap_ns": 102446912,
+      "p95_gap_ns": 102668000,
+      "payload_bytes": 4846499653,
+      "topic": "/qualia/lidar"
+    }
+  ]
+}
