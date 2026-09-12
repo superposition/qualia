@@ -100,6 +100,34 @@ self-test, not a live mission submission. The full released-table import test wa
 WHEA-Logger events were returned for the queried 15-minute window containing these builds and checks;
 the persisted fault stamp was still `2026-09-11T06:27:43.3860000Z`.
 
+## Live camera run, motor output disconnected
+
+At 16:06 EDT on 2026-09-12, the host ran the reviewed shim against the robot's **live** camera.
+`GET /camera/snapshot` first returned HTTP 200, `image/jpeg`, 58,952 bytes. The subsequent GPU loop
+was capped at 30 ticks and supervised by a 60-second process timeout. It completed normally:
+
+```text
+cns-loop: 30 ticks in 5.181 s (5.8 ticks/s), 1393530 spikes, 27 non-hold commands
+EXIT: 0 FRAME_LINES: 30 STDOUT_BYTES: 0
+```
+
+The command used the same binary and artifact above, `--camera
+http://192.168.55.1:8000/camera/snapshot --ticks 30 --device gpu --session
+fly-live-camera-motion-blocked --max-wheel-speed 0.04`, with `--frames-out` naming a **local file**.
+All outputs were under `C:/tmp/qualia-driving/live-camera-20260912-160622/`. The command was run by
+`C:/tmp/qualia-driving/run_live_camera.py`. No transport was launched and no frame was sent to motors.
+
+[`live-camera.jsonl`](live-camera.jsonl), [`live-camera.csv`](live-camera.csv) and
+[`live-camera.stderr.log`](live-camera.stderr.log) capture the result. All 30 JSON ticks agree with
+the CSV, including 18 left, 3 explicit zero holds and 9 right decisions; every wheel value is bounded
+by 0.04. This is live sensor-to-frame evidence, not applied-action evidence. The existing host
+`qualia-agent.exe` was found running on port 18081; no second instance was started. Its health was
+not verified because the available local CA files did not validate its TLS certificate.
+
+The unchanged transport was also prepared with `cargo build -j 2 --offline -p
+qualia-leash-transport`, using the same target directory: exit 0, finished in 20.73 s. Starting the
+transport and the acknowledgement probe still wait for the operator's word.
+
 ## Acceptance still blocked
 
 The operator has not yet said to retry the robot's drive acknowledgement. **No new zero-speed probe,

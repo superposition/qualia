@@ -59,6 +59,11 @@ The CSV rates are **neural firing fractions**, not wheel speeds. The bridge maps
 request or fresh acknowledgement probe accompanied them: both the zero probe and motion still wait
 for the operator's word to retry. The three demonstrations remain owed.
 
+A subsequent host run against the robot's live camera completed 30 ticks in 5.181 s, producing 27
+steering decisions and 3 holds into a local frame file. That sensor-to-frame run is recorded in the
+same evidence directory. The transport was built but not started; no motor command or bearer access
+accompanied this run.
+
 ## Running the transport
 
 ```sh
