@@ -4,6 +4,8 @@ members = [
     "apps/qualia-console",
     "crates/braid",
     "crates/connectome-prior",
+    "crates/connectome-stream",
+    "crates/connectome-view",
     "crates/fly-circuit",
     "crates/cuda",
     "crates/ipc",
@@ -59,6 +61,8 @@ authors = ["Superposition LLC"]
 [workspace.dependencies]
 qualia-braid = { path = "crates/braid" }
 qualia-connectome-prior = { path = "crates/connectome-prior" }
+qualia-connectome-stream = { path = "crates/connectome-stream" }
+qualia-connectome-view = { path = "crates/connectome-view" }
 qualia-fly-circuit = { path = "crates/fly-circuit" }
 qualia-jepa = { path = "crates/jepa" }
 qualia-jepa-dataset = { path = "crates/jepa-dataset" }
