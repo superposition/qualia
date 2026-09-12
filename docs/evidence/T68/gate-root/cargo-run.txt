@@ -1,7 +1,15 @@
 # T68 acceptance form: `cargo run --quiet -p qualia-gates -- provenance` with CARGO_TARGET_DIR outside the tree
+head: 58ece2d (root normalisation + honest guard messages)
 
 == in tree (worktree root) ==
 $ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- provenance
+[27 EOL-IDENTICAL lines elided]
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
 CODE RUN 23: crates/jepa-dataset/src/lib.rs
 CODE RUN 21: crates/jepa-model/src/lib.rs
 CODE RUN 21: crates/sync-types/src/spatial.rs
@@ -15,6 +23,13 @@ $ (cwd=C:/tmp/Impl265GateRoot) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target ca
 
 == from outside, --root names the tree ==
 $ (cwd=C:/tmp/Impl265GateRoot) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet --manifest-path C:/Users/ericm/wt/T68/Cargo.toml -p qualia-gates -- provenance --root C:/Users/ericm/wt/T68
+[27 EOL-IDENTICAL lines elided]
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
 CODE RUN 23: crates/jepa-dataset/src/lib.rs
 CODE RUN 21: crates/jepa-model/src/lib.rs
 CODE RUN 21: crates/sync-types/src/spatial.rs

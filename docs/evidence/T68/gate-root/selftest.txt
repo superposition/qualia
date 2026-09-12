@@ -1,11 +1,20 @@
 # T68 self-tests (acceptance): the fixtures of both gates
+binary: C:/tmp/Impl265GateRoot/target/debug/qualia-gates.exe; head 58ece2d
 
-== figures --self-test ==
-$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe figures --self-test
+== cargo run --quiet -p qualia-gates -- journal --self-test (in tree) ==
+$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- journal --self-test
+journal-gate: self-test OK - 36 checks
+[exit 0]
+
+== cargo run --quiet -p qualia-gates -- figures --self-test (in tree) ==
+$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- figures --self-test
 figures: self-test OK (17 mutations)
 [exit 0]
 
-== journal --self-test ==
+== figures --self-test and journal --self-test from a non-repo cwd (journal's fixture checks the real checklist) ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe figures --self-test
+figures: self-test OK (17 mutations)
+[exit 0]
 $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe journal --self-test
 journal-gate: self-test FAIL - 4 check(s)
 [stderr] journal-gate: self-test FAIL - a bare run does not open the gate
@@ -13,26 +22,3 @@ journal-gate: self-test FAIL - an entry-only run does not open the gate
 journal-gate: self-test FAIL - roles and entry open the gate
 journal-gate: self-test FAIL - a later approve opens the gate on the re-read
 [exit 1]
-# T68 self-tests from inside the worktree (cwd = C:/Users/ericm/wt/T68)
-
-== figures --self-test ==
-$ (cwd=C:/Users/ericm/wt/T68) qualia-gates.exe figures --self-test
-figures: self-test OK (17 mutations)
-[exit 0]
-
-== journal --self-test ==
-$ (cwd=C:/Users/ericm/wt/T68) qualia-gates.exe journal --self-test
-journal-gate: self-test OK - 36 checks
-[exit 0]
-
-# the acceptance form: cargo run --quiet -p qualia-gates -- <gate> --self-test (in tree)
-
-== cargo run --quiet -p qualia-gates -- journal --self-test ==
-$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- journal --self-test
-journal-gate: self-test OK - 36 checks
-[exit 0]
-
-== cargo run --quiet -p qualia-gates -- figures --self-test ==
-$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- figures --self-test
-figures: self-test OK (17 mutations)
-[exit 0]
