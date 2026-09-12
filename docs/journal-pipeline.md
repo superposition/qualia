@@ -104,9 +104,10 @@ lines)`), and, when it cannot tell which of the PR's markdown files is the entry
 candidates. So the exact commands are: **entry-creating**, `cargo run --quiet -p qualia-gates -- journal --pr <n>`;
 **revision**, the same command, or, when the entry is a local file,
 `cargo run --quiet -p qualia-gates -- journal --pr <n> --entry <path>` to pin the source; **offline**,
-`--entry <path>` — a `--diff` of a revision is refused **by name** (`it changes existing markdown; its added
-lines are the changed lines, not the entry`), because the diff alone cannot show the headings, so the
-`--comments comments.json --diff entry.diff` form is only for an entry-creating diff.
+`--entry <path>` — a `--diff` that does not **create every markdown file it names** is refused **by name**
+(`is a revision diff — it changes N (...) and creates M (...)`), because the diff cannot show the changed
+entry's headings, so the `--comments comments.json --diff entry.diff` form is only for a diff that creates
+the entry.
 
 The gate counts the `braid-review` blocks — the last one per role — checks the three distinct
 checklists, and prints `journal-gate: OK` with exit 0 **only when both the roles leg and the entry leg

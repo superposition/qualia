@@ -768,9 +768,18 @@ pub fn drive(
             match std::fs::read_to_string(path) {
                 Ok(text) => {
                     let (named, created) = diff_markdown_files(&text);
-                    if !named.is_empty() && created.is_empty() {
+                    if !named.is_empty() && created.len() != named.len() {
+                        let changed: Vec<String> = named
+                            .iter()
+                            .filter(|file| !created.contains(*file))
+                            .cloned()
+                            .collect();
                         problems.push(format!(
-                            "entry: {path} is a revision diff (it changes existing markdown); its added lines are the changed lines, not the entry, and the entry's unchanged headings would read as missing — pass --entry <path> with the entry at the PR head instead"
+                            "entry: {path} is a revision diff — it changes {} ({}) and creates {} ({}); the entry's headings live in the changed file, so the diff cannot be the source of the heading check — pass --entry <path> with the entry at the PR head instead",
+                            changed.len(),
+                            if changed.is_empty() { "none".to_string() } else { changed.join(", ") },
+                            created.len(),
+                            if created.is_empty() { "none".to_string() } else { created.join(", ") },
                         ));
                     } else {
                         entry_text = Some(added_lines(&text));
@@ -1005,6 +1014,12 @@ pub fn self_test() -> i32 {
     check(
         "an entry-creating diff creates its markdown",
         diff_markdown_files(adding).1 == vec!["docs/figures/f/README.md"],
+    );
+    let mixed = "diff --git a/docs/figures/new/README.md b/docs/figures/new/README.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/figures/new/README.md\n@@\n+## Evidence\n\ndiff --git a/docs/figures/f/README.md b/docs/figures/f/README.md\n--- a/docs/figures/f/README.md\n+++ b/docs/figures/f/README.md\n@@\n-context\n+changed\n";
+    let (named, created) = diff_markdown_files(mixed);
+    check(
+        "a diff that also changes a markdown file is not an entry source",
+        named.len() == 2 && created.len() == 1,
     );
     check(
         "the entry is the figure README among the PR's markdown",
