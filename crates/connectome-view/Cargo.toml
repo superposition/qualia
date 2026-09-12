@@ -17,6 +17,7 @@ qualia-connectome-stream = { workspace = true }
 qualia-rerun-bridge = { workspace = true }
 rerun = { workspace = true }
 clap = { version = "4.5", features = ["derive"] }
+serde_json = "1"
 sha2 = "0.10"
 
 [dev-dependencies]

@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use qualia_connectome_stream::{
-    read_manifest, read_positions, resolve_positions_paths, verify_positions, Positions,
+    read_manifest_document, read_positions, resolve_positions_paths, verify_positions, Positions,
     PositionsVerification, SpikeReader, POSITIONS_MANIFEST_FILE,
 };
 use qualia_rerun_bridge::{
@@ -215,8 +215,8 @@ pub fn load_cloud(path: &Path) -> Result<LoadedCloud> {
     };
     let manifest_path = directory.join(POSITIONS_MANIFEST_FILE);
     let (source, coordinate_space) = if manifest_path.exists() {
-        match read_manifest(&manifest_path) {
-            Ok(manifest) => (manifest.source.file, manifest.coordinate_space),
+        match read_manifest_document(&manifest_path) {
+            Ok(document) => (manifest_source(&document), coordinate_space(&document)),
             Err(error) => {
                 eprintln!("warning: {manifest_path:?} did not read: {error}");
                 (String::new(), String::new())
@@ -260,6 +260,28 @@ pub fn load_cloud(path: &Path) -> Result<LoadedCloud> {
 /// Checks an artifact against the manifest beside it.
 pub fn verify(path: &Path) -> Result<PositionsVerification> {
     verify_positions(path).map_err(|error| ViewError::new("failed to verify the artifact", error))
+}
+
+/// One string out of a manifest document, by key path.
+fn json_str(document: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut cursor = document;
+    for key in path {
+        cursor = cursor.get(*key)?;
+    }
+    cursor.as_str().map(str::to_string)
+}
+
+/// The annotation table the artifact came from, under either spelling the two
+/// importers use (`sources.body_annotations.file`, or `source.file`).
+fn manifest_source(document: &serde_json::Value) -> String {
+    json_str(document, &["sources", "body_annotations", "file"])
+        .or_else(|| json_str(document, &["source", "file"]))
+        .unwrap_or_default()
+}
+
+/// The units and frame the coordinates are in, when the manifest says.
+fn coordinate_space(document: &serde_json::Value) -> String {
+    json_str(document, &["coordinate_space"]).unwrap_or_default()
 }
 
 fn sha256_file(path: &Path) -> Result<String> {

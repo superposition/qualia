@@ -231,7 +231,11 @@ fn paint_connectome(
 
     counts.firing_total = frame.firing.len();
     let hot = firing_colour();
-    for node in frame.firing.iter().take(MAX_FIRING_DRAWN) {
+    // The ids arrive sorted, so a plain `take` would draw the lowest node
+    // indices — one corner of the brain. Stride instead, so the highlighted set
+    // is spread over the whole cloud, and report what was dropped.
+    let stride = frame.firing.len().div_ceil(MAX_FIRING_DRAWN).max(1);
+    for node in frame.firing.iter().step_by(stride) {
         let Some(point) = cloud.point_of(*node) else {
             continue;
         };
@@ -239,11 +243,9 @@ fn paint_connectome(
         if !rect.contains(position) {
             continue;
         }
-        painter.circle_filled(
-            position,
-            2.6,
-            hot.gamma_multiply(Projector::depth_alpha(depth)),
-        );
+        let alpha = Projector::depth_alpha(depth);
+        painter.circle_filled(position, 4.0, hot.gamma_multiply(alpha * 0.35));
+        painter.circle_filled(position, 2.4, hot.gamma_multiply(alpha));
         counts.firing_drawn += 1;
     }
 }
