@@ -1,5 +1,5 @@
-# T68 after-fix: the resolver and the empty-comparison guard
-binary: C:/tmp/Impl265GateRoot/target/debug/qualia-gates.exe (built from ticket/T68-gate-root, CARGO_TARGET_DIR outside the tree)
+# T68 after-fix battery (head with root normalisation + honest guard messages)
+binary: C:/tmp/Impl265GateRoot/target/debug/qualia-gates.exe (ticket/T68-gate-root, CARGO_TARGET_DIR outside the tree)
 
 == A: out-of-tree cwd, no --root -> no root found ==
 $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance
@@ -8,33 +8,7 @@ $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance
 
 == B: in-tree cwd (worktree root), no --root -> real comparison ==
 $ (cwd=C:/Users/ericm/wt/T68) qualia-gates.exe provenance
-EOL-IDENTICAL: .cargo/config.toml
-EOL-IDENTICAL: Cross.toml
-EOL-IDENTICAL: crates/ipc/Cargo.toml
-EOL-IDENTICAL: crates/jepa-registry/Cargo.toml
-EOL-IDENTICAL: crates/mcap-log/Cargo.toml
-EOL-IDENTICAL: crates/rerun-bridge/Cargo.toml
-EOL-IDENTICAL: crates/shm/Cargo.toml
-EOL-IDENTICAL: crates/sync-types/Cargo.toml
-EOL-IDENTICAL: crates/types/Cargo.toml
-EOL-IDENTICAL: runners/abstraction/Cargo.toml
-EOL-IDENTICAL: runners/cuda-bench/Cargo.toml
-EOL-IDENTICAL: runners/cuda-service/Cargo.toml
-EOL-IDENTICAL: runners/cuda-smoke/Cargo.toml
-EOL-IDENTICAL: runners/drive/Cargo.toml
-EOL-IDENTICAL: runners/floor/Cargo.toml
-EOL-IDENTICAL: runners/health/Cargo.toml
-EOL-IDENTICAL: runners/init/Cargo.toml
-EOL-IDENTICAL: runners/l4-behavior/Cargo.toml
-EOL-IDENTICAL: runners/l5-behavior/Cargo.toml
-EOL-IDENTICAL: runners/l6-semantic/Cargo.toml
-EOL-IDENTICAL: runners/lidar/Cargo.toml
-EOL-IDENTICAL: runners/map/Cargo.toml
-EOL-IDENTICAL: runners/pose/Cargo.toml
-EOL-IDENTICAL: runners/session/Cargo.toml
-EOL-IDENTICAL: runners/vision/Cargo.toml
-EOL-IDENTICAL: runners/vslam/Cargo.toml
-EOL-IDENTICAL: studio/rust/Cargo.toml
+[27 EOL-IDENTICAL lines elided]
 provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
 provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
 CODE RUN 40: crates/types/src/lib.rs
@@ -49,33 +23,37 @@ provenance: OK
 
 == C: in-tree subdirectory (crates/gates), no --root -> walk up finds the worktree ==
 $ (cwd=C:/Users/ericm/wt/T68/crates/gates) qualia-gates.exe provenance
-EOL-IDENTICAL: .cargo/config.toml
-EOL-IDENTICAL: Cross.toml
-EOL-IDENTICAL: crates/ipc/Cargo.toml
-EOL-IDENTICAL: crates/jepa-registry/Cargo.toml
-EOL-IDENTICAL: crates/mcap-log/Cargo.toml
-EOL-IDENTICAL: crates/rerun-bridge/Cargo.toml
-EOL-IDENTICAL: crates/shm/Cargo.toml
-EOL-IDENTICAL: crates/sync-types/Cargo.toml
-EOL-IDENTICAL: crates/types/Cargo.toml
-EOL-IDENTICAL: runners/abstraction/Cargo.toml
-EOL-IDENTICAL: runners/cuda-bench/Cargo.toml
-EOL-IDENTICAL: runners/cuda-service/Cargo.toml
-EOL-IDENTICAL: runners/cuda-smoke/Cargo.toml
-EOL-IDENTICAL: runners/drive/Cargo.toml
-EOL-IDENTICAL: runners/floor/Cargo.toml
-EOL-IDENTICAL: runners/health/Cargo.toml
-EOL-IDENTICAL: runners/init/Cargo.toml
-EOL-IDENTICAL: runners/l4-behavior/Cargo.toml
-EOL-IDENTICAL: runners/l5-behavior/Cargo.toml
-EOL-IDENTICAL: runners/l6-semantic/Cargo.toml
-EOL-IDENTICAL: runners/lidar/Cargo.toml
-EOL-IDENTICAL: runners/map/Cargo.toml
-EOL-IDENTICAL: runners/pose/Cargo.toml
-EOL-IDENTICAL: runners/session/Cargo.toml
-EOL-IDENTICAL: runners/vision/Cargo.toml
-EOL-IDENTICAL: runners/vslam/Cargo.toml
-EOL-IDENTICAL: studio/rust/Cargo.toml
+[27 EOL-IDENTICAL lines elided]
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK
+[exit 0]
+
+== J (finding 1): `--root .` from crates/gates -> normalised to the work tree top ==
+$ (cwd=C:/Users/ericm/wt/T68/crates/gates) qualia-gates.exe provenance --root .
+[27 EOL-IDENTICAL lines elided]
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK
+[exit 0]
+
+== K (finding 1): `--root <crates/gates>` from outside -> normalised to the work tree top ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/Users/ericm/wt/T68/crates/gates
+[27 EOL-IDENTICAL lines elided]
 provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
 provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
 CODE RUN 40: crates/types/src/lib.rs
@@ -90,33 +68,7 @@ provenance: OK
 
 == D: out-of-tree cwd, --root names the worktree -> real comparison ==
 $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/Users/ericm/wt/T68
-EOL-IDENTICAL: .cargo/config.toml
-EOL-IDENTICAL: Cross.toml
-EOL-IDENTICAL: crates/ipc/Cargo.toml
-EOL-IDENTICAL: crates/jepa-registry/Cargo.toml
-EOL-IDENTICAL: crates/mcap-log/Cargo.toml
-EOL-IDENTICAL: crates/rerun-bridge/Cargo.toml
-EOL-IDENTICAL: crates/shm/Cargo.toml
-EOL-IDENTICAL: crates/sync-types/Cargo.toml
-EOL-IDENTICAL: crates/types/Cargo.toml
-EOL-IDENTICAL: runners/abstraction/Cargo.toml
-EOL-IDENTICAL: runners/cuda-bench/Cargo.toml
-EOL-IDENTICAL: runners/cuda-service/Cargo.toml
-EOL-IDENTICAL: runners/cuda-smoke/Cargo.toml
-EOL-IDENTICAL: runners/drive/Cargo.toml
-EOL-IDENTICAL: runners/floor/Cargo.toml
-EOL-IDENTICAL: runners/health/Cargo.toml
-EOL-IDENTICAL: runners/init/Cargo.toml
-EOL-IDENTICAL: runners/l4-behavior/Cargo.toml
-EOL-IDENTICAL: runners/l5-behavior/Cargo.toml
-EOL-IDENTICAL: runners/l6-semantic/Cargo.toml
-EOL-IDENTICAL: runners/lidar/Cargo.toml
-EOL-IDENTICAL: runners/map/Cargo.toml
-EOL-IDENTICAL: runners/pose/Cargo.toml
-EOL-IDENTICAL: runners/session/Cargo.toml
-EOL-IDENTICAL: runners/vision/Cargo.toml
-EOL-IDENTICAL: runners/vslam/Cargo.toml
-EOL-IDENTICAL: studio/rust/Cargo.toml
+[27 EOL-IDENTICAL lines elided]
 provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
 provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
 CODE RUN 40: crates/types/src/lib.rs
@@ -138,41 +90,19 @@ $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/tmp/Impl265
 $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/tmp/Impl265GateRoot/emptytree
 provenance: compared 0 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
 provenance: highest identical-code-line share 0.000
-[stderr] provenance: FAIL - compared 0 authored file(s): C:/tmp/Impl265GateRoot/emptytree lists no tracked files (is it a git worktree?); nothing was checked
+[stderr] provenance: FAIL - compared 0 authored file(s): C:/tmp/Impl265GateRoot/emptytree lists no tracked files (is it a git worktree?), so nothing was checked against the reference C:/qualia
 [exit 1]
 
 == G: --root names a git tree whose paths the reference does not share ==
 $ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/tmp/Impl265GateRoot/nogitrepo
 provenance: compared 0 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
 provenance: highest identical-code-line share 0.000
-[stderr] provenance: FAIL - compared 0 authored file(s): C:/tmp/Impl265GateRoot/nogitrepo lists no tracked files (is it a git worktree?); nothing was checked
+[stderr] provenance: FAIL - compared 0 authored file(s): C:/tmp/Impl265GateRoot/nogitrepo lists 1 tracked file(s) (1 authored after 0 generated skipped) and none of them exists in the reference C:/qualia
 [exit 1]
 
-== G (corrected): --root names a git tree whose paths the reference does not share ==
-$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/tmp/Impl265GateRoot/nogitrepo
-provenance: compared 0 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
+== L (finding 2): --root names a git tree whose only tracked file is machine-generated ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/tmp/Impl265GateRoot/lockrepo
+provenance: compared 0 authored file(s) (1 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
 provenance: highest identical-code-line share 0.000
-[stderr] provenance: FAIL - compared 0 authored file(s): C:/tmp/Impl265GateRoot/nogitrepo lists 1 tracked file(s) but the reference C:/qualia shares no path with it; nothing was checked
+[stderr] provenance: FAIL - compared 0 authored file(s): C:/tmp/Impl265GateRoot/lockrepo lists 1 tracked file(s) and every one is machine-generated (Cargo.lock), so there was nothing authored to check against the reference C:/qualia
 [exit 1]
-
-== H: --help (the new --root flag beside the positional reference) ==
-$ (cwd=C:/Users/ericm/wt/T68) qualia-gates.exe provenance --help
-The clean-room provenance gate (D-001)
-
-Usage: qualia-gates.exe provenance [OPTIONS] [REFERENCE]
-
-Arguments:
-  [REFERENCE]  Reference root to compare against (default: $QUALIA_PRIVATE_ROOT, else the first of C:/qualia and /c/qualia that exists)
-
-Options:
-      --root <ROOT>                    The tree to check (default: the repository root above the working directory, found by walking up for `.git` or the workspace Cargo.toml)
-      --max-run <MAX_RUN>              Longest run of identical code lines allowed before it is reported [default: 20]
-      --max-prose-run <MAX_PROSE_RUN>  Longest run of identical prose lines allowed before it is fatal [default: 2]
-  -h, --help                           Print help
-[exit 0]
-
-== I: the positional reference still parses (`provenance C:/qualia`) ==
-CODE RUN 21: crates/jepa-model/src/lib.rs
-CODE RUN 21: crates/sync-types/src/spatial.rs
-provenance: OK
-[exit 0]

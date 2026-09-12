@@ -13,9 +13,13 @@
 //!
 //! The tree checked is `--root`, else the nearest ancestor of the working
 //! directory carrying the repository's own marker (`.git`, or a `Cargo.toml`
-//! with a `[workspace]` table); a root that cannot be found is an error naming
-//! what was searched, and a comparison of zero files fails, so a green cannot
-//! come from an empty input (`docs/decisions.md`, D-028).
+//! with a `[workspace]` table), in both cases normalised to the top level of
+//! the git work tree it lies in, so `--root .` from a subdirectory means the
+//! repository. A root that cannot be found is an error naming what was
+//! searched, and a comparison of zero files fails naming the root and the
+//! reference (with the tracked count, the authored count and the
+//! machine-generated skips wherever any file was listed), so no green can come
+//! from an empty input (`docs/decisions.md`, D-028).
 //!
 //! The port keeps the predicates (`code_line`, `prose_line`, `longest_run`), the
 //! thresholds (`--max-run 20`, `--max-prose-run 2`), the summary lines and the
@@ -43,7 +47,8 @@ pub struct ProvenanceArgs {
     pub reference: Option<String>,
 
     /// The tree to check (default: the repository root above the working
-    /// directory, found by walking up for `.git` or the workspace Cargo.toml)
+    /// directory, found by walking up for `.git` or the workspace Cargo.toml;
+    /// a subdirectory of a work tree is normalised to its top level)
     #[arg(long)]
     pub root: Option<String>,
 
@@ -83,8 +88,23 @@ fn is_repo_root(dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// `dir` as the top level of the git work tree it lies in, else `dir` itself.
+/// `git ls-files` prints paths relative to the directory it runs in, so a root
+/// below the top level lists a subset of the repository under paths that do not
+/// exist in the reference — `--root .` from `crates/gates` compared 1 of its 8
+/// files and passed. A directory that is not in a work tree is left alone, and
+/// the zero-file guard then fails it.
+fn work_tree_root(dir: &Path) -> PathBuf {
+    git::output(&["rev-parse", "--show-toplevel"], dir)
+        .map(PathBuf::from)
+        .filter(|top| top.is_dir())
+        .unwrap_or_else(|| dir.to_path_buf())
+}
+
 /// The tree the gate checks: the `--root` named, else the nearest ancestor of
-/// the working directory carrying the repository's own marker. There is no
+/// the working directory carrying the repository's own marker. Either way the
+/// result is the git work tree's top level, so a root and the files listed
+/// under it cannot disagree about where the repository starts. There is no
 /// fallback to the directory holding the executable: with an out-of-tree
 /// `CARGO_TARGET_DIR` that directory is not the repository, so the gate would
 /// walk a tree with no tracked files and print a green that checked nothing.
@@ -96,7 +116,7 @@ fn resolve_root(explicit: Option<&str>) -> Result<PathBuf, String> {
         if !path.is_dir() {
             return Err(format!("root {} is not a directory", pytext::py_repr(dir)));
         }
-        return Ok(path);
+        return Ok(work_tree_root(&path));
     }
     let Ok(cwd) = std::env::current_dir() else {
         return Err("no repository root: the working directory is unavailable".to_string());
@@ -105,7 +125,7 @@ fn resolve_root(explicit: Option<&str>) -> Result<PathBuf, String> {
     let mut dir = Some(cwd.as_path());
     while let Some(candidate) = dir {
         if is_repo_root(candidate) {
-            return Ok(candidate.to_path_buf());
+            return Ok(work_tree_root(candidate));
         }
         searched.push(candidate.display().to_string());
         dir = candidate.parent();
@@ -335,17 +355,29 @@ pub fn run(args: &ProvenanceArgs) -> i32 {
     // A green from an empty input is worse than a red: if the root resolved but
     // nothing was compared, `provenance: OK` is unreachable.
     if checked == 0 {
+        let authored = tracked.len().saturating_sub(skipped_generated);
         let because = if tracked.is_empty() {
-            format!("{} lists no tracked files (is it a git worktree?)", root.display())
-        } else {
             format!(
-                "{} lists {} tracked file(s) but the reference {} shares no path with it",
+                "{} lists no tracked files (is it a git worktree?), so nothing was checked against the reference {reference}",
+                root.display()
+            )
+        } else if authored == 0 {
+            format!(
+                "{} lists {} tracked file(s) and every one is machine-generated ({}), so there was nothing authored to check against the reference {reference}",
                 root.display(),
                 tracked.len(),
-                reference
+                GENERATED.join(", ")
+            )
+        } else {
+            format!(
+                "{} lists {} tracked file(s) ({} authored after {} generated skipped) and none of them exists in the reference {reference}",
+                root.display(),
+                tracked.len(),
+                authored,
+                skipped_generated
             )
         };
-        eprintln!("provenance: FAIL - compared 0 authored file(s): {because}; nothing was checked");
+        eprintln!("provenance: FAIL - compared 0 authored file(s): {because}");
         return 1;
     }
 
