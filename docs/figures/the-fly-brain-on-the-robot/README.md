@@ -4,9 +4,9 @@
 design: 166,700 neurons and 124,177,617 synapses of a male fly's central nervous system, segmented
 from an electron-microscopy volume and released as `male-cns:v1.0` (CC-BY 4.0, Berg et al., *Cell*,
 2026) (#236). Our bet is that such a structure can itself be the controller, and I wanted to know whether
-it could: our belief layers coupled only a five-type, nine-edge stand-in, while this release is the
+it could: until now our controller ran on a five-type, nine-edge stand-in, while this release is the
 whole thing at full scale. We ran it as a spiking network on the robot's own computer: 84.5 ticks/s
-free-running on its Jetson, 31–32 ticks/s in the sensor closed loop, and 112.7 ticks/s on the host
+with no input on its Jetson, 31–32 ticks/s driven by the robot's camera, and 112.7 ticks/s on the host
 loop. Running the brain was the easy part; knowing whether what ran is what we thought ran took the
 rest of the time, and gave us this entry's rule — a claim is only as good as the thing that can
 contradict it. The robot's own camera and lidar reached it through the leash, and took a dataset from
