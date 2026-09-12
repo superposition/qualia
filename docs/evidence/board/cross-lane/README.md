@@ -28,7 +28,13 @@ Two machines, because the point of the exercise is that they are different:
 - **Built on** the dev host's WSL2 Ubuntu-22.04 guest — `x86_64`, kernel
   `5.15.167.4-microsoft-standard-WSL2`, `rustup 1.29.1`. It carries no `aarch64-linux-gnu-gcc`, no
   `zig` before this recipe ran, no `cross`, and no Docker engine; `sudo` needs a password. Nothing in
-  the recipe asks for root.
+  the recipe asks for root. **Corrected 2026-09-12**: the engine is in fact present and reachable —
+  `docker version` answers `28.1.1 linux` from inside this guest (Docker Desktop's WSL integration is on,
+  a `docker-desktop` distro exists), and the guest already carries the `aarch64-unknown-linux-gnu` target.
+  This run measured the guest before those were in place and chose `cargo-zigbuild` because it needed no
+  root; the Docker route also works: `docker build -f docker/Dockerfile.cross-aarch64` completes in 55 s
+  on this host, and `cross` itself refuses a Windows host (`toolchain 'stable-x86_64-unknown-linux-gnu'
+  may not be able to run on this system`), so it must be driven from the guest.
 - **Run on** Pinkie, the Jetson Orin NX at `jetson@192.168.55.1` (D-010): `aarch64`, Ubuntu 22.04.5
   LTS (jammy, JetPack 6), kernel `5.15.148-tegra`, `ldd (Ubuntu GLIBC 2.35-0ubuntu3.12) 2.35`. Its
   clock reads 2026-09-02 against the dev host's 2026-09-11 — D-010's skew, unchanged.

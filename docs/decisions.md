@@ -379,6 +379,17 @@ Consequences:
   does export `CC`/`AR`/`CXX` wrappers around `zig cc` for the target, which is the mechanism that
   should answer it; that is `[INFERENCE]`, not a measurement.
 
+**Amendment, 2026-09-12 — the "no Docker" premise was wrong about the host.** Measured while the operator
+disputed the figure's note: **Docker Desktop 28.1.1 is installed and its engine answers `28.1.1 linux` on
+Windows**, `docker build -f docker/Dockerfile.cross-aarch64` completes here in **55 s**, and the WSL2
+Ubuntu-22.04 guest **reaches that engine** (`docker version` → `28.1.1 linux`; a `docker-desktop` distro is
+present) and already carries the `aarch64-unknown-linux-gnu` target. What is true is narrower and was
+measured too: **`cross` itself refuses a Windows host** (`toolchain 'stable-x86_64-unknown-linux-gnu' may not
+be able to run on this system`), so it must be driven from the guest. The lane this decision records as
+restored works as written — `cargo-zigbuild`, no root, no engine — and the Docker route the first paragraph
+called unavailable is available as well; the original sentence measured an engine that was not *running* that
+minute, not one that was absent.
+
 ## D-019 — A PR based on another ticket's branch can strand its work; base PRs on `main`
 
 Instance: PR #185 (T12, ticket #27) was opened with base `ticket/T11` and merged into that branch at

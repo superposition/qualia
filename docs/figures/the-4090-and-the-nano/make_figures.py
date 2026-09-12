@@ -252,7 +252,7 @@ def deploy_path() -> None:
     ax.text(
         0.012,
         0.948,
-        "Stage and ship, because the board has no DNS and the host has no Docker; a stage a row, notes on the right.",
+        "Stage and ship, because the board has no DNS and the host builds the target with cargo-zigbuild; a stage a row, notes on the right.",
         fontsize=9,
         color=MUTED,
     )
@@ -291,7 +291,7 @@ def deploy_path() -> None:
             arrow(ax, (0.320, y + height + gap), (0.320, y + height), MUTED)
 
     notes = (
-        (0, "The host has no Docker, so Cross.toml\nand docker/Dockerfile.cross-aarch64\ncannot build this target.", SAND),
+        (0, "The host had no reachable Docker engine\nwhen this ran, so the aarch64 build\nwent through cargo-zigbuild instead.", SAND),
         (2, "No DNS on the board: git clone and\ncrates.io are unreachable, and cargo\nresolves every member even for one -p.", SAND),
         (3, "The board's registry cache is partial\nand older than main's lock, so cargo\nre-locks offline from what it has.", MUTED),
         (4, "Fallback, checked and not needed: a\ncubin from the board's own nvcc\n-arch=sm_87 -cubin loads on the driver.", BLUE),
