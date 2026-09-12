@@ -42,8 +42,8 @@ so the `-k` workarounds are gone (§"Fixed on 2026-09-12, and what is still miss
 | CUDA-feature build | **present** | `RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 2 -p qualia-jepa-model --bins --features cuda` | D-022 measured `5m 30s`, candle-kernels 0.9.2 built with `nvcc` for sm_87 |
 | Running binaries on the device | **present** | `/home/jetson/readiness/head-target/release/qualia-jepa-runtime-probe --backend cpu --iterations 5 --warmup 1` | `PROBE_CPU_RC=0`, `synchronized_latency_p50_us` **3070**, `outputs_finite: true`; D-022: 3168 µs CPU / 2039 µs CUDA at 30 iterations |
 | `ncu` | **present (needs root)** | `/usr/local/cuda/bin/ncu --version` | `2025.2.0.0 (build 35613519) (public-release)`; `perf_event_paranoid=2` and no NOPASSWD, so captures run under `sudo -S` |
-| `mage` | **present** | `mage --help` | `mage 0.1.0` at `~/.local/bin/mage`, installed from the board; deps `torch 2.14.0+cpu`, `triton 3.8.0`, `numpy 2.2.6`, `textual 8.2.8`, `rich 15.0.0` |
-| `mage profile-exec` with `nsys` | **present** | `mage profile-exec --backend nsys --capture-range all --output-dir … -- <board binary>` | `MAGE_EXEC_CUDA_RC=0`, 494 kernel rows parsed out of the capture (§"The two attempts") |
+| `mage` | **present** | `pip3 show mage` for the version, `mage --help` for the CLI entry (the CLI has no `--version` flag) | `Version: 0.1.0`, `/home/jetson/.local/bin/mage`, installed from the board; deps `torch 2.14.0+cpu`, `triton 3.8.0`, `numpy 2.2.6`, `textual 8.2.8`, `rich 15.0.0` |
+| `mage profile-exec` with `nsys` | **present** | `mage profile-exec --backend nsys --capture-range all --output-dir … -- <board binary>` | `MAGE_EXEC_CUDA_RC=0`, 494 kernel rows parsed out of the capture (§"The two attempts"; committed at `mage-nsys-capture/`) |
 | `nsys` | **present** | `nsys --version` | `NVIDIA Nsight Systems version 2024.5.4.34-245434855735v0` at `/usr/local/bin/nsys` |
 | `tegrastats` | **present** | `tegrastats --interval 1000` (bounded with `timeout 3`) | see §"Other board tools" |
 | Disk headroom | **present** | `df -h /` | 76 GiB free of 233 GiB (66 % used) after this work; 87 GiB free before it |
@@ -203,10 +203,19 @@ capture.nsys-rep  228 004 B kernels.json  459 131 B
 capture.sqlite    884 736 B process.log   6 227 B
 ```
 
-The export carries **494** `CUPTI_ACTIVITY_KIND_KERNEL` rows — `affine_f32`, `urelu_f32`,
-`copy2d_f32` and the `curand` seeding kernels of the probe's fixture. `capture.json` is mage's
-manifest (`backend`, `argv`, `profiler_argv`, `returncode: 0`, `status: complete`,
-`kernel_count: 494`).
+The export carries **494** `CUPTI_ACTIVITY_KIND_KERNEL` rows across the probe's whole fixture build
+and its measured iterations — `badd_f32` 90, `urelu_f32` 66, `copy2d_f32` 66, `ucopy_f32` 36,
+`affine_f32` 32, `ampere_sgemm_32x128_tn` 24, `im2col_f32` and `im2col1d_f32` 18 each, the two
+`curand` seeding kernels 14 each, `gemvx` and `fast_sum_f32` 12 each, and the remaining rows the
+probe's smaller `f32` elementwise kernels. `capture.json` is mage's manifest (`backend`, `argv`,
+`profiler_argv`, `returncode: 0`, `status: complete`, `kernel_count: 494`).
+
+The capture itself is committed, trimmed, in this directory at
+[`mage-nsys-capture/`](mage-nsys-capture/README.md) — its own README carries the shape, the 494-row
+kernel histogram and the file table. The untrimmed export, the `nsys` report
+(`capture.nsys-rep`, 228 004 B) and mage's `process.log` stay on the capturing machine at
+`/home/jetson/readiness/mage-out-cuda3/mage-nsys-doiq0b7c/`, per the convention's
+"keep `--output-dir` outside the tree" rule.
 
 The nsys-backed `profile-exec` needs the forward-compat `libcuda`, exactly as the ticket's own
 captures do: without `LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat` the probe dies with

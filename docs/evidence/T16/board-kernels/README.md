@@ -45,9 +45,12 @@ fatbins for sm_87`. The suite's `test result: ok. 8 passed; 0 failed; 0 ignored;
 
 ## Shape
 
-**8 launches over 7 kernels** — `--launch-count 8` is the suite's own launch count, and the profiler
-keeps running past the eighth launch, so `smoke`'s `add_one` loop is not in this capture (the same cut
-`T18/fatbin-sm-87` records). `belief_update` and `cognition_update` are 96.2 % of the kernel time.
+**8 launches over 7 kernels** — the cap is `--launch-count 8`, not the suite's full launch total: one
+pass of the eight device tests launches one kernel each plus `smoke`'s eight `add_one` launches (16 in
+all, as the 4090's `nsys` capture of the same suite records), and the profiler keeps running past the
+eighth launch, so `smoke`'s kernel is not in this capture (the same cut `T18/fatbin-sm-87` records).
+
+`belief_update` and `cognition_update` are 96.2 % of the kernel time.
 
 | id | kernel | block | grid | regs | static smem | duration |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -60,8 +63,10 @@ keeps running past the eighth launch, so `smoke`'s `add_one` loop is not in this
 | 6 | `costmap_stats` | (256, 1, 1) | (16, 1, 1) | 16 | 0 | 19.42 us |
 | 7 | `perception_voxel` | (256, 1, 1) | (48, 1, 1) | 21 | 0 | 259.90 us |
 
-The eight launches total **11 023.92 us** of kernel time. `SM Frequency` reads **305.98 MHz** for these
-launches under `ncu`'s default clock control. These durations are well below
+The eight launches total **11 023.92 us** of kernel time. `SM Frequency` is a per-launch reading, not
+one number: 305.98 MHz on `belief_update`, 305.34 on `action_score`, 619.63 on `belief_couple` — the
+`kernels.csv` column spans 302.28–619.63 MHz under `ncu`'s default clock control, the same ~306 MHz
+band `T50/pinkie-kernels` records. These durations are well below
 `T18/fatbin-sm-87`'s (`belief_update` 3.41 ms here vs 13.00 ms there; `cognition_update` 3.60 ms vs
 12.96 + 12.94 ms; totals 11.02 ms vs 39.32 ms over the same eight launches) — the same board, the
 same eight launches, different by 3.57×. Reported as measured, with no claim attached to the
