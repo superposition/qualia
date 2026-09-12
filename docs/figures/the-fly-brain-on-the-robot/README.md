@@ -26,11 +26,12 @@ controller we already own. The published male-CNS connectome is the first map to
 nerve cord, the part that links sensory input to motor output, and running it here closes the tree's gap
 at the only size that is real: neuron for neuron, the release's own signs, nothing trained. It has to run
 on Pinkie because the body carries its computer (D-010), and at frame rate because a controller that
-steers has to decide inside a frame; the viral game demos ran the same graph at frame rate, and none of
-them put it behind a leash. What the wave demonstrated is that the released wiring can drive a real
-controller path at frame rate; what it did not demonstrate is behaviour — the encoder and read-out are
-fixed constants, an undriven network is silent, and the loop's commands never reached a motor
-(§What this does not establish).
+steers has to decide inside a frame; the viral game demos of this release (Super Mario, Doom, Minecraft)
+ran the same graph at frame rate, and none put it behind a leash. What the wave demonstrated is that the
+released wiring drives a real controller path — 84.5 ticks/s free-running on the Orin, 112.7 ticks/s end
+to end in the host loop, 31–32 ticks/s in the board loop — and what it did not demonstrate is behaviour:
+the encoder and read-out are fixed constants, an undriven network is silent, and the loop's commands
+never reached a motor (§What this does not establish).
 
 The wave worked ticket by ticket — T55, T56, T58, T59, T63 and T65 are its tickets, each with a
 directory under `docs/evidence/`, and each step left a **braid** comment recording where it stood on the
