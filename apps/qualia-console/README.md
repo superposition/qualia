@@ -40,13 +40,16 @@ Configuration is ten environment variables and nothing else:
 
 The Telemetry view's rows are the ABI's sensing slots — `qualia-lidar`, `qualia-camera` and
 `qualia-vslam` — one row each, carrying the newest frame its publisher wrote or an explicit
-`no frame published`. That row set is the console's own, not the compiled-in stack's: with no
-manifest named every slot gets a row, because a stack manifest that declares no sensing runner must
-not narrow the rows to nothing while the region the console is attached to holds frames. (The
-shipped default, `config/stack-manifest.default.json`, now names `qualia-camera` and
-`qualia-leash-sensors`, but it is not the console's row set.) A deployment manifest named by
-`QUALIA_STACK_MANIFEST` narrows the rows to the sensing runners that stack declares, in the
-manifest's own order; a stack that declares none shows the honest empty table.
+`no frame published`. With no `QUALIA_STACK_MANIFEST` named, every slot gets a row: the rows are
+not taken from the compiled-in default stack (`config/stack-manifest.default.json`), because using it
+would hide the lidar and vslam rows while the region the console is attached to holds frames. The
+shipped default declares `qualia-camera` and `qualia-leash-sensors`, and only `qualia-camera` is a
+`SensingRunner` — `qualia-leash-sensors` publishes range scans without being one — so a table derived
+from it would be one camera row and no lidar row while lidar frames are live. The default row set
+therefore does not depend on the compiled-in default's contents at a given commit. A manifest the
+operator names with `QUALIA_STACK_MANIFEST` is different: its sensing runners *are* the rows, in the
+manifest's own order, and one that declares none narrows the table to nothing by design — the honest
+empty table (`config/stack-manifest.zero-motion.json`).
 
 There is no subnet autodiscovery and no host literal in the source. When no agent answers, the console
 renders the committed fixture `tests/fixtures/braid-state.json` and names the reason in the Mission

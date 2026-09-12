@@ -143,7 +143,7 @@ quoted as its reason.
 ```console
 $ for b in 0 1 2 7; do echo "--- bus $b"; echo jetson | sudo -S i2cdetect -y -r $b; done
 --- bus 0
-     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+[sudo] password for jetson:      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 00:                         -- -- -- -- -- -- -- -- 
 10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
@@ -177,7 +177,7 @@ $ for b in 0 1 2 7; do echo "--- bus $b"; echo jetson | sudo -S i2cdetect -y -r 
 00:                         -- -- -- -- -- -- -- -- 
 10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
-30: -- -- -- -- -- -- -- -- -- -- -- 3c -- -- -- 
+30: -- -- -- -- -- -- -- -- -- -- -- -- 3c -- -- -- 
 40: -- -- 42 -- -- -- -- -- -- -- -- -- -- -- -- -- 
 50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
@@ -187,15 +187,23 @@ $ ls /dev/iio:device*
 ls: cannot access '/dev/iio:device*': No such file or directory
 ```
 
-**The scan is complete**: every bus's `00`–`70` grid is above, so the rows the IMU claim rests on are
-visible rather than asserted — rows `60`/`70` (`0x68`, `0x69`, `0x6a`, `0x6b`, `0x76`) and `0x28` on
-row `20` are `--` on all four buses (`--- bus N` is this loop's own `echo`, and the bus 0 header
-shares its line with `sudo`'s prompt; nothing else is edited). The only responders are the ones D-025
-already names: `0x25` and `0x40` on bus 1 (`fusb301`, `ina3221`), `0x50`/`0x57` on bus 0 (the `24c02`
-EEPROMs, `UU` = kernel-held) and `0x3c`/`0x42` on bus 7, none of which is an inertial address. The
-excerpt this replaces showed only the responder rows and added its own separators; the first version
-of the block also dropped bus 2 and printed bus 7's row `30` two columns short — both are fixed here
-by quoting the scan instead of abridging it.
+**The scan is complete, and the block is the board's output pasted rather than transcribed**: every
+bus's `00`–`70` grid is inside it, so the rows the IMU claim rests on are visible rather than asserted
+— rows `60`/`70` (`0x68`, `0x69`, `0x6a`, `0x6b`, `0x76`) and `0x28` on row `20` are `--` on all four
+buses. The block is the captured session byte-for-byte (`C:/tmp/Impl254T59Fixes/i2c-scan.txt`,
+trailing spaces included); `--- bus N` is the loop's own `echo`, and the bus 0 header shares its line
+with `sudo`'s prompt because that is how it printed. The excerpt this replaces showed only the
+responder rows and added its own separators, and the block written from it dropped bus 2 and then
+left bus 7's row `30` short of its 16 cells, with `3c` under column `0x3b`. Both faults are gone in a
+way the block itself shows: bus 2's grid is present, and row `30` has all 16 cells with `3c` under
+`0x3c`. The only responders are the ones D-025 already names: `0x25` and `0x40` on bus 1 (`fusb301`,
+`ina3221`), `0x50`/`0x57` on bus 0 (the `24c02` EEPROMs, `UU` = kernel-held) and `0x3c`/`0x42` on bus
+7, none of which is an inertial address.
+
+**One line of D-025 does not survive the complete scan.** D-025 records `i2c-7`'s responders as
+`0x15`/`0x3c`/`0x42`; the scan above shows `0x3c` and `0x42` on bus 7 and no `0x15` on any of the four
+buses. Either that line is wrong or the `0x15` responder was absent at scan time; the decision entry
+is reconciled on `main`, not in this audit.
 
 No responder at `0x68`, `0x69`, `0x76`, `0x28`, `0x6a` or `0x6b`, and no IIO device: the robot's
 inertial data exists **only** in the leash's `sensors.imu`/`raw_frame`. `runners/leash-sensors` reads
