@@ -186,15 +186,24 @@ fn one_sample_manifest(root: &Path) -> DatasetManifest {
 #[test]
 fn manifest_round_trips_through_json_with_the_same_digest() {
     let temp = tempfile::tempdir().unwrap();
-    let manifest = one_sample_manifest(temp.path());
+    let mut manifest = one_sample_manifest(temp.path());
     assert_eq!(manifest.audit.candidate_transitions, 1);
     assert_eq!(manifest.audit.valid_transitions, 1);
     assert_eq!(manifest.schema_version, MANIFEST_SCHEMA);
     assert_eq!(manifest.digest.len(), 64);
     validate_dataset_manifest_integrity(&manifest).unwrap();
 
+    // `t65-real-01`'s own audit carries this mean skew, and its shortest JSON
+    // form is the 17-digit `29192462.559039358`: the test is that value, because
+    // it is the one the default best-effort float parser moved by one ulp, which
+    // made the written manifest fail its own digest when the trainer read it.
+    let skew = 29_192_462.559_039_358_f64;
+    manifest.audit.mean_sensor_skew_ns = skew;
+    manifest.digest = manifest_digest(&manifest).unwrap();
+
     let encoded = serde_json::to_vec(&manifest).unwrap();
     let decoded: DatasetManifest = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded.audit.mean_sensor_skew_ns, skew);
     assert_eq!(decoded, manifest);
     assert_eq!(manifest_digest(&decoded).unwrap(), manifest.digest);
 

@@ -1,0 +1,24 @@
+# t52-digest-probe on the board's manifest, serde_json WITHOUT `float_roundtrip`
+# file: /home/jetson/t65-capture/t65-real-01/dataset/jepa-dataset-6f98b125….json
+#       3 401 416 B, sha256 2fba5dc830354d6167e07a507b3b15001bb93aa144fbdafba4f9d19fa911cec0
+# command: t52-digest-probe t65-manifest.json rust-compact.json
+file_bytes=3401416
+schema=qualia.jepa-dataset.v3
+schema_expected_match=true
+stored=6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d
+recomputed=472b090bfd559bfbc53eb01014b52068cbe796f1529f96b5b8421115e86189c2
+digest_match=false
+compact_bytes=2426780
+roundtrip_stable=true
+recomputed2=472b090bfd559bfbc53eb01014b52068cbe796f1529f96b5b8421115e86189c2
+
+# the two differences between the file and Rust's re-serialization
+('.digest', 'token', '6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d', '')
+('.audit.mean_sensor_skew_ns', 'token', '29192462.559039358', '29192462.55903936')
+float tokens only in file:          [('29192462.559039358', 1)]
+float tokens only in rust-compact:  [('29192462.55903936', 1)]
+
+# IEEE-754 bit patterns (python struct.unpack('>q', struct.pack('>d', x)))
+# 29192462.559039358 -> 4718601502228337473
+# 29192462.55903936  -> 4718601502228337474
+# delta = -1 ulp

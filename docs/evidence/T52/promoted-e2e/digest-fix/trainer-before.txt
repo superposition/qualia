@@ -1,0 +1,9 @@
+# board: the refusal the trainer printed on the manifest the dataset binary had just written
+# host: Pinkie (aarch64), 2026-09-12 02:52 board-local, from docs/evidence/T65/calibration/t65-dataset.sh
+# command:
+#   QUALIA=$HOME/qualia-deploy/T65/target/release
+#   $QUALIA/qualia-jepa-train --manifest /home/jetson/t65-capture/t65-real-01/dataset/jepa-dataset-6f98b125….json \
+#       --checkpoint-id t65-real-e1 --output-dir /home/jetson/t65-capture/t65-real-01/train \
+#       --epochs 1 --batch-size 32 --seed 65
+# captured verbatim as /home/jetson/t65-capture/t65-real-01/train.log (76 B):
+qualia-jepa-train: dataset manifest is unsupported or has an invalid digest
