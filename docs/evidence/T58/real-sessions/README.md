@@ -147,3 +147,34 @@ $ curl -s -D - -o t58-host-mjpg.bin http://192.168.55.1:8000/camera/stream.mjpg 
   localization provider reports `pose: null` and its wheel odometry carries only a covariance, so
   publishing a confidence would be inventing the number the gate reads. It is left unwritten and
   named here instead.
+
+## 4. The synthetic path, retired
+
+Every generator, scratch recipe and synthesize helper that has ever fed this pipeline, where it lives,
+and what happens to it:
+
+| Recipe | Where it lives | What it fed | Disposition |
+| --- | --- | --- | --- |
+| The **T52 fixture writer** — a scratch crate that writes sealed MCAP sessions (`wave A`, `ch16`, `ch4`) plus their catalogs; its `Cargo.toml` and sources are quoted verbatim in `docs/evidence/T52/checkpoint-experiments/README.md` (~lines 328–370) | **not in this tree**; host scratch (`/mnt/c/tmp/Impl52…`, `/mnt/c/tmp/Impl53…`) | T47's training-step capture, T50's row D, T52's checkpoint experiments and T53's encoder-gradient measurement — the 12-session × 4168-frame gate-minimum catalog | **retired from every evidence path.** It stays quoted as the T52 capture's record of how its input was made, and the captures keep their numbers; no ticket after T58 may point the dataset or trainer at its output, because this capture demonstrates the real path instead |
+| T53's reuse of that ch4 manifest (`dataset_digest 26e2dfac…`, 12 sessions, 42 000/4 200/4 200) | `docs/evidence/T53/encoder-gradients/runs/` | T53's before/after encoder measurement | **historical record only**; superseded as evidence by this capture |
+| `sealed_session()` / `camera_only_session()` — write sealed MCAPs from synthetic frames | `crates/jepa-dataset/src/tests.rs`, behind `#[cfg(test)] mod tests;` (`crates/jepa-dataset/src/lib.rs:1583`) | `qualia-jepa-dataset`'s unit tests | **stays**: a unit-test fixture, compiled out of every shipped binary |
+| `sealed_catalog_entry()` and the 12-session catalog builder | `crates/jepa-dataset/tests/cli.rs` | the dataset binary's integration test | **stays**: test-only |
+| `build_fixture()` — the frozen synthetic runtime input | `crates/jepa-model/src/parity.rs:303`, **not** under `#[cfg(test)]` | `qualia-jepa-parity`'s no-checkpoint mode, which compares **backends** on a frozen input (its report is tagged `qualia.jepa-parity-fixture.v1` with a `fixture_sha256`) | **stays, named**: it feeds no dataset and no quality claim — it launches the real kernels on both backends and measures their agreement. Retiring it would delete the CUDA lane's parity check and change a shipped binary's interface |
+| `synthetic_batch()` | `crates/jepa-model/tests/contract.rs` | the trainer's step test | **stays**: test-only |
+| Registry report/manifest builders | `crates/jepa-registry/src/lib.rs:959`, behind `#[cfg(test)]` | the registry's tests | **stays**: test-only |
+| `offline_response` / the offline world model | `runners/vision` (documented in its module header as the offline branch that "builds a synthetic scene from the sensed belief") | the vision runner's offline mode | **stays, named**: it is a runner mode, not a JEPA dataset/training input, and no ticket's JEPA evidence reads it |
+
+The statement this ticket lands: **no evidence path reads a generator.** The dataset's only input is
+sealed MCAP written by `qualia-arena-recorder` from the arena, the trainer's only input is that
+manifest, and for this capture both point at the sessions in section 3. The four synthetic MCAP
+writers that do exist are compiled out of every shipped binary (`#[cfg(test)]` or `tests/`), and the
+one synthesizer that is not — `build_fixture()` — produces a backend-parity input, not a session.
+
+## 5. Capture, dataset and trainer results
+
+<pending: filled from the run>
+
+## 6. Handoff to T52 (#225)
+
+<pending: filled from the run>
+

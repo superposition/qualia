@@ -135,6 +135,21 @@ struct NamedSample {
     source: String,
 }
 
+impl Sensors {
+    /// One line naming every stream the leash reported, so the runner's log
+    /// carries the sensor map an operator would otherwise have to ask for.
+    fn summary(&self) -> String {
+        let stream = |name: &str, sample: &Option<NamedSample>| match sample {
+            Some(sample) if !sample.status.is_empty() && !sample.source.is_empty() => {
+                format!("{name}={}({})", sample.status, sample.source)
+            }
+            Some(_) => format!("{name}=present"),
+            None => format!("{name}=absent"),
+        };
+        format!("{} {}", stream("imu", &self.imu), stream("odometry", &self.odometry))
+    }
+}
+
 /// The ranging device's block.
 #[derive(Debug, Deserialize)]
 struct RangeScan {
@@ -197,11 +212,19 @@ fn main() {
     let mut published = 0u64;
     let mut failures = 0u64;
     let mut reported_unavailable = false;
+    let mut reported_surface = false;
 
     loop {
         match observe(&agent, &settings.base_url) {
             Ok(sensors) => {
                 failures = 0;
+                if !reported_surface {
+                    reported_surface = true;
+                    println!(
+                        "qualia-leash-sensors: leash surface {} (range scan is what this runner publishes)",
+                        sensors.summary()
+                    );
+                }
                 let scan = sensors.range_scan;
                 let available = scan
                     .as_ref()
@@ -258,6 +281,11 @@ fn main() {
 }
 
 /// Calls the leash's `observe` tool once and returns its sensor set.
+///
+/// The body and the reply are carried as strings rather than through `ureq`'s
+/// JSON helpers: this workspace's `ureq` is built without its `json` feature
+/// (`ureq` 2.12's defaults are `tls` and `gzip` only), and `serde_json` is
+/// already the decoder every other JSON boundary here uses.
 fn observe(agent: &ureq::Agent, base_url: &str) -> Result<Sensors, String> {
     let endpoint = format!("{}/mcp", base_url.trim_end_matches('/'));
     let request = serde_json::json!({
@@ -266,14 +294,18 @@ fn observe(agent: &ureq::Agent, base_url: &str) -> Result<Sensors, String> {
         "method": "tools/call",
         "params": { "name": "observe", "arguments": {} },
     });
+    let body = serde_json::to_string(&request)
+        .map_err(|error| format!("encode observe request: {error}"))?;
     let response = agent
         .post(&endpoint)
         .set("content-type", "application/json")
-        .send_json(request)
+        .send_string(&body)
         .map_err(|error| format!("POST {endpoint}: {error}"))?;
-    let reply: Reply = response
-        .into_json()
-        .map_err(|error| format!("decode {endpoint} reply: {error}"))?;
+    let payload = response
+        .into_string()
+        .map_err(|error| format!("read {endpoint} reply: {error}"))?;
+    let reply: Reply =
+        serde_json::from_str(&payload).map_err(|error| format!("decode {endpoint} reply: {error}"))?;
     let text = reply
         .result
         .and_then(|result| result.content.into_iter().find_map(|content| content.text))
