@@ -44,7 +44,7 @@ qualia-mission-broker --once --proposal docs/evidence/T63/proposal-frontier-1.js
 qualia-mission-broker --ticks 30 --poll-ms 1000 --proposal <path>
 ```
 
-`--proposals` (or `QUALIA_MISSION_BROKER_PROPOSALS`) names the braid's proposal
+`--proposal <path>` (or the environment's `QUALIA_MISSION_BROKER_PROPOSALS`) names the braid's proposal
 record as JSON: `{"proposals": [...]}`, a bare array, or one object. When it
 names nothing, the broker reads `GET /world-model/proposals`; in this build
 that route answers `503` because the spatial world model is not in the agent

@@ -22,8 +22,11 @@ broker read the same secret through the same `_FILE` key.
 
 ## The live request and response
 
-`live-run.txt` is the run verbatim; the facts, redacted (the credential never
-appears, and this tree contains no key-shaped literal at all):
+`live-run.txt` is the run verbatim; the facts, redacted. **The credential never appears** and this tree
+contains no key-shaped literal. One honest qualification the correctness review added: the redactor prints a
+**4-character prefix and the key's length** by design (`key=1448… (redacted, 35 chars)`), so the evidence does
+carry 4 of 35 characters — 16 bits, not recoverable, but it is material, and ticket #251 removes even that so
+the sentence becomes unconditionally true.
 
 ```text
 coach request  model=deepseek-chat base_url=https://api.deepseek.com key=1448…(redacted, 35 chars) prompt_digest=sha256:471331be… prompt_bytes=2859 timeout_ms=8000
@@ -103,6 +106,10 @@ The example prints what it drew:
 ```text
 coach_evidence: broker http://127.0.0.1:8091 -> deepseek-chat (ok), 1 decision(s), 1 mission(s)
 coach_evidence: decision coach-7328531307768660-1 promote -> proposal-frontier-corner-a · model deepseek-flash · latency 415 ms · tokens 786/164 · response 4b17129b-… · priors_ablated=false
+
+(That line is the **bounded `--ticks 30` capture run**, not the `--once` run: the `--once` run's own numbers are
+in `live-run.txt` — 435 ms, 775/144 tokens, response `14e8c6f7-…`. Both are live model calls; they are simply
+different runs, and a reader must not cross-quote them.)
 coach_evidence: mission mission-coach-7328531307768660-1 start accepted=true ack=Some(202)
 ```
 
