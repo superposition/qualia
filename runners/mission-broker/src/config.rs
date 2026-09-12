@@ -74,7 +74,7 @@ impl Area {
 }
 
 /// The coach's configuration, resolved from the environment.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CoachConfig {
     pub base_url: String,
     pub model: String,
@@ -104,6 +104,26 @@ impl CoachConfig {
     /// Whether a credential is present, without exposing it.
     pub fn configured(&self) -> bool {
         self.api_key.is_some()
+    }
+}
+
+/// Deliberately not derived: a `{:?}` on the configuration must not be a way
+/// to reach the credential, so this prints what [`crate::redact::key_presence`]
+/// prints — presence and provenance — and never `api_key`.
+impl std::fmt::Debug for CoachConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoachConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field(
+                "key_presence",
+                &self
+                    .key_source
+                    .as_deref()
+                    .map(|source| crate::redact::key_presence(Some(source))),
+            )
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }
 

@@ -22,15 +22,15 @@ broker read the same secret through the same `_FILE` key.
 
 ## The live request and response
 
-`live-run.txt` is the run verbatim; the facts, redacted. **The credential never appears** and this tree
-contains no key-shaped literal. One honest qualification the correctness review added: the redactor prints a
-**4-character prefix and the key's length** by design (`key=1448… (redacted, 35 chars)`), so the evidence does
-carry 4 of 35 characters — 16 bits, not recoverable, but it is material, and ticket #251 removes even that so
-the sentence becomes unconditionally true.
+`live-run.txt` is the run verbatim; the facts, redacted. **The credential never appears**: a configured key is
+named by presence and provenance only (`key=<present via DEEPSEEK_API_KEY_FILE>`), with no character of the key
+and no length, and this tree contains no key-shaped literal. Re-captured 2026-09-12 under #251 — the earlier
+transcript carried a 4-character prefix plus the key's length, and `redact.rs` no longer has a prefix mode; this
+is the live `--once` pass after that change.
 
 ```text
-coach request  model=deepseek-chat base_url=https://api.deepseek.com key=1448…(redacted, 35 chars) prompt_digest=sha256:471331be… prompt_bytes=2859 timeout_ms=8000
-coach response id=14e8c6f7-8f7d-472d-a537-30415f7e20ab model=deepseek-flash latency_ms=435 usage=prompt_tokens=775 completion_tokens=144 finish_reason=stop
+coach request  model=deepseek-chat base_url=https://api.deepseek.com key=<present via DEEPSEEK_API_KEY_FILE> prompt_digest=sha256:e54a98a3… prompt_bytes=2879 timeout_ms=8000
+coach response id=9f8bbc50-469a-45cf-97b4-772ff20a43d9 model=deepseek-flash latency_ms=449 usage=prompt_tokens=782 completion_tokens=139 finish_reason=stop
 ```
 
 The provider reported its own model id (`deepseek-flash`) rather than the
@@ -44,10 +44,10 @@ parsed into a decision:
 ```json
 {"decision_kind":"promote","target_proposal_ids":["proposal-frontier-corner-a"],
  "output_ids":["proposal-frontier-corner-a"],
- "reason":"Frontier region proposal with fresh pose/lidar evidence, high mission relevance, and a bounded reachable centroid inside the operating area justifies one bounded exploration mission.",
+ "reason":"Frontier region proposal with fresh pose/lidar evidence, high mission relevance, and bounds inside the operating area justifies one bounded exploration mission.",
  "mission":{"objective_kind":"explore_frontier",
-            "summary":"Explore frontier region near corner A within bounded distance and runtime.",
-            "target_x_m":1.9,"target_y_m":1.1,"tolerance_m":0.5,
+            "summary":"Explore frontier region in the corner of the operating area.",
+            "target_x_m":1.9,"target_y_m":1.1,"tolerance_m":0.3,
             "max_distance_m":2.0,"max_runtime_ms":60000,"max_replans":1}}
 ```
 
@@ -60,13 +60,16 @@ from the proposal's `lineage.evidence_refs` (`evidence_refs=2`).
 
 ```text
 qualia-mission-broker: posted POST https://127.0.0.1:8080/mission-control/envelopes -> HTTP 202 accepted=true idempotent_replay=false
-qualia-mission-broker: read back GET /mission-control/missions -> mission mission-coach-7328529549370528-1 status=paused stage=awaiting_evidence code=awaiting_fresh_evidence
-qualia-mission-broker: read back GET /mission-control/events -> seq=1 kind=accepted status=queued code=accepted detail=bounded mission was durably accepted
+qualia-mission-broker: read back GET /mission-control/missions -> mission mission-coach-7328542779780072-1 status=paused stage=awaiting_evidence code=awaiting_fresh_evidence
+qualia-mission-broker: read back GET /mission-control/events -> seq=13 kind=accepted status=queued code=accepted detail=bounded mission was durably accepted
+qualia-mission-broker: read back GET /mission-control/events -> seq=14 kind=paused status=paused code=awaiting_fresh_evidence detail=mission is paused until referenced fresh spatial evidence exists
 ```
 
 The agent's own answer, captured from `GET /mission-control/missions`
 (`missions-after-live-run.json`, read with the CA certificate and no token —
-the Read scope is loopback-bypassed):
+the Read scope is loopback-bypassed). It is the T63-era capture, so it holds
+T63's two missions; the #251 re-run's own mission id, posted and read back
+above, is in `live-run.txt`:
 
 ```text
 schema qualia.mission-control-state.v1 broker_epoch 7328531307768660 seq 1 count 2
@@ -74,7 +77,7 @@ mission-coach-7328531307768660-1 broker qualia-mission-broker-chalant epoch 7328
 mission-coach-7328529549370528-1 broker qualia-mission-broker-chalant epoch 7328529549370528 seq 1 cmd start evidence_refs 2 | status failed  terminal           deadline_exceeded
 ```
 
-The second row is the honest end of the first `--once` pass: its deadline is its
+The second row is the honest end of T63's first `--once` pass: its deadline is its
 own `max_runtime_ms` (60 s), the mission parked at `awaiting_fresh_evidence`
 because this build has no spatial world model (`/world-model/proposals` is a
 `503` stub), and the agent's supervisor closed it when the deadline passed. It
@@ -88,13 +91,13 @@ on its bounded run. The Coach panel reads `GET /coach` and shows, verbatim:
 
 ```text
 model configured      model deepseek-chat      base url https://api.deepseek.com
-key 1448… (redacted, 35 chars)                 last latency 415 ms
+key <present via DEEPSEEK_API_KEY_FILE>        last latency 609 ms
 decision promote proposal-frontier-corner-a
 reason Frontier region proposal with fresh pose/lidar evidence, …
-provenance deepseek-flash · tokens 786/164
-response 4b17129b-1425-492b-9f72-28ded05b903e
+provenance deepseek-flash · tokens 786/148
+response cc41c98a-acea-4143-b7fe-3e3e04c66d76
 broker posted
-mission mission-coach-7328531307768660-1       accepted start HTTP 202
+mission mission-coach-7328544612852748-1       accepted start HTTP 202
 ```
 
 and the six views around it (`open_missions=1` on the Mission panel and the
@@ -105,12 +108,12 @@ The example prints what it drew:
 
 ```text
 coach_evidence: broker http://127.0.0.1:8091 -> deepseek-chat (ok), 1 decision(s), 1 mission(s)
-coach_evidence: decision coach-7328531307768660-1 promote -> proposal-frontier-corner-a · model deepseek-flash · latency 415 ms · tokens 786/164 · response 4b17129b-… · priors_ablated=false
+coach_evidence: decision coach-7328544612852748-1 promote -> proposal-frontier-corner-a · model deepseek-flash · latency 609 ms · tokens 786/148 · response cc41c98a-… · priors_ablated=false
 
 (That line is the **bounded `--ticks 30` capture run**, not the `--once` run: the `--once` run's own numbers are
-in `live-run.txt` — 435 ms, 775/144 tokens, response `14e8c6f7-…`. Both are live model calls; they are simply
+in `live-run.txt` — 449 ms, 782/139 tokens, response `9f8bbc50-…`. Both are live model calls; they are simply
 different runs, and a reader must not cross-quote them.)
-coach_evidence: mission mission-coach-7328531307768660-1 start accepted=true ack=Some(202)
+coach_evidence: mission mission-coach-7328544612852748-1 start accepted=true ack=Some(202)
 ```
 
 A broker that is not running does not produce an empty panel: the same panel
