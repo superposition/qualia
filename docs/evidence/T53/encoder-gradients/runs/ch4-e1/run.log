@@ -1,0 +1,28 @@
+jepa materialize source=1/12 session=session-0-0
+jepa materialized session=session-0-0 train=4200 validation=0 test=0
+jepa materialize source=2/12 session=session-1-0
+jepa materialized session=session-1-0 train=4200 validation=0 test=0
+jepa materialize source=3/12 session=session-10-0
+jepa materialized session=session-10-0 train=4200 validation=0 test=0
+jepa materialize source=4/12 session=session-11-0
+jepa materialized session=session-11-0 train=4200 validation=0 test=0
+jepa materialize source=5/12 session=session-2-0
+jepa materialized session=session-2-0 train=0 validation=4200 test=0
+jepa materialize source=6/12 session=session-3-0
+jepa materialized session=session-3-0 train=0 validation=0 test=4200
+jepa materialize source=7/12 session=session-4-0
+jepa materialized session=session-4-0 train=4200 validation=0 test=0
+jepa materialize source=8/12 session=session-5-0
+jepa materialized session=session-5-0 train=4200 validation=0 test=0
+jepa materialize source=9/12 session=session-6-0
+jepa materialized session=session-6-0 train=4200 validation=0 test=0
+jepa materialize source=10/12 session=session-7-0
+jepa materialized session=session-7-0 train=4200 validation=0 test=0
+jepa materialize source=11/12 session=session-8-0
+jepa materialized session=session-8-0 train=4200 validation=0 test=0
+jepa materialize source=12/12 session=session-9-0
+jepa materialized session=session-9-0 train=4200 validation=0 test=0
+jepa train epoch=1/1 backend=cuda samples=42000 batches=1313 cnn_total=22.952908 cnn_nll=-2.655534 cnn_var=0.798979 cnn_cov=5.632340 cnn_ground=0.001635 flat_total=23.531972 flat_nll=-0.470702 seconds=33.379 samples_per_second=1258.29
+jepa calibrate constant_baseline_samples=42000
+candidate=t53-ch4-e1 weights=/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e1/t53-ch4-e1/weights.safetensors manifest=/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e1/t53-ch4-e1/manifest.json report=/mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e1/jepa-training-report-9a19815a0f435807a81ef889603d651e18701b4d87b051c101bc615ffab801bc.json gate=false
+qualia-jepa-train: candidate failed held-out predictive, grounding, or calibration gates

@@ -1,0 +1,121 @@
+{
+  "schema_version": "qualia.jepa-training-report.v1",
+  "created_at_ms": 1789178146277,
+  "checkpoint_id": "t53-ch4-e1",
+  "dataset_digest": "26e2dfac396e343f09b27b350366b24ef06f33b65f0c90ca48919ac035245b8e",
+  "backend": "cuda",
+  "seed": 42,
+  "epochs": 1,
+  "batch_size": 32,
+  "cnn_steps": 1313,
+  "flat_steps": 1313,
+  "skipped_singletons": 0,
+  "action_support": {
+    "sample_count": 42000,
+    "min_left": -0.4,
+    "max_left": 0.4,
+    "min_right": -0.4,
+    "max_right": 0.4,
+    "min_effective_forward": -0.4,
+    "max_effective_forward": 0.2,
+    "min_effective_turn": -0.2,
+    "max_effective_turn": 0.2,
+    "min_speed_scale": 0.5,
+    "max_speed_scale": 1.0,
+    "min_delta_seconds": 0.001,
+    "max_delta_seconds": 0.001
+  },
+  "grounding_geometry": {
+    "width": 64,
+    "height": 64,
+    "resolution_m": 0.05
+  },
+  "validation": {
+    "samples": 4200,
+    "sessions": 1,
+    "constant": {
+      "transition_nll": -0.8984881043788933,
+      "rollout_error": 0.7475473325735047
+    },
+    "flat_mlp": {
+      "transition_nll": -1.4986484652473813,
+      "rollout_error": 0.15217579644395127
+    },
+    "tiny_cnn": {
+      "transition_nll": -3.24817712420509,
+      "rollout_error": 0.015098466299684896
+    },
+    "calibration": {
+      "dimensions": 1075200,
+      "transition_nll": -3.248177149751162,
+      "mean_standardized_squared_residual": 1.199971171208013,
+      "coverage_50": 0.485757068452381,
+      "coverage_90": 0.8707728794642857,
+      "coverage_95": 0.9234151785714285,
+      "calibration_slope": 0.5317982584391012,
+      "clamp_fraction": 0.0016927083333333334,
+      "nonfinite_values": 0,
+      "passes": false
+    },
+    "occupancy": {
+      "observed_cells": 8400,
+      "occupied_cells": 4200,
+      "occupied_prevalence": 0.5,
+      "intersection_over_union": 1.0,
+      "pr_auc": 1.0,
+      "trivial_iou": 0.5,
+      "trivial_pr_auc": 0.5,
+      "passes": true
+    }
+  },
+  "test": {
+    "samples": 4200,
+    "sessions": 1,
+    "constant": {
+      "transition_nll": -0.8923947494490339,
+      "rollout_error": 0.734844660120351
+    },
+    "flat_mlp": {
+      "transition_nll": -1.3418813101450602,
+      "rollout_error": 0.1904484950418451
+    },
+    "tiny_cnn": {
+      "transition_nll": -3.313776271456764,
+      "rollout_error": 0.041002890334985706
+    },
+    "calibration": {
+      "dimensions": 1075200,
+      "transition_nll": -3.3137762605015118,
+      "mean_standardized_squared_residual": 1.1545515542176739,
+      "coverage_50": 0.5022293526785714,
+      "coverage_90": 0.8786542038690476,
+      "coverage_95": 0.9298763020833334,
+      "calibration_slope": 1.1568245492462743,
+      "clamp_fraction": 0.0060416666666666665,
+      "nonfinite_values": 0,
+      "passes": false
+    },
+    "occupancy": {
+      "observed_cells": 8400,
+      "occupied_cells": 4200,
+      "occupied_prevalence": 0.5,
+      "intersection_over_union": 1.0,
+      "pr_auc": 1.0,
+      "trivial_iou": 0.5,
+      "trivial_pr_auc": 0.5,
+      "passes": true
+    }
+  },
+  "effective_rank": {
+    "sample_count": 4096,
+    "dimensions": 256,
+    "effective_rank": 1.2047946725608174,
+    "trace": 24.072135273219097,
+    "converged": true,
+    "sweeps": 16
+  },
+  "llm_priors_ablated": true,
+  "baseline_gate_passed": true,
+  "grounding_calibration_gate_passed": false,
+  "all_gates_passed": false
+}

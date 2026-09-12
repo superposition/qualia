@@ -1,0 +1,139 @@
+T53 encoder-gradients: did the encoder tensors move between the before and after checkpoints?
+=================================================================================================
+before = T52's committed ch4-e1 checkpoint
+         docs/evidence/T52/checkpoint-experiments/ (PR #227)
+         weights.safetensors sha256 9132e253fc81fabce572bc08b8d208a8316a2be4f74088530aefd4ad83825d67
+         (reproduced below by the script's own digest line)
+
+T52's own comparison was one-epoch against ten-epoch on the same fixture and seed: all 20
+encoder.* and all 20 target_encoder.* tensors differed by exactly 0.000000e+00 (42 of 50
+tensors unchanged). Both runs below are the same fixture, seed, recipe and binary, with only
+the encoder-wiring repair of this ticket applied.
+
+diff_weights.py <before.safetensors> <after.safetensors>, no arguments changed.
+
+-------------------------------------------------------------------------------------------------
+[1] T52 ch4-e1 (before)  ->  T53 ch4-e1 (after, 1 epoch)
+-------------------------------------------------------------------------------------------------
+before /mnt/c/tmp/Impl225PromotedE2E/runs/ch4-e1/t52-ch4-e1/weights.safetensors sha256=9132e253fc81fabce572bc08b8d208a8316a2be4f74088530aefd4ad83825d67
+after  /mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e1/t53-ch4-e1/weights.safetensors sha256=9acf6047b931698961459b1785c1bc0b168c9e84c93ad806cbc9b31c879b6012
+  max_abs_diff        scale  tensor
+  6.863354e-01 5.063179e-01  predictor.output.weight
+  2.904146e-01 8.656400e-01  encoder.pose.projection.weight
+  2.898350e-01 0.000000e+00  encoder.pose.projection.bias
+  2.575220e-01 8.656400e-01  target_encoder.pose.projection.weight
+  2.570077e-01 0.000000e+00  target_encoder.pose.projection.bias
+  2.289982e-01 1.000000e+00  encoder.fusion.norm.weight
+  1.984508e-01 1.000000e+00  target_encoder.fusion.norm.weight
+  1.691073e-01 2.420361e-01  predictor.hidden.weight
+  1.381788e-01 2.201284e-01  occupancy_decoder.output.weight
+  1.380555e-01 2.788795e-01  occupancy_decoder.hidden.weight
+  9.526451e-02 1.419194e-01  occupancy_decoder.hidden.bias
+  7.618849e-02 6.249968e-02  encoder.camera.projection.weight
+  6.826738e-02 0.000000e+00  encoder.camera.conv1.bias
+  6.691741e-02 6.249968e-02  target_encoder.camera.projection.weight
+  6.477109e-02 0.000000e+00  encoder.camera.conv3.bias
+  5.780429e-02 0.000000e+00  target_encoder.camera.conv3.bias
+  5.732623e-02 0.000000e+00  target_encoder.camera.conv1.bias
+  5.175719e-02 0.000000e+00  encoder.camera.conv2.bias
+  4.751938e-02 2.040919e-01  encoder.camera.conv3.weight
+  4.338717e-02 2.040919e-01  target_encoder.camera.conv3.weight
+  4.023863e-02 0.000000e+00  target_encoder.camera.conv2.bias
+  3.883801e-02 2.886680e-01  encoder.camera.conv2.weight
+  3.144371e-02 2.886680e-01  target_encoder.camera.conv2.weight
+  2.630862e-02 5.213898e-02  predictor.output.bias
+  2.305671e-02 0.000000e+00  encoder.fusion.norm.bias
+  1.968857e-02 0.000000e+00  target_encoder.fusion.norm.bias
+  1.947440e-02 2.567003e-02  predictor.hidden.bias
+  1.892942e-02 8.138398e-01  encoder.camera.conv1.weight
+  1.308942e-02 8.138398e-01  target_encoder.camera.conv1.weight
+  9.470478e-03 0.000000e+00  encoder.camera.projection.bias
+  8.075975e-03 0.000000e+00  target_encoder.camera.projection.bias
+  6.276663e-03 4.564338e-02  encoder.lidar.projection.weight
+  6.242016e-03 4.564338e-02  target_encoder.lidar.projection.weight
+  5.758427e-03 0.000000e+00  encoder.lidar.projection.bias
+  5.727164e-03 0.000000e+00  target_encoder.lidar.projection.bias
+  5.571206e-03 0.000000e+00  encoder.lidar.conv3.bias
+  5.540927e-03 0.000000e+00  target_encoder.lidar.conv3.bias
+  5.342752e-03 0.000000e+00  encoder.lidar.conv2.bias
+  5.313803e-03 0.000000e+00  target_encoder.lidar.conv2.bias
+  5.036031e-03 0.000000e+00  encoder.lidar.conv1.bias
+  5.008778e-03 0.000000e+00  target_encoder.lidar.conv1.bias
+  4.688650e-03 4.984729e-01  encoder.lidar.conv2.weight
+  4.656285e-03 4.984729e-01  target_encoder.lidar.conv2.weight
+  4.557669e-03 9.742516e-01  encoder.lidar.conv1.weight
+  4.526377e-03 9.742516e-01  target_encoder.lidar.conv1.weight
+  4.469246e-03 3.532240e-01  encoder.lidar.conv3.weight
+  4.438668e-03 3.532240e-01  target_encoder.lidar.conv3.weight
+  1.651349e-04 3.627651e-03  occupancy_decoder.output.bias
+  0.000000e+00 5.412646e-02  adapter.projection.weight
+  0.000000e+00 0.000000e+00  adapter.projection.bias
+tensors=50 moved=48 unchanged=2
+  encoder.             20/20 tensors moved
+  target_encoder.      20/20 tensors moved
+  predictor.           4/4 tensors moved
+  occupancy_decoder.   4/4 tensors moved
+  adapter.             0/2 tensors moved
+
+-------------------------------------------------------------------------------------------------
+[2] T52 ch4-e1 (before)  ->  T53 ch4-e10 (after, 10 epochs)
+-------------------------------------------------------------------------------------------------
+before /mnt/c/tmp/Impl225PromotedE2E/runs/ch4-e1/t52-ch4-e1/weights.safetensors sha256=9132e253fc81fabce572bc08b8d208a8316a2be4f74088530aefd4ad83825d67
+after  /mnt/c/tmp/Impl53EncoderGrad/runs/ch4-e10/t53-ch4-e10/weights.safetensors sha256=3e0c77c5ec4ab796a7e9abdbc2ba9fe90fe23dd5ca14619e442b8d4f23a4d762
+  max_abs_diff        scale  tensor
+  3.151591e+00 5.063179e-01  predictor.output.weight
+  7.144373e-01 8.656400e-01  encoder.pose.projection.weight
+  7.071134e-01 8.656400e-01  target_encoder.pose.projection.weight
+  6.783110e-01 1.000000e+00  encoder.fusion.norm.weight
+  6.719520e-01 1.000000e+00  target_encoder.fusion.norm.weight
+  5.042416e-01 2.201284e-01  occupancy_decoder.output.weight
+  4.221916e-01 0.000000e+00  encoder.pose.projection.bias
+  4.215707e-01 0.000000e+00  target_encoder.pose.projection.bias
+  3.976598e-01 2.420361e-01  predictor.hidden.weight
+  3.918579e-01 2.788795e-01  occupancy_decoder.hidden.weight
+  2.050086e-01 0.000000e+00  encoder.camera.conv1.bias
+  2.025708e-01 0.000000e+00  target_encoder.camera.conv1.bias
+  1.855900e-01 0.000000e+00  encoder.camera.conv2.bias
+  1.855787e-01 0.000000e+00  encoder.camera.conv3.bias
+  1.824020e-01 0.000000e+00  target_encoder.camera.conv2.bias
+  1.815029e-01 0.000000e+00  target_encoder.camera.conv3.bias
+  1.630906e-01 6.249968e-02  encoder.camera.projection.weight
+  1.601671e-01 6.249968e-02  target_encoder.camera.projection.weight
+  1.400311e-01 5.213898e-02  predictor.output.bias
+  1.237080e-01 1.419194e-01  occupancy_decoder.hidden.bias
+  1.201086e-01 2.886680e-01  encoder.camera.conv2.weight
+  1.199486e-01 2.040919e-01  encoder.camera.conv3.weight
+  1.181618e-01 2.040919e-01  target_encoder.camera.conv3.weight
+  1.151825e-01 2.886680e-01  target_encoder.camera.conv2.weight
+  9.330407e-02 8.138398e-01  target_encoder.camera.conv1.weight
+  9.313634e-02 8.138398e-01  encoder.camera.conv1.weight
+  8.073504e-02 0.000000e+00  encoder.fusion.norm.bias
+  7.989042e-02 0.000000e+00  target_encoder.fusion.norm.bias
+  2.251057e-02 0.000000e+00  encoder.camera.projection.bias
+  2.204027e-02 0.000000e+00  target_encoder.camera.projection.bias
+  2.139668e-02 2.567003e-02  predictor.hidden.bias
+  6.298674e-03 4.564338e-02  encoder.lidar.projection.weight
+  6.298244e-03 4.564338e-02  target_encoder.lidar.projection.weight
+  5.753028e-03 0.000000e+00  target_encoder.lidar.projection.bias
+  5.752924e-03 0.000000e+00  encoder.lidar.projection.bias
+  5.565808e-03 0.000000e+00  target_encoder.lidar.conv3.bias
+  5.565703e-03 0.000000e+00  encoder.lidar.conv3.bias
+  5.337355e-03 0.000000e+00  target_encoder.lidar.conv2.bias
+  5.337249e-03 0.000000e+00  encoder.lidar.conv2.bias
+  5.225241e-03 9.742516e-01  encoder.lidar.conv1.weight
+  5.211592e-03 9.742516e-01  target_encoder.lidar.conv1.weight
+  5.040824e-03 4.984729e-01  encoder.lidar.conv2.weight
+  5.034208e-03 4.984729e-01  target_encoder.lidar.conv2.weight
+  5.030635e-03 0.000000e+00  target_encoder.lidar.conv1.bias
+  5.030529e-03 0.000000e+00  encoder.lidar.conv1.bias
+  4.821420e-03 3.532240e-01  encoder.lidar.conv3.weight
+  4.814625e-03 3.532240e-01  target_encoder.lidar.conv3.weight
+  1.713708e-04 3.627651e-03  occupancy_decoder.output.bias
+  0.000000e+00 5.412646e-02  adapter.projection.weight
+  0.000000e+00 0.000000e+00  adapter.projection.bias
+tensors=50 moved=48 unchanged=2
+  encoder.             20/20 tensors moved
+  target_encoder.      20/20 tensors moved
+  predictor.           4/4 tensors moved
+  occupancy_decoder.   4/4 tensors moved
+  adapter.             0/2 tensors moved

@@ -63,6 +63,8 @@ pub const VICREG_TARGET_STDDEV: f64 = 1.0;
 pub const VICREG_EPSILON: f64 = 1.0e-4;
 /// Sample floor below which an action-support envelope is not promotion-worthy.
 pub const ACTION_SUPPORT_MINIMUM_SAMPLES: u64 = 4_096;
+/// Epsilon of the fused representation's layer normalization.
+pub const FUSION_NORM_EPSILON: f64 = 1.0e-5;
 
 /// Camera/LiDAR/pose encoder producing the fused core representation.
 #[derive(Clone)]
@@ -102,7 +104,7 @@ impl TinyCnnEncoder {
         let lidar_conv3 = conv1d(16, 32, 3, lidar_config, vb.pp("lidar.conv3"))?;
         let lidar_projection = linear(32 * 90, LIDAR_FEATURES, vb.pp("lidar.projection"))?;
         let pose_projection = linear(POSE_DIM, POSE_FEATURES, vb.pp("pose.projection"))?;
-        let fusion_norm = layer_norm(CORE_DIM, 1e-5, vb.pp("fusion.norm"))?;
+        let fusion_norm = layer_norm(CORE_DIM, FUSION_NORM_EPSILON, vb.pp("fusion.norm"))?;
         Ok(Self {
             camera_conv1,
             camera_conv2,
@@ -140,8 +142,32 @@ impl TinyCnnEncoder {
 
         let pose_features = self.pose_projection.forward(pose)?.relu()?;
         let fused = Tensor::cat(&[&camera_features, &lidar_features, &pose_features], 1)?;
-        self.fusion_norm.forward(&fused)
+        normalize_fused(&self.fusion_norm, &fused)
     }
+}
+
+/// Normalize the fused representation while staying inside the autograd graph.
+///
+/// `candle_nn::LayerNorm::forward` sends a contiguous, mean-removing,
+/// biased input to `candle_nn::ops::layer_norm`, which is built with
+/// `apply_op3_no_bwd`: the tensor it returns carries no gradient leaf. Because
+/// this normalization is the encoder's last operation, that severed the whole
+/// encoder from the objective's backward pass — the emitted latent changed
+/// when a parameter's storage changed, but no encoder parameter received a
+/// gradient, so the online encoder and its EMA target were frozen. The slow
+/// path is the same normalization written with differentiable ops: the layer's
+/// affine parameters and epsilon are unchanged and the gradient reaches the
+/// encoder.
+fn normalize_fused(fusion_norm: &LayerNorm, fused: &Tensor) -> CandleResult<Tensor> {
+    let bias = fusion_norm
+        .bias()
+        .ok_or_else(|| candle_core::Error::Msg("fusion norm is missing its bias".into()))?;
+    candle_nn::ops::layer_norm_slow(
+        fused,
+        fusion_norm.weight(),
+        bias,
+        FUSION_NORM_EPSILON as f32,
+    )
 }
 
 /// Gaussian transition head over the core representation.
