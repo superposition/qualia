@@ -1,0 +1,5 @@
+== lease lifetime: authorize ttl=30, then two drives, then a stop, then a drive, then authorize again ==
+authorize        -> {"ok":true,"ttl_secs":30,"speed_mode":"low"}
+drive A          -> {"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}drive B (no stop)-> {"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}stop verified    -> {"acknowledged":true,"statement":"zero command confirmed","command_sequence":5121,"source":"waveshare-ugv"}
+drive C (after)  -> {"error":"invalid pilot token","ok":false}re-authorize     -> {"ok":true,"ttl_secs":30}
+drive D          -> {"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}stop verified    -> {"acknowledged":true,"statement":"zero command confirmed"}

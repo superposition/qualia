@@ -1,0 +1,10 @@
+qualia-leash-transport: carrying our wheel commands to http://192.168.55.1:8000 over mcp; deadman=1500ms speed_mode=low lease_ttl=20s session=9954aa1d… token_file=C:/tmp/Impl262LeashDrive/operator.token authority=leash arena=/qualia_t67
+qualia-leash-transport: leash health mode=live deadman_ok=true estop=false -> armed=true
+qualia-leash-transport: leash acknowledged the stop: {"left":0.0,"max_speed":0.2199999988079071,"ok":true,"right":0.0,"speed_mode":"low"}
+qualia-leash-transport: idle 1 stop intervals; estop=false accepted=1 refused=0 failures=0
+qualia-leash-transport: idle 20 stop intervals; estop=false accepted=20 refused=0 failures=0
+{"T":11,"L":0.0,"R":0.0}
+qualia-leash-transport: drive refused (T=11 left=0.000 right=0.000): invoke_capability refused HTTP 403: -32001 legacy physical control is disabled; enable it explicitly at deployment; sending zero
+qualia-leash-transport: idle 40 stop intervals; estop=false accepted=41 refused=0 failures=0
+qualia-leash-transport: idle 60 stop intervals; estop=false accepted=61 refused=0 failures=0
+qualia-leash-transport: idle 80 stop intervals; estop=false accepted=81 refused=0 failures=0
