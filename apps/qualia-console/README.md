@@ -14,6 +14,13 @@ at the top carries the `Console` menu that re-opens a closed window and requests
 Over them sits the operator's **HUD**: one floating panel per runner, fed by the binary telemetry
 frame that runner publishes beside the shared region (see [The live HUD](#the-live-hud)).
 
+Unavailable sources are collected in a collapsed **Issues** drawer at the bottom. Equal errors
+share one entry listing their affected sources. Expand the drawer for the full reasons, or enable
+**Show unavailable panels** to inspect those views. Panels with usable data stay visible, including
+the Brain geometry and independently published HUD readings. The remaining views use the freed
+space; recovered views return automatically unless the operator closed them. Errors within a
+partly working view have their own collapsed details.
+
 It is built against [`docs/frontend-lessons.md`](../../docs/frontend-lessons.md), which records what
 five existing front ends taught; every design decision in the source cites the lesson it comes from.
 
@@ -52,8 +59,8 @@ manifest's own order, and one that declares none narrows the table to nothing by
 empty table (`config/stack-manifest.zero-motion.json`).
 
 There is no subnet autodiscovery and no host literal in the source. When no agent answers, the console
-renders the committed fixture `tests/fixtures/braid-state.json` and names the reason in the Mission
-window's banner rather than showing an empty window. The region-backed panels (Belief, World,
+lists the reason in Issues. Reopening the unavailable Mission panel shows the clearly labelled
+committed fixture `tests/fixtures/braid-state.json`. The region-backed panels (Belief, World,
 Telemetry, Brain and the HUD) read the shared region whether or not the agent answers, so a dead
 braid no longer blanks a live stack.
 
