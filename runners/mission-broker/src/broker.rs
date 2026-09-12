@@ -20,7 +20,7 @@ use crate::coach::{CoachAnswer, CoachClient, CoachOutcome, DecisionItem};
 use crate::config::BrokerConfig;
 use crate::envelope::{self, MissionRequest};
 use crate::status::{DecisionRow, MissionRow, ModelState, StatusHandle};
-use crate::{epoch_seed, now_ms, redact, say, warn};
+use crate::{epoch_seed, now_ms, say, warn};
 
 /// How long one agent request may take before the tick gives up on it.
 pub const AGENT_TIMEOUT_MS: u64 = 3_000;
@@ -88,7 +88,7 @@ pub fn run(config: BrokerConfig, options: RunOptions) -> Result<RunReport, Strin
         config.broker_token.clone(),
         Duration::from_millis(AGENT_TIMEOUT_MS),
     )?;
-    let status = StatusHandle::new(model_state(&config));
+    let status = StatusHandle::new(model_state(&config), config.coach.api_key.clone());
     if options.status {
         match status.serve(&options.status_host, options.status_port) {
             Ok(()) => say(&format!(
@@ -109,9 +109,7 @@ pub fn run(config: BrokerConfig, options: RunOptions) -> Result<RunReport, Strin
         config.coach.base_url,
         config
             .coach
-            .api_key
-            .as_deref()
-            .map(redact::key_prefix)
+            .key_presence()
             .unwrap_or_else(|| "none (llm_priors_ablated=true)".to_string()),
         config.coach.timeout.as_millis()
     ));
@@ -283,7 +281,7 @@ fn load_items(
     if paths.is_empty() {
         let proposals = agent.proposals().map_err(|error| {
             format!(
-                "the braid's proposals are unavailable ({error}); pass --proposals <path> or QUALIA_MISSION_BROKER_PROPOSALS"
+                "the braid's proposals are unavailable ({error}); pass --proposal <path> or QUALIA_MISSION_BROKER_PROPOSALS"
             )
         })?;
         return Ok(proposals
@@ -508,12 +506,7 @@ fn model_state(config: &BrokerConfig) -> ModelState {
         configured,
         model_id: config.coach.model.clone(),
         base_url: config.coach.base_url.clone(),
-        key_prefix: config
-            .coach
-            .api_key
-            .as_deref()
-            .map(redact::key_prefix),
-        key_redacted: true,
+        key_presence: config.coach.key_presence(),
         status: if configured { "ok" } else { "no_key" }.to_string(),
         reason: if configured {
             None

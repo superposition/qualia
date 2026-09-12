@@ -74,7 +74,7 @@ impl Area {
 }
 
 /// The coach's configuration, resolved from the environment.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CoachConfig {
     pub base_url: String,
     pub model: String,
@@ -101,18 +101,49 @@ impl CoachConfig {
         }
     }
 
+    /// The credential and the environment key it came from, as one value.
+    /// [`load_secret`] sets the two fields together, so a caller that has one
+    /// has the other; this is the one place that invariant is spelled.
+    pub fn credential(&self) -> Option<(&str, &str)> {
+        Some((self.api_key.as_deref()?, self.key_source.as_deref()?))
+    }
+
     /// Whether a credential is present, without exposing it.
     pub fn configured(&self) -> bool {
-        self.api_key.is_some()
+        self.credential().is_some()
+    }
+
+    /// The credential named by presence and provenance — `<present via
+    /// DEEPSEEK_API_KEY>` — or `None` when none is configured. Never a
+    /// character of the key.
+    pub fn key_presence(&self) -> Option<String> {
+        self.credential()
+            .map(|(_, source)| crate::redact::key_presence(source))
+    }
+}
+
+/// Deliberately not derived: a `{:?}` on the configuration must not be a way
+/// to reach the credential, so this prints what [`crate::redact::key_presence`]
+/// prints — presence and provenance — and never `api_key`.
+impl std::fmt::Debug for CoachConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoachConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("key_presence", &self.key_presence())
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }
 
 /// The broker's whole configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BrokerConfig {
     pub agent_url: String,
     pub agent_tls_dir: Option<PathBuf>,
     pub broker_token: Option<String>,
+    /// The environment key the bearer came from, for the named line.
+    pub broker_token_source: Option<String>,
     pub broker_id: String,
     /// Files carrying the braid's proposal envelopes, if any were named.
     pub proposals: Vec<PathBuf>,
@@ -128,7 +159,7 @@ pub struct BrokerConfig {
 impl BrokerConfig {
     /// Resolve every value from the environment.
     pub fn from_env() -> Self {
-        let (broker_token, _) = load_secret(
+        let (broker_token, broker_token_source) = load_secret(
             &["QUALIA_MISSION_BROKER_TOKEN"],
             &["QUALIA_MISSION_BROKER_TOKEN_FILE"],
         );
@@ -145,6 +176,7 @@ impl BrokerConfig {
                 .or_else(|| env_string("QUALIA_TLS_DIR"))
                 .map(PathBuf::from),
             broker_token,
+            broker_token_source,
             broker_id: env_string("QUALIA_MISSION_BROKER_ID")
                 .unwrap_or_else(|| format!("qualia-mission-broker-{}", host_slug())),
             proposals: env_string("QUALIA_MISSION_BROKER_PROPOSALS")
@@ -158,6 +190,35 @@ impl BrokerConfig {
             area: Area::default(),
             coach: CoachConfig::from_env(),
         }
+    }
+}
+
+/// Deliberately not derived, for the same reason as [`CoachConfig`]:
+/// `broker_token` is the agent's bearer, so a `{:?}` on the broker's whole
+/// configuration prints its presence and provenance and never its value.
+impl std::fmt::Debug for BrokerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrokerConfig")
+            .field("agent_url", &self.agent_url)
+            .field("agent_tls_dir", &self.agent_tls_dir)
+            .field(
+                "broker_token",
+                &self
+                    .broker_token
+                    .as_deref()
+                    .zip(self.broker_token_source.as_deref())
+                    .map(|(_, source)| crate::redact::key_presence(source)),
+            )
+            .field("broker_id", &self.broker_id)
+            .field("proposals", &self.proposals)
+            .field("status_host", &self.status_host)
+            .field("status_port", &self.status_port)
+            .field("status_enabled", &self.status_enabled)
+            .field("tick", &self.tick)
+            .field("fly_governed", &self.fly_governed)
+            .field("area", &self.area)
+            .field("coach", &self.coach)
+            .finish()
     }
 }
 

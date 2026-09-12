@@ -49,9 +49,7 @@ pub struct ModelState {
     #[serde(default)]
     pub base_url: String,
     #[serde(default)]
-    pub key_prefix: Option<String>,
-    #[serde(default)]
-    pub key_redacted: bool,
+    pub key_presence: Option<String>,
     #[serde(default)]
     pub status: String,
     #[serde(default)]
@@ -252,9 +250,8 @@ pub fn render(ui: &mut Ui, state: &crate::ConsoleState) {
                     ui,
                     "key",
                     &model
-                        .key_prefix
+                        .key_presence
                         .clone()
-                        .map(|prefix| format!("{prefix}"))
                         .unwrap_or_else(|| "absent".to_string()),
                 );
                 theme::field(

@@ -59,10 +59,20 @@ pub fn scrub(text: &str, known: &[&str]) -> String {
     secrets(&scrubbed)
 }
 
-/// The prefix quoted for a key: the provider's three leading characters are
-/// dropped, four characters of key material are kept, and the length is stated
-/// so a reader can tell two keys apart without either being recoverable.
-pub fn key_prefix(key: &str) -> String {
-    let kept: String = key.chars().skip(3).take(4).collect();
-    format!("{}…(redacted, {} chars)", kept, key.chars().count())
+/// How a *present* credential is named in a log line, a status payload or an
+/// evidence file: by provenance — the environment key that carried it — and
+/// never one character of the credential and never its length.
+///
+/// `source` is the environment key [`crate::config::load_secret`] resolved the
+/// value from (`DEEPSEEK_API_KEY`, or its `_FILE` form), which is what a reader
+/// needs to tell *which* credential is configured.
+///
+/// There is deliberately no prefix mode, and no absent form: a four-character
+/// prefix plus the length is key material in a public tree (ticket #251), and
+/// absence belongs to the caller, which is the only place that knows the shape
+/// it needs — the log line spells it `none (llm_priors_ablated=true)`, the wire
+/// carries `null`, and the console's fallback is `absent`. Taking an `Option`
+/// here made a branch no call site could reach.
+pub fn key_presence(source: &str) -> String {
+    format!("<present via {source}>")
 }
