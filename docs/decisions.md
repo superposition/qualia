@@ -390,6 +390,25 @@ restored works as written — `cargo-zigbuild`, no root, no engine — and the D
 called unavailable is available as well; the original sentence measured an engine that was not *running* that
 minute, not one that was absent.
 
+**Third amendment, 2026-09-12 — the Docker-driven cross lane is demonstrated end to end.** From the WSL2
+Ubuntu-22.04 guest, with `cross v0.2.5` installed there and Docker Desktop's engine reachable:
+
+```console
+$ cross build --target aarch64-unknown-linux-gnu --release -p qualia-health
+    Finished `release` profile [optimized] target(s) in 19.22s
+$ file target/aarch64-unknown-linux-gnu/release/qualia-health
+ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked,
+interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=b365e6bbc09adfdffc0f77f8f35974c00b916cbe,
+for GNU/Linux 3.7.0, not stripped
+```
+
+So **two lanes build the board's architecture on the dev host**: `cargo-zigbuild` (no root, no engine, the
+lane this decision restored) and `cross` over the `docker/Dockerfile.cross-aarch64` image (55 s to build the
+image on the Windows host, 19 s to build a crate from a warm container). The first paragraph above is wrong
+twice over — the engine was present and merely not running, and the target does cross-build — and the reason
+to write it down is that **board build windows are this project's scarcest resource** (D-024): a leg that can
+be built here needs the board only to *run*.
+
 ## D-019 — A PR based on another ticket's branch can strand its work; base PRs on `main`
 
 Instance: PR #185 (T12, ticket #27) was opened with base `ticket/T11` and merged into that branch at
