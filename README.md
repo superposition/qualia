@@ -241,6 +241,7 @@ Entries are written as their tickets land, not reconstructed afterwards.
 | the licence and the snapshot | [EPIC-01](https://github.com/superposition/qualia/issues/1) |
 | the connectome as a prior | [EPIC-02](https://github.com/superposition/qualia/issues/2), [EPIC-03](https://github.com/superposition/qualia/issues/3) |
 | the fly in the belief matrices | [EPIC-04](https://github.com/superposition/qualia/issues/4), [EPIC-05](https://github.com/superposition/qualia/issues/5), [EPIC-06](https://github.com/superposition/qualia/issues/6) |
+| the fly brain on the robot | [EPIC-06](https://github.com/superposition/qualia/issues/6) |
 | the agent in the loop | [EPIC-07](https://github.com/superposition/qualia/issues/7), [EPIC-08](https://github.com/superposition/qualia/issues/8), [EPIC-08B](https://github.com/superposition/qualia/issues/9) |
 | the front end, rebuilt from lessons | [EPIC-09](https://github.com/superposition/qualia/issues/10) |
 | the ladder | [EPIC-08C](https://github.com/superposition/qualia/issues/11) |

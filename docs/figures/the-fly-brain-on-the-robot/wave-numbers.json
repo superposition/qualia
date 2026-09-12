@@ -1,0 +1,182 @@
+{
+  "entry": "the-fly-brain-on-the-robot",
+  "note": "Every number the two charts draw is read from this file, and every value here is a line of a named committed source. The diagram's labels are typed into make_figures.py; each traces to a source named in the entry's Evidence table or figure captions. A generator that cannot find a chart value refuses rather than guesses.",
+  "sources": {
+    "t55": "docs/evidence/T55/connectome-runner/README.md (and its host-*.log / board-loop.log)",
+    "t56": "docs/evidence/T56/floating-brain/README.md",
+    "t58": "docs/evidence/T58/real-sessions/README.md",
+    "t59": "docs/evidence/T59/devices/README.md",
+    "t63": "docs/evidence/T63/README.md",
+    "t65": "docs/evidence/T65/calibration/README.md",
+    "d026": "docs/decisions.md, D-026",
+    "d027": "docs/decisions.md, D-027",
+    "braid236": "https://github.com/superposition/qualia/issues/236 braid comments (2026-09-12)",
+    "braid250": "https://github.com/superposition/qualia/issues/250 braid comments (2026-09-12)"
+  },
+  "connectome": {
+    "neurons": 166700,
+    "edges": 25582938,
+    "synapses": 124177617,
+    "excitatory": 94542746,
+    "inhibitory": 26402637,
+    "unknown_sign": 3232234,
+    "positions_bytes": 3334012,
+    "positions_sha256_prefix": "016a285b",
+    "weights_bytes": 180414198,
+    "artifact_mb": 190,
+    "placed": 139662,
+    "unplaced": 27038,
+    "types": 11752,
+    "source": "t55, t56"
+  },
+  "step_rates": [
+    {
+      "device": "RTX 4090 (NVRTC, sm_89)",
+      "ms_per_tick": 1.381,
+      "ticks_per_s": 723.9,
+      "m_synapses_per_s": 18519.0,
+      "resident_bytes": 182247874,
+      "source": "t55"
+    },
+    {
+      "device": "Orin NX iGPU (sm_87 cubin, 6 cores)",
+      "ms_per_tick": 11.84,
+      "ticks_per_s": 84.5,
+      "m_synapses_per_s": 2160.6,
+      "resident_bytes": 182247874,
+      "source": "t55"
+    },
+    {
+      "device": "dev host CPU (one i9-14900KF thread)",
+      "ms_per_tick": 20.615,
+      "ticks_per_s": 48.5,
+      "m_synapses_per_s": 1241.0,
+      "resident_bytes": null,
+      "source": "t55"
+    },
+    {
+      "device": "Orin NX CPU reference",
+      "ms_per_tick": 49.14,
+      "ticks_per_s": 20.4,
+      "m_synapses_per_s": 520.6,
+      "resident_bytes": null,
+      "source": "t55"
+    }
+  ],
+  "frame_hz": 60,
+  "frame_ms": 16.7,
+  "loops": [
+    {
+      "what": "host loop, the board's camera",
+      "ticks": 200,
+      "seconds": 1.775,
+      "ticks_per_s": 112.7,
+      "spikes": 10048960,
+      "non_hold": 196,
+      "source": "t55"
+    },
+    {
+      "what": "board loop, first run (pre-fix reader)",
+      "ticks": 300,
+      "seconds": 9.589,
+      "ticks_per_s": 31.3,
+      "spikes": 15168990,
+      "non_hold": 296,
+      "source": "braid236"
+    },
+    {
+      "what": "board loop, re-run with the fixed reader",
+      "ticks": 300,
+      "seconds": 9.358,
+      "ticks_per_s": 32.1,
+      "spikes": 15085686,
+      "non_hold": 294,
+      "source": "t55"
+    }
+  ],
+  "snapshot_probe": {"fetches": 200, "ms": 2485, "per_s": 80.5, "source": "t55"},
+  "sessions": [
+    {
+      "session": "t58-real-01",
+      "seconds": 900,
+      "mcap_bytes": 83299459,
+      "mcap_sha256": "97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334",
+      "camera_records": 4502,
+      "lidar_records": 8775,
+      "pose_records": 0,
+      "applied_records": 0,
+      "candidates": 4501,
+      "valid": 0,
+      "first_rejection": "calibration_missing",
+      "source": "t58"
+    },
+    {
+      "session": "t65-real-01",
+      "seconds": 300,
+      "mcap_bytes": 30300801,
+      "mcap_sha256": "03ae6b0f4d2e44970d4e47e155c50cd46c74e73b9ba847f6d4e8508b35287110",
+      "camera_records": 1501,
+      "lidar_records": 2917,
+      "pose_records": 2917,
+      "applied_records": 2997,
+      "candidates": 1500,
+      "valid": 1499,
+      "first_rejection": "action_coverage (1 candidate)",
+      "mean_action_coverage": 1.0,
+      "mean_sensor_skew_ms": 29.19,
+      "calibration_id": "cac618af21db53843124b949d06e78c41c7b55d91a6cfdf2862813a61760f6e2",
+      "source": "t65"
+    }
+  ],
+  "promotion_floor": {
+    "valid_transitions": 50000,
+    "sessions": 12,
+    "environments": 3,
+    "conditions": 3,
+    "shortfall_x": 33.4,
+    "source": "d027"
+  },
+  "firing": {
+    "spikes_bytes": 40199848,
+    "spikes_sha256": "a0a27acbe61e0a9a5f013f77a9741ce466221b872bba711f7a07409f68593b28",
+    "frames": 200,
+    "ids": 10048960,
+    "first_ticks": [{"tick": 3, "fired": 19223}, {"tick": 4, "fired": 58109}, {"tick": 5, "fired": 44431}, {"tick": 6, "fired": 36480}],
+    "drawn_points": 9976,
+    "placed_points": 139662,
+    "firing_drawn_range": [3325, 3730],
+    "source": "t56"
+  },
+  "console": {
+    "live_panels": [
+      {"runner": "qualia-camera", "hz": 2.5},
+      {"runner": "qualia-health", "hz": 9.97},
+      {"runner": "qualia-vision", "hz": 4.99}
+    ],
+    "close_comment_run_hz": [2.54, 9.97, 4.98],
+    "source": "docs/evidence/T60/live-hud/README.md (the #241 close comment's run read 2.54/9.97/4.98)"
+  },
+  "mission_broker": {
+    "post_http_status": 202,
+    "accepted": true,
+    "idempotent_replay": false,
+    "requested_model": "deepseek-chat",
+    "reported_model": "deepseek-flash",
+    "latency_ms": 418,
+    "key_leak_prefix_chars": 4,
+    "source": "t63 (live-run.txt:4 = README.md:36; the README's note at :117-119 quotes a superseded 449 ms run)"
+  },
+  "gates_parity": {
+    "streams_identical": 6,
+    "provenance_summary": "provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2",
+    "figures_summary": "figures: OK (11 entries, 55 figures, 400 KiB budget)",
+    "source": "T57 braid on #238 / PR #253"
+  },
+  "leash": {
+    "serial_ports": ["/dev/ttyACM0", "/dev/ttyTHS1"],
+    "errno": 16,
+    "runner_exit": 2,
+    "camera_second_open_fd": 3,
+    "source": "t59"
+  }
+}
