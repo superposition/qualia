@@ -174,7 +174,7 @@ impl CoachClient {
     /// Ask once about one item. Never panics, never blocks past the timeout,
     /// never returns a decision a model did not produce.
     pub fn ask(&self, item: &DecisionItem, braid: &BraidView, area: &Area) -> CoachOutcome {
-        let Some(api_key) = self.config.api_key.as_deref() else {
+        let Some((api_key, key_source)) = self.config.credential() else {
             return CoachOutcome::NoDecision(Box::new(NoDecision {
                 reason: "no_key".to_string(),
                 line: no_key_line(Some(&item.item_id)),
@@ -202,7 +202,7 @@ impl CoachClient {
             "qualia-mission-broker: coach request model={} base_url={} key={} prompt_digest={} prompt_bytes={} timeout_ms={}",
             self.config.model,
             self.config.base_url,
-            redact::key_presence(self.config.key_source.as_deref()),
+            redact::key_presence(key_source),
             prompt_digest,
             request_bytes.len(),
             self.config.timeout.as_millis()

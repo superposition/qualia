@@ -22,15 +22,18 @@ broker read the same secret through the same `_FILE` key.
 
 ## The live request and response
 
-`live-run.txt` is the run verbatim; the facts, redacted. **The credential never appears**: a configured key is
-named by presence and provenance only (`key=<present via DEEPSEEK_API_KEY_FILE>`), with no character of the key
-and no length, and this tree contains no key-shaped literal. Re-captured 2026-09-12 under #251 — the earlier
-transcript carried a 4-character prefix plus the key's length, and `redact.rs` no longer has a prefix mode; this
-is the live `--once` pass after that change.
+`live-run.txt` is the run verbatim; the facts, redacted. **The credential never appears**, on any
+surface: a configured key is named by presence and provenance only (`key=<present via
+DEEPSEEK_API_KEY_FILE>`), with no character of the key and no length, and this tree contains no
+key-shaped literal. The status payload is redacted too — every string on a decision row as it is
+recorded, and the encoded payload once more on the way to the wire — measured against a provider that
+echoes the credential back in `redaction-probe.txt`. Re-captured 2026-09-12 under #251 on the fix
+commit: the T63-era transcript carried a 4-character prefix plus the key's length, `redact.rs` no longer
+has a prefix mode, and the live `--once` pass below is what the tree emits now.
 
 ```text
-coach request  model=deepseek-chat base_url=https://api.deepseek.com key=<present via DEEPSEEK_API_KEY_FILE> prompt_digest=sha256:e54a98a3… prompt_bytes=2879 timeout_ms=8000
-coach response id=9f8bbc50-469a-45cf-97b4-772ff20a43d9 model=deepseek-flash latency_ms=449 usage=prompt_tokens=782 completion_tokens=139 finish_reason=stop
+coach request  model=deepseek-chat base_url=https://api.deepseek.com key=<present via DEEPSEEK_API_KEY_FILE> prompt_digest=sha256:d76e7180… prompt_bytes=2891 timeout_ms=8000
+coach response id=70bb2dcb-4050-4a4f-b8a5-c7e8bbf348b4 model=deepseek-flash latency_ms=418 usage=prompt_tokens=786 completion_tokens=143 finish_reason=stop
 ```
 
 The provider reported its own model id (`deepseek-flash`) rather than the
@@ -44,9 +47,9 @@ parsed into a decision:
 ```json
 {"decision_kind":"promote","target_proposal_ids":["proposal-frontier-corner-a"],
  "output_ids":["proposal-frontier-corner-a"],
- "reason":"Frontier region proposal with fresh pose/lidar evidence, high mission relevance, and bounds inside the operating area justifies one bounded exploration mission.",
+ "reason":"Frontier region proposal with fresh pose/lidar evidence, high mission relevance, and a bounded reachable centroid inside the operating area justifies one bounded exploration mission.",
  "mission":{"objective_kind":"explore_frontier",
-            "summary":"Explore frontier region in the corner of the operating area.",
+            "summary":"Explore frontier region near corner A within the observed bounds.",
             "target_x_m":1.9,"target_y_m":1.1,"tolerance_m":0.3,
             "max_distance_m":2.0,"max_runtime_ms":60000,"max_replans":1}}
 ```
@@ -60,16 +63,17 @@ from the proposal's `lineage.evidence_refs` (`evidence_refs=2`).
 
 ```text
 qualia-mission-broker: posted POST https://127.0.0.1:8080/mission-control/envelopes -> HTTP 202 accepted=true idempotent_replay=false
-qualia-mission-broker: read back GET /mission-control/missions -> mission mission-coach-7328542779780072-1 status=paused stage=awaiting_evidence code=awaiting_fresh_evidence
-qualia-mission-broker: read back GET /mission-control/events -> seq=13 kind=accepted status=queued code=accepted detail=bounded mission was durably accepted
-qualia-mission-broker: read back GET /mission-control/events -> seq=14 kind=paused status=paused code=awaiting_fresh_evidence detail=mission is paused until referenced fresh spatial evidence exists
+qualia-mission-broker: read back GET /mission-control/missions -> mission mission-coach-7328553019952156-1 status=paused stage=awaiting_evidence code=awaiting_fresh_evidence
+qualia-mission-broker: read back GET /mission-control/events -> seq=31 kind=accepted status=queued code=accepted detail=bounded mission was durably accepted
+qualia-mission-broker: read back GET /mission-control/events -> seq=32 kind=paused status=paused code=awaiting_fresh_evidence detail=mission is paused until referenced fresh spatial evidence exists
 ```
 
 The agent's own answer, captured from `GET /mission-control/missions`
 (`missions-after-live-run.json`, read with the CA certificate and no token —
 the Read scope is loopback-bypassed). It is the T63-era capture, so it holds
 T63's two missions; the #251 re-run's own mission id, posted and read back
-above, is in `live-run.txt`:
+above, is in `live-run.txt` (the fix-commit pass posted
+`mission-coach-7328553019952156-1`, `seq` 31/32):
 
 ```text
 schema qualia.mission-control-state.v1 broker_epoch 7328531307768660 seq 1 count 2

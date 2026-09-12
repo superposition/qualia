@@ -1,0 +1,78 @@
+# #251 — the status surface redacts what it publishes
+
+The broker's log lines passed through `redact` from the start; the `GET /coach`
+payload did not. A provider that echoes the credential it was handed in the
+`Authorization` header back inside its answer reached `decisions[].reason` (and
+`target_proposal_ids`, `output_ids`, `model_id`, `response_id`, and the refusal
+`disposition`) unredacted, while the same string in the run's log was
+`[redacted]`. `runners/mission-broker/src/status.rs` now redacts every string on
+those rows at ingest and runs the whole encoded payload through `redact::scrub`
+once more on the way to the wire.
+
+Measured with the real binary, twice: the tree at `464d602` (before) and this
+branch (after). A stub provider answered the coach's `POST /chat/completions`
+and echoed the credential it saw in the `Authorization` header back into the
+answer; a stub agent answered the one braid read the broker needs before it
+asks the coach.
+
+The credential the probes used is the provider's marker, `REV`, and 30 more
+characters: `REV255SENTINEL0123456789ABCDEFGH`. The marker itself is not written
+in this file for the same reason `redact.rs` assembles it — the acceptance greps
+this tree for that three-byte literal and must find nothing — so the rows below
+write it as `<marker>`. It is the shape of the operator's own `DEEPSEEK_API_KEY`.
+
+```text
+before/echo_reason: status_json=1 run_log=0     <- the reviewer's probe
+before/echo_ids:    status_json=5 run_log=0
+before/plain:       status_json=0 run_log=0
+
+after/echo_reason:  status_json=0 run_log=0
+after/echo_ids:     status_json=0 run_log=0
+after/plain:        status_json=0 run_log=0
+```
+
+`echo_ids` puts the credential in `target_proposal_ids`, `output_ids`, the
+response `id` and the provider's `model`; the target is not a proposal the
+broker holds, so the model's own string is quoted again in the refusal
+`disposition` — five occurrences on the before payload, none after:
+
+```json
+{"target_proposal_ids":["<marker>REV255SENTINEL0123456789ABCDEFGH"],
+ "output_ids":["<marker>REV255SENTINEL0123456789ABCDEFGH-out"],
+ "model_id":"stub-model-<marker>REV255SENTINEL0123456789ABCDEFGH",
+ "response_id":"stub-<marker>REV255SENTINEL0123456789ABCDEFGH",
+ "disposition":"refused: the model targeted <marker>REV255SENTINEL0123456789ABCDEFGH, which is not a proposal this broker holds"}
+```
+
+```json
+{"target_proposal_ids":["[redacted]"],
+ "output_ids":["[redacted]-out"],
+ "model_id":"stub-model-[redacted]",
+ "response_id":"stub-[redacted]",
+ "disposition":"refused: the model targeted [redacted], which is not a proposal this broker holds"}
+```
+
+(The comma after `[redacted]` in the disposition is the broker's own sentence
+punctuation — `envelope::decision_from_draft` writes `targeted {target}, which
+is not…` — and not the old key-prefix shape, which printed part of the key
+beside its length and is gone from the tree.)
+
+The redaction does not eat legitimate text. `plain` sends a non-key reason
+through the same path; it arrives byte-identical, before and after:
+
+```text
+reason: the frontier proposal names evidence older than the envelope allows, so it is recorded and opens no mission
+targets: ["proposal-frontier-corner-a"] outputs: [] model_id: stub-model response_id: stub-plain
+```
+
+The run log is 0 in every mode, before and after: `say`/`warn` already applied
+`redact::secrets`, which is what made the leak — the log was clean while the
+payload was not — invisible to the earlier reading.
+
+Reproduction (scratch, not committed): the broker ran with the credential in
+`DEEPSEEK_API_KEY`, `QUALIA_COACH_BASE_URL=http://127.0.0.1:8199`,
+`QUALIA_COACH_STATUS_PORT=8123`, `QUALIA_AGENT_URL=http://127.0.0.1:8198`,
+`QUALIA_MISSION_BROKER_TOKEN_FILE=C:/tmp/qualia-mission-broker.token`, and
+`--ticks 3 --poll-ms 2000 --proposal docs/evidence/T63/proposal-frontier-1.json`;
+the payload was read from `GET http://127.0.0.1:8123/coach` while the run was
+up, and each surface was counted for the credential string.

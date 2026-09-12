@@ -90,21 +90,40 @@ pub struct CoachState {
 #[derive(Clone)]
 pub struct StatusHandle {
     inner: Arc<Mutex<CoachState>>,
+    /// The credential this process holds. Not published: it is held so the
+    /// surface can scrub the exact value as well as any marker-shaped run.
+    known: Arc<Vec<String>>,
 }
 
 impl StatusHandle {
-    /// Open the surface with the model's state.
-    pub fn new(model: ModelState) -> Self {
+    /// Open the surface with the model's state and the credential the process
+    /// must never publish.
+    pub fn new(model: ModelState, credential: Option<String>) -> Self {
+        let known: Arc<Vec<String>> = Arc::new(credential.into_iter().collect());
+        let mut state = CoachState {
+            schema_version: COACH_STATE_SCHEMA.to_string(),
+            observed_at_ms: now_ms() as u64,
+            model,
+            decisions: Vec::new(),
+            missions: Vec::new(),
+            degradations: Vec::new(),
+        };
+        redact_model(&as_refs(known.as_slice()), &mut state.model);
         Self {
-            inner: Arc::new(Mutex::new(CoachState {
-                schema_version: COACH_STATE_SCHEMA.to_string(),
-                observed_at_ms: now_ms() as u64,
-                model,
-                decisions: Vec::new(),
-                missions: Vec::new(),
-                degradations: Vec::new(),
-            })),
+            inner: Arc::new(Mutex::new(state)),
+            known,
         }
+    }
+
+    /// The credentials, as the slice [`redact::scrub`] takes.
+    fn known_refs(&self) -> Vec<&str> {
+        as_refs(self.known.as_slice())
+    }
+
+    /// One string as the wire may carry it: every credential this process
+    /// holds, then every marker-shaped run, becomes `[redacted]`.
+    fn scrub(&self, text: &str) -> String {
+        redact::scrub(text, &self.known_refs())
     }
 
     /// The current payload.
@@ -114,13 +133,23 @@ impl StatusHandle {
 
     /// Update the model's state.
     pub fn set_model(&self, change: impl FnOnce(&mut ModelState)) {
+        let known = self.known_refs();
         let mut state = self.inner.lock().expect("coach state lock");
         change(&mut state.model);
+        redact_model(&known, &mut state.model);
         state.observed_at_ms = now_ms() as u64;
     }
 
     /// Record one decision, newest first.
+    ///
+    /// The row is text the provider wrote (`reason`, the ids it names, its
+    /// `model_id` and `response_id`) beside the broker's own words about it
+    /// (`disposition`), so every string on it is redacted at ingest. `serve`
+    /// runs the encoded payload through the same scrub once more, so a field
+    /// added to this row later cannot be born unredacted.
     pub fn push_decision(&self, row: DecisionRow) {
+        let known = self.known_refs();
+        let row = redact_decision(&known, row);
         let mut state = self.inner.lock().expect("coach state lock");
         state.decisions.insert(0, row);
         state.decisions.truncate(MAX_DECISIONS);
@@ -129,6 +158,8 @@ impl StatusHandle {
 
     /// Record one mission delivery, newest first.
     pub fn push_mission(&self, row: MissionRow) {
+        let known = self.known_refs();
+        let row = redact_mission(&known, row);
         let mut state = self.inner.lock().expect("coach state lock");
         state.missions.insert(0, row);
         state.missions.truncate(MAX_DECISIONS);
@@ -137,8 +168,10 @@ impl StatusHandle {
 
     /// Record one named degradation line.
     pub fn push_degradation(&self, line: String) {
+        let known = self.known_refs();
+        let line = redact::scrub(&line, &known);
         let mut state = self.inner.lock().expect("coach state lock");
-        state.degradations.push(redact::secrets(&line));
+        state.degradations.push(line);
         state.degradations.truncate(MAX_DECISIONS);
         state.observed_at_ms = now_ms() as u64;
     }
@@ -181,7 +214,9 @@ impl StatusHandle {
                 let (status, body) = match path {
                     "/coach" => (
                         "200 OK",
-                        serde_json::to_string(&handle.snapshot()).unwrap_or_else(|_| "{}".to_string()),
+                        serde_json::to_string(&handle.snapshot())
+                            .map(|payload| handle.scrub(&payload))
+                            .unwrap_or_else(|_| "{}".to_string()),
                     ),
                     "/health" => ("200 OK", r#"{"status":"ok"}"#.to_string()),
                     _ => (
@@ -199,4 +234,70 @@ impl StatusHandle {
         });
         Ok(())
     }
+}
+
+/// The credentials, as the slice [`redact::scrub`] takes.
+fn as_refs(known: &[String]) -> Vec<&str> {
+    known.iter().map(String::as_str).collect()
+}
+
+/// Redact every string on a decision row.
+///
+/// The row mixes the provider's own text (`reason`, the ids it names, its
+/// `model_id` and `response_id`) with the broker's words about it
+/// (`disposition`) and the broker's identifiers, and a reader must not have to
+/// decide field by field which one a provider can reach. Redacting all of them
+/// is the rule that cannot be got wrong.
+fn redact_decision(known: &[&str], mut row: DecisionRow) -> DecisionRow {
+    row.decision_id = redact::scrub(&row.decision_id, known);
+    row.decision_kind = redact::scrub(&row.decision_kind, known);
+    row.target_proposal_ids = row
+        .target_proposal_ids
+        .iter()
+        .map(|id| redact::scrub(id, known))
+        .collect();
+    row.output_ids = row
+        .output_ids
+        .iter()
+        .map(|id| redact::scrub(id, known))
+        .collect();
+    row.reason = row.reason.as_deref().map(|text| redact::scrub(text, known));
+    row.model_id = row.model_id.as_deref().map(|text| redact::scrub(text, known));
+    row.prompt_digest = row
+        .prompt_digest
+        .as_deref()
+        .map(|text| redact::scrub(text, known));
+    row.response_id = row
+        .response_id
+        .as_deref()
+        .map(|text| redact::scrub(text, known));
+    row.disposition = redact::scrub(&row.disposition, known);
+    row
+}
+
+/// Redact every string on a mission row: its `detail` is the agent's words
+/// about the delivery, and the rest is the broker's own composition.
+fn redact_mission(known: &[&str], mut row: MissionRow) -> MissionRow {
+    row.mission_id = redact::scrub(&row.mission_id, known);
+    row.idempotency_key = redact::scrub(&row.idempotency_key, known);
+    row.command = redact::scrub(&row.command, known);
+    row.detail = redact::scrub(&row.detail, known);
+    row
+}
+
+/// Redact every string on the model's state: the last error is a provider or
+/// transport line, and the rest is configuration and the broker's own words.
+fn redact_model(known: &[&str], model: &mut ModelState) {
+    model.model_id = redact::scrub(&model.model_id, known);
+    model.base_url = redact::scrub(&model.base_url, known);
+    model.key_presence = model
+        .key_presence
+        .as_deref()
+        .map(|text| redact::scrub(text, known));
+    model.status = redact::scrub(&model.status, known);
+    model.reason = model.reason.as_deref().map(|text| redact::scrub(text, known));
+    model.last_error = model
+        .last_error
+        .as_deref()
+        .map(|text| redact::scrub(text, known));
 }

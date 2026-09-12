@@ -59,21 +59,20 @@ pub fn scrub(text: &str, known: &[&str]) -> String {
     secrets(&scrubbed)
 }
 
-/// How a credential is named in a log line, a status payload or an evidence
-/// file: by presence and by the environment key that carried it — never one
-/// character of the credential and never its length.
+/// How a *present* credential is named in a log line, a status payload or an
+/// evidence file: by provenance — the environment key that carried it — and
+/// never one character of the credential and never its length.
 ///
 /// `source` is the environment key [`crate::config::load_secret`] resolved the
 /// value from (`DEEPSEEK_API_KEY`, or its `_FILE` form), which is what a reader
 /// needs to tell *which* credential is configured.
 ///
-/// There is deliberately no prefix mode. A four-character prefix plus the
-/// length is key material in a public tree (ticket #251); a diagnostic that
-/// needs one belongs in a debugger over the process environment, not in this
-/// crate's output, where it would land in an evidence file.
-pub fn key_presence(source: Option<&str>) -> String {
-    match source {
-        Some(key) => format!("<present via {key}>"),
-        None => "<absent>".to_string(),
-    }
+/// There is deliberately no prefix mode, and no absent form: a four-character
+/// prefix plus the length is key material in a public tree (ticket #251), and
+/// absence belongs to the caller, which is the only place that knows the shape
+/// it needs — the log line spells it `none (llm_priors_ablated=true)`, the wire
+/// carries `null`, and the console's fallback is `absent`. Taking an `Option`
+/// here made a branch no call site could reach.
+pub fn key_presence(source: &str) -> String {
+    format!("<present via {source}>")
 }

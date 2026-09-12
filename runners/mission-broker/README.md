@@ -68,14 +68,22 @@ of inventing an empty list.
 | `QUALIA_MISSION_BROKER_FLY_GOVERNED` | `false` | the envelope's `fly_governed` |
 
 The credential is never a file in this repository and never reaches a log line,
-an error path, a status payload or an evidence file. Redaction is `redact.rs`:
+an error path, a status payload or an evidence file — including the decision
+rows `GET /coach` publishes, whose `reason`, target/output ids, disposition,
+model id and response id are text the provider wrote. Redaction is `redact.rs`:
 any marker-shaped run becomes `[redacted]`, and a configured credential is
-named by presence and provenance only — `key=<present via DEEPSEEK_API_KEY>`,
-or `none (llm_priors_ablated=true)`. No character of the key and no length is
-emitted; there is no prefix mode to opt into, because a four-character prefix
-is key material in a public tree (ticket #251). The literal shape a key has is
-deliberately absent from this tree, because the acceptance runs `git grep` for
-it and must find nothing.
+named by presence and provenance only — `key=<present via DEEPSEEK_API_KEY>`; a
+log line with no credential says `none (llm_priors_ablated=true)`, the wire
+carries `null`, and the console's fallback is `absent`. No character of the key
+and no length is emitted; there is no prefix mode to opt into, because a
+four-character prefix is key material in a public tree (ticket #251). `status.rs`
+redacts every string on a row as it is recorded and runs the whole encoded
+payload through `redact::scrub` once more on the way to the wire, so a field
+added later cannot be born unredacted —
+`docs/evidence/T63/redaction-probe.txt` measures both surfaces against a stub
+provider that echoes the credential it was handed back in its answer. The
+literal shape a key has is deliberately absent from this tree, because the
+acceptance runs `git grep` for it and must find nothing.
 
 ## Honest degradation
 
