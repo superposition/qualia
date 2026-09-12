@@ -32,9 +32,9 @@ pub struct ModelState {
     pub configured: bool,
     pub model_id: String,
     pub base_url: String,
-    /// The redacted prefix, never the key.
-    pub key_prefix: Option<String>,
-    pub key_redacted: bool,
+    /// Presence and provenance of the credential — `<present via
+    /// DEEPSEEK_API_KEY>`, or absent. Never a character of the key.
+    pub key_presence: Option<String>,
     /// `ok` | `no_key` | `timeout` | `error`.
     pub status: String,
     pub reason: Option<String>,

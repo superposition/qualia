@@ -68,12 +68,14 @@ of inventing an empty list.
 | `QUALIA_MISSION_BROKER_FLY_GOVERNED` | `false` | the envelope's `fly_governed` |
 
 The credential is never a file in this repository and never reaches a log line,
-an error path, a status payload or an evidence file. Redaction is
-`redact.rs`: any marker-shaped run becomes `[redacted]`, and the quoted prefix
-is four characters of key material after the provider's three-character prefix,
-with the length stated — `1448…(redacted, 35 chars)`. The literal shape a key
-has is deliberately absent from this tree, because the acceptance runs
-`git grep` for it and must find nothing.
+an error path, a status payload or an evidence file. Redaction is `redact.rs`:
+any marker-shaped run becomes `[redacted]`, and a configured credential is
+named by presence and provenance only — `key=<present via DEEPSEEK_API_KEY>`,
+or `none (llm_priors_ablated=true)`. No character of the key and no length is
+emitted; there is no prefix mode to opt into, because a four-character prefix
+is key material in a public tree (ticket #251). The literal shape a key has is
+deliberately absent from this tree, because the acceptance runs `git grep` for
+it and must find nothing.
 
 ## Honest degradation
 

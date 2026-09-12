@@ -202,7 +202,7 @@ impl CoachClient {
             "qualia-mission-broker: coach request model={} base_url={} key={} prompt_digest={} prompt_bytes={} timeout_ms={}",
             self.config.model,
             self.config.base_url,
-            redact::key_prefix(api_key),
+            redact::key_presence(self.config.key_source.as_deref()),
             prompt_digest,
             request_bytes.len(),
             self.config.timeout.as_millis()
