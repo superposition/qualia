@@ -149,7 +149,7 @@ The board's manifest is not committed (3.4 MB, and it is the board's own artifac
 ### Reproduce
 
 ```sh
-# the scratch probe (the scratch crate is quoted in the PR, not committed)
+# the scratch probe (its two files are committed in digest-fix/)
 cargo build --release -j 2
 t52-digest-probe t65-manifest.json rust-compact.json
 # the falsification, without the feature

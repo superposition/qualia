@@ -1,0 +1,12 @@
+[package]
+name = "t52-digest-probe"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "t52-digest-probe"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }
+qualia-jepa-dataset = { path = "/mnt/c/Users/ericm/wt/T52promoted/crates/jepa-dataset" }
