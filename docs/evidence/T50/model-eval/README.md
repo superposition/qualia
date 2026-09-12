@@ -42,6 +42,12 @@ records the same fault. The record would be D-018's lane (a) — a native aarch6
 offline cache does not carry and has no DNS to fetch, so no aarch64 record for the model binaries
 exists on either side today. No cross-build is claimed.
 
+*(Both clauses here are provisional limits, not host or board properties: the cross-build pieces are
+an installed `aarch64-unknown-linux-gnu` target and a linker route (PR #194 cross-built a crate on
+this host and ran it on Pinkie twice; D-018 is amended), and the board's `candle-core`/DNS clause is
+superseded by D-022, which measures the board building and running this package natively. The build
+lines above stand as the record of what this attempt did.)*
+
 `ldd` on them resolves `libcuda.so.1`, `libcublas.so.12` and `libcurand.so.10`.
 
 ## The checkpoint, and why it is not a promoted model
@@ -137,8 +143,12 @@ The two blockers, restated as the ticket's closure question:
    against the gate's 0.9–1.1) lives in #172's 21:33Z profiling comment rather than in
    `trainer-refusals.txt`, which records the refusals only.
 
-2. **Pinkie.** The board's offline registry cache carries no `candle-core` and the board has no DNS,
-   so the model steps cannot be built or run there; the step-5 bar ("including on Pinkie") is
+2. **Pinkie.** *(Superseded 2026-09-11 by measurement: the board's registry cache is complete for the
+   head, it fetches through the host's gadget proxy, and it builds and runs the package natively —
+   `7m 19s`, and `5m 30s` with `--features cuda`, probe `outputs_finite: true` on both; the board
+   job's comments on #225/#228, D-022.)* As recorded at the time of writing, the board's offline
+   registry cache carried no `candle-core` and the board had no DNS,
+   so the model steps could not be built or run there; the step-5 bar ("including on Pinkie") was
    satisfied only by the kernel captures (`docs/evidence/T50/pinkie-kernels*/`). This capture is a
    dev-host 4090 capture for that reason, and the reason is the DoD's stated-reason clause.
 

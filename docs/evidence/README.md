@@ -92,12 +92,13 @@ mage profiles a native executable, so build the ticket's binary first and hand `
 path. The profiling target is **Pinkie**, the Waveshare-carried Jetson Orin NX at
 `jetson@192.168.55.1` ([`decisions.md`](../decisions.md) D-010, D-012): it carries `ncu` at
 `/usr/local/cuda/bin/ncu` and no `nsys`, so a capture there uses `--backend ncu`. Its binary is the
-ticket's aarch64 build — the host's cross-build through the cross image (`Cross.toml`,
-`docker/Dockerfile.cross-aarch64`) or a native build on the board (D-010) — copied to the board,
-which has no DNS.
+ticket's aarch64 build — a native build on the board, or a host cross-build (the cross image,
+`Cross.toml` / `docker/Dockerfile.cross-aarch64`, was unusable on this host when D-018 was written;
+that entry is amended) — copied to the board. At the time of writing the board resolved no DNS
+itself; D-022 records the provisioning that now reaches crates.io through the host's gadget proxy.
 
 ```bash
-# on Pinkie: mage and the aarch64 binary are copied over first (the board has no DNS, D-010)
+# on Pinkie: mage and the aarch64 binary are copied over first (at the time of writing the board has no DNS of its own and no mage; D-022)
 mage profile-exec --backend ncu --capture-range all \
   --output-dir ~/mage-capture-scratch/T<NN>/<slug> \
   -- ./gpu-<hash> --test-threads=1
@@ -135,8 +136,9 @@ the target and capture range. Reports: …`, and a kernel-less `ncu` run prints 
 
 Capture by hand when mage is not available on the target, or when mage cannot express the capture
 the ticket needs (its backend argv is fixed), for a reason that lives with the target or with mage
-rather than with this repository. Pinkie is that case: it carries no `nsys`, has no DNS, and has no
-mage installed today, so its captures are produced manually. State that reason and the exact command
+rather than with this repository. Pinkie is that case: it carries no `nsys`, and at the time of
+writing had no DNS of its own and no `mage` installed, so its captures are produced manually. State
+that reason and the exact command
 used in the directory README, and keep the manifest's field names — `argv`, `returncode`, `status`,
 `error`. Commit the raw backend export (`capture.ncu-rep` and `metrics.csv` for `ncu`) when it fits
 the size the tree carries; when it cannot be committed, the directory README says `kernels.json` and
@@ -149,9 +151,11 @@ Profiling happens on the target, and per D-012 that target is **Pinkie**; the ev
 ticket from there. A capture on the dev host is not the convention. Two classes of dev-host capture
 are the carve-outs: a kernel-less CPU timeline — it opens no CUDA device for the board's `ncu`, and
 Pinkie carries no `nsys` to trace it there (T35 and T31) — and a run whose package the board cannot
-execute, T50's model step needing `candle-core/cuda`, which the board's offline registry cache lacks
-and its DNS-less host cannot fetch. Each may be captured on the dev host, accepted on precedent; the
-list is not exhaustive, since T16's capture also ran on the dev host, before D-012 set the target.
+execute — T50's model step needing `candle-core/cuda`, recorded at the time of writing as absent
+from the board's offline registry cache and unfetchable from a DNS-less host; D-022 now measures the
+board building and running that package natively, so that stated reason is superseded. Each may be
+captured on the dev host, accepted on precedent; the list is not exhaustive, since T16's capture
+also ran on the dev host, before D-012 set the target.
 The host's WSL2 Ubuntu-22.04 distribution is where mage installs on this workstation (`triton>=3.0`
 publishes no `win_amd64` wheel, so `uv tool install git+https://github.com/superposition/mage`
 cannot resolve on the Windows

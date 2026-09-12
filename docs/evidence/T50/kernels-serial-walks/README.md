@@ -12,8 +12,9 @@ device suite, built from the same tree, single-threaded, profiled with mage.
 `nsys` runs on the **dev workstation's WSL2 Ubuntu-22.04 distribution** against the **RTX 4090**
 (`GPU-fb7c6e5e-95d2-8da6-98ae-b08353b6fe01`), Nsight Systems **2025.3.2.474**, driven by mage's
 `profile-exec --backend nsys`. [D-012](../../../decisions.md) makes Pinkie the profiling target, but
-the board carries **no `nsys` and no mage** (T50's board report records both as absent with no
-offline route to install them), so the pair cannot be taken there; the board's own `ncu` counters
+the board carries **no `nsys` and no mage** (T50's board report records both as absent; at the time
+of writing there was no offline route to install them — the `nsys` absence is the target-side limit,
+the `mage` half an install state, D-022), so the pair cannot be taken there; the board's own `ncu` counters
 for these two kernels are in [`../pinkie-kernels/`](../pinkie-kernels/) and are the cross-check for
 the shape and the register counts below. This directory is therefore the **dev-host substitution**
 that [`../../baseline-2026-09-11/`](../../baseline-2026-09-11/README.md) also uses, and the board re-measure of the refactor is still owed by
