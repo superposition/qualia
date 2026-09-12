@@ -5829,12 +5829,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-connectome-stream"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "qualia-connectome-view"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "qualia-connectome-stream",
+ "qualia-rerun-bridge",
+ "rerun",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "qualia-console"
 version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "qualia-connectome-stream",
  "qualia-fly-circuit",
  "qualia-mcap",
  "qualia-shm",

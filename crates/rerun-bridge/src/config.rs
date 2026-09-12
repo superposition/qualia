@@ -6,13 +6,17 @@ use std::path::PathBuf;
 /// Where the recording goes.
 ///
 /// `Buffered` keeps the recording in memory (the viewer connects to it),
-/// `Save` streams it to an `.rrd` file, and `Disabled` makes every bridge call
-/// a no-op so a caller can leave instrumentation in place unconditionally.
+/// `Save` streams it to an `.rrd` file, `Connect` streams it to a running
+/// viewer or server over gRPC (the live path: the viewer is on the desktop and
+/// the logger is on the board), and `Disabled` makes every bridge call a no-op
+/// so a caller can leave instrumentation in place unconditionally.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RerunSinkConfig {
     Disabled,
     Buffered,
     Save(PathBuf),
+    /// A Rerun proxy URL, e.g. `rerun+http://127.0.0.1:9876/proxy`.
+    Connect(String),
 }
 
 /// Application id plus destination for one bridge instance.
