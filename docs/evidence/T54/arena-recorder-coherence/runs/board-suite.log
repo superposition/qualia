@@ -1,0 +1,60 @@
+   Compiling qualia-arena-recorder v0.1.0 (/home/jetson/remediate/515a506/runners/arena-recorder)
+   Compiling qualia-shm v0.1.0 (/home/jetson/remediate/515a506/crates/shm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.71s
+     Running unittests src/main.rs (target/debug/deps/qualia_arena_recorder-6481b189f9c7058a)
+
+running 10 tests
+test tests::fixed_identifiers_stop_at_the_first_nul ... ok
+test tests::prior_timestamps_convert_milliseconds_and_survive_overflow ... ok
+test tests::project_observed_cells_traces_the_ray_and_leaves_the_rest_unknown ... ok
+test tests::uncorrelated_telemetry_is_reported_uncorrelated ... ok
+test tests::validation_requires_one_primary_and_distinct_names ... ok
+test tests::a_rollback_stops_the_capture_instead_of_gapping_the_session ... ok
+test tests::beliefs_are_recorded_once_and_health_once_per_poll ... ok
+test tests::jepa_records_each_sequence_once_with_its_telemetry ... ok
+test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... ok
+test tests::a_tick_records_both_entities_and_every_committed_interval ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/recorder.rs (target/debug/deps/recorder-87fc8592bce4126c)
+
+running 5 tests
+test two_primary_sources_are_rejected_before_any_region_opens ... ok
+test an_empty_source_list_fails_with_the_operator_diagnostic ... ok
+test a_duration_bounded_session_seals_without_a_signal ... ok
+test a_sealed_segment_is_reported_to_the_braid ... ok
+test one_session_records_the_whole_physical_and_belief_state ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+
+     Running unittests src/lib.rs (target/debug/deps/qualia_shm-9b9bdc50f19c7049)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shm.rs (target/debug/deps/shm-56ac8049a1b465d9)
+
+running 12 tests
+test error_debug_renders_the_reference_spelling ... ok
+test error_display_renders_the_reference_wording ... ok
+test open_of_an_unknown_name_reports_an_os_error ... ok
+test offsets_place_the_header_slots_and_ledger_where_the_layout_says ... ok
+test open_rejects_a_foreign_header ... ok
+test region_is_send_and_sync ... ok
+test create_open_detach_round_trip ... ok
+test a_ledger_index_past_the_ring_is_rejected_with_the_reference_message - should panic ... ok
+test layer_writer_publishes_and_reader_follows ... ok
+test ledger_ring_wraps_and_reports_its_sequence ... ok
+test weight_tiles_round_trip_through_a_layer_slot ... ok
+test reattach_reads_the_existing_region_instead_of_zeroing_it ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+   Doc-tests qualia_shm
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

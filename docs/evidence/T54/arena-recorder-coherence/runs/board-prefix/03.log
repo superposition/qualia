@@ -1,8 +1,5 @@
-   Compiling qualia-shm v0.1.0 (C:\Users\ericm\wt\T54\crates\shm)
-   Compiling qualia-braid v0.1.0 (C:\Users\ericm\wt\T54\crates\braid)
-   Compiling qualia-arena-recorder v0.1.0 (C:\Users\ericm\wt\T54\runners\arena-recorder)
 warning: function `coherent_belief` is never used
-   --> runners\arena-recorder\src\main.rs:894:4
+   --> runners/arena-recorder/src/main.rs:894:4
     |
 894 | fn coherent_belief(region: &ShmRegion, layer: usize) -> Option<BeliefSlot> {
     |    ^^^^^^^^^^^^^^^
@@ -10,8 +7,8 @@ warning: function `coherent_belief` is never used
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `qualia-arena-recorder` (bin "qualia-arena-recorder") generated 1 warning
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.13s
-     Running unittests src\main.rs (target\debug\deps\qualia_arena_recorder-dd60863cb9f59d42.exe)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.72s
+     Running unittests src/main.rs (target/debug/deps/qualia_arena_recorder-6481b189f9c7058a)
 
 running 1 test
 test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... FAILED
@@ -20,9 +17,9 @@ failures:
 
 ---- tests::a_coherent_read_of_the_recorded_belief_is_never_torn stdout ----
 
-thread 'tests::a_coherent_read_of_the_recorded_belief_is_never_torn' (31808) panicked at runners\arena-recorder\src\main.rs:1437:13:
+thread 'tests::a_coherent_read_of_the_recorded_belief_is_never_torn' (588475) panicked at runners/arena-recorder/src/main.rs:1437:13:
 assertion `left == right` failed: a coherent read saw two publishes mixed together
-  left: 1447
+  left: 1906
  right: 0
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
@@ -30,6 +27,6 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 failures:
     tests::a_coherent_read_of_the_recorded_belief_is_never_torn
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.07s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.09s
 
 error: test failed, to rerun pass `-p qualia-arena-recorder --bin qualia-arena-recorder`

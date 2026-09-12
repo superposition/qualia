@@ -1,0 +1,10 @@
+   Compiling qualia-types v0.1.0 (/home/jetson/remediate/515a506/crates/types)
+   Compiling qualia-jepa-dataset v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-dataset)
+   Compiling qualia-shm v0.1.0 (/home/jetson/remediate/515a506/crates/shm)
+   Compiling qualia-jepa-model v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-model)
+   Compiling qualia-sync-types v0.1.0 (/home/jetson/remediate/515a506/crates/sync-types)
+   Compiling qualia-jepa-registry v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-registry)
+   Compiling qualia-braid v0.1.0 (/home/jetson/remediate/515a506/crates/braid)
+   Compiling qualia-session-store v0.1.0 (/home/jetson/remediate/515a506/crates/session-store)
+   Compiling qualia-arena-recorder v0.1.0 (/home/jetson/remediate/515a506/runners/arena-recorder)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.94s

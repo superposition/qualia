@@ -1002,7 +1002,7 @@ mod tests {
     use super::*;
     use qualia_mcap::read_window;
     use qualia_shm::LayerWriter;
-    use qualia_types::{CameraFrameSnapshot, LidarPoint, ACTION_AUTHORITY_LEASH};
+    use qualia_types::{CameraFrameSnapshot, LidarPoint, ACTION_AUTHORITY_LEASH, STATE_DIM};
 
     fn scratch_region(tag: &str) -> (ShmRegion, String) {
         let name = format!("/qualia-arena-unit-{tag}-{}", std::process::id());
@@ -1352,19 +1352,28 @@ mod tests {
                         std::hint::spin_loop();
                     }
                     // Publish often enough that the copy cannot outrun the
-                    // writes: whichever buffer the reader selected is rewritten
-                    // several times inside it, and an even number of flips
-                    // returns the index to where it started, so a guard that
-                    // only compares the index's parity accepts a copy that
-                    // mixed the publishes.
-                    for _ in 0..32 {
+                    // writes. Each cycle writes the same marker set, spread
+                    // through the belief, so a copy that straddles a rewrite
+                    // reads markers from two publishes and an even number of
+                    // flips returns the index to where it started — which a
+                    // guard that only compares the index's parity accepts.
+                    for _ in 0..500 {
                         round = round.wrapping_add(1);
                         let fill = round as f32;
                         let back = writer.back_buffer();
-                        back.mean.fill(fill);
-                        back.precision.fill(fill);
-                        back.prediction.fill(fill);
-                        back.residual.fill(fill);
+                        // 0, half and last of each array, plus the scalars:
+                        // far enough apart that a copy reads them at
+                        // different moments.
+                        back.mean[0] = fill;
+                        back.mean[STATE_DIM / 2] = fill;
+                        back.mean[STATE_DIM - 1] = fill;
+                        back.precision[0] = fill;
+                        back.precision[STATE_DIM / 2] = fill;
+                        back.prediction[0] = fill;
+                        back.prediction[STATE_DIM / 2] = fill;
+                        back.residual[0] = fill;
+                        back.residual[STATE_DIM / 2] = fill;
+                        back.residual[STATE_DIM - 1] = fill;
                         back.vfe = fill;
                         back.challenge_vfe = fill;
                         back.timestamp_ns = round as u64;
@@ -1388,15 +1397,23 @@ mod tests {
                 let Some(belief) = belief else {
                     continue;
                 };
-                // Every field of one publish carries that publish's fill, so a
-                // copy that mixed two of them shows both.
-                let fill = belief.mean[0];
-                let coherent = belief.mean.iter().all(|&value| value == fill)
-                    && belief.precision.iter().all(|&value| value == fill)
-                    && belief.prediction.iter().all(|&value| value == fill)
-                    && belief.residual.iter().all(|&value| value == fill)
-                    && belief.vfe == fill
-                    && belief.challenge_vfe == fill;
+                // One publish writes every marker with that publish's fill, so
+                // a copy that mixed two of them shows both.
+                let markers = [
+                    belief.mean[0],
+                    belief.mean[STATE_DIM / 2],
+                    belief.mean[STATE_DIM - 1],
+                    belief.precision[0],
+                    belief.precision[STATE_DIM / 2],
+                    belief.prediction[0],
+                    belief.prediction[STATE_DIM / 2],
+                    belief.residual[0],
+                    belief.residual[STATE_DIM / 2],
+                    belief.residual[STATE_DIM - 1],
+                    belief.vfe,
+                    belief.challenge_vfe,
+                ];
+                let coherent = markers.iter().all(|&value| value == markers[0]);
                 accepted += 1;
                 if !coherent {
                     torn += 1;

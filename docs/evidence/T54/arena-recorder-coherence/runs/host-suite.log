@@ -1,7 +1,7 @@
    Compiling qualia-shm v0.1.0 (C:\Users\ericm\wt\T54\crates\shm)
    Compiling qualia-braid v0.1.0 (C:\Users\ericm\wt\T54\crates\braid)
    Compiling qualia-arena-recorder v0.1.0 (C:\Users\ericm\wt\T54\runners\arena-recorder)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.43s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.05s
      Running unittests src\main.rs (target\debug\deps\qualia_arena_recorder-dd60863cb9f59d42.exe)
 
 running 10 tests
@@ -11,12 +11,12 @@ test tests::prior_timestamps_convert_milliseconds_and_survive_overflow ... ok
 test tests::validation_requires_one_primary_and_distinct_names ... ok
 test tests::uncorrelated_telemetry_is_reported_uncorrelated ... ok
 test tests::a_rollback_stops_the_capture_instead_of_gapping_the_session ... ok
-test tests::jepa_records_each_sequence_once_with_its_telemetry ... ok
-test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... ok
 test tests::beliefs_are_recorded_once_and_health_once_per_poll ... ok
+test tests::jepa_records_each_sequence_once_with_its_telemetry ... ok
 test tests::a_tick_records_both_entities_and_every_committed_interval ... ok
+test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... ok
 
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
 
      Running tests\recorder.rs (target\debug\deps\recorder-ef561fbc2066d5a8.exe)
 
@@ -27,7 +27,7 @@ test a_duration_bounded_session_seals_without_a_signal ... ok
 test a_sealed_segment_is_reported_to_the_braid ... ok
 test one_session_records_the_whole_physical_and_belief_state ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.11s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
 
      Running unittests src\lib.rs (target\debug\deps\qualia_shm-bd493377c959f90a.exe)
 
@@ -40,20 +40,20 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 14 tests
 test a_name_the_platform_cannot_use_renders_the_operator_line ... ok
 test error_debug_renders_the_reference_spelling ... ok
+test error_display_renders_the_reference_wording ... ok
 test open_of_an_unknown_name_reports_an_os_error ... ok
 test region_is_send_and_sync ... ok
-test error_display_renders_the_reference_wording ... ok
-test create_open_detach_round_trip ... ok
-test windows_names_are_normalised_across_separators ... ok
-test offsets_place_the_header_slots_and_ledger_where_the_layout_says ... ok
-test reattach_reads_the_existing_region_instead_of_zeroing_it ... ok
-test layer_writer_publishes_and_reader_follows ... ok
-test a_ledger_index_past_the_ring_is_rejected_with_the_reference_message - should panic ... ok
 test open_rejects_a_foreign_header ... ok
-test ledger_ring_wraps_and_reports_its_sequence ... ok
 test weight_tiles_round_trip_through_a_layer_slot ... ok
+test reattach_reads_the_existing_region_instead_of_zeroing_it ... ok
+test a_ledger_index_past_the_ring_is_rejected_with_the_reference_message - should panic ... ok
+test offsets_place_the_header_slots_and_ledger_where_the_layout_says ... ok
+test create_open_detach_round_trip ... ok
+test layer_writer_publishes_and_reader_follows ... ok
+test windows_names_are_normalised_across_separators ... ok
+test ledger_ring_wraps_and_reports_its_sequence ... ok
 
-test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
 
    Doc-tests qualia_shm
 

@@ -79,69 +79,86 @@ guard). Their writer, `ShmRegion::write_weight_tile`, copies tiles with no publi
 the weights sit outside the layer's double buffer, so this slot's counter does not cover them either.
 That is a different shape, out of this ticket's scope.
 
-## Board — pending the lease
+## Board (lease pass)
 
-The board pass is queued behind T58 and T55, recorded as `blocked_on: board` in this ticket's braid with
-the command it will run (D-024). The two board logs from the earlier session were removed with this
-push: the reviewer found they were produced from a tree whose `main.rs` still imported `BeliefSlot`
-(the unused-import warning in the log), so they were not the artifact under review. The lease replaces
-them with:
+Pinkie, Jetson Orin NX, `aarch64`, 6 cores, kernel `5.15.148-tegra`, rustc 1.94.0, in
+`/home/jetson/remediate/515a506` (a `git archive` of `515a506`, #227's merge), `RUSTFLAGS="-C
+target-feature=+fp16" --offline -j 2`. **The numbers below are the quiet set**, run 02:20:41..02:22:04 board-local after T59's
+`cargo build --release -p qualia-lidar -p qualia-drive` (started 02:17 inside this lease) was killed:
+no `cargo`/`rustc` anywhere, `uptime` load 1.26 falling from that build. The lease was taken at 02:11
+with the board idle (load 0.25, no `cargo`/`rustc`, `/dev/shm` 4%); the sets I ran after 02:15 were
+under that build (load ~2.4) and were discarded — their `20/20` and `1849..1912 torn` are superseded by
+the quiet set quoted here. The four changed files were overlaid from this head and every path was
+restored to the archive's own bytes afterwards md5-verified
+(`crates/types/src/lib.rs` `282f59d0`, `crates/shm/src/lib.rs` `e227ece4`, `crates/shm/tests/shm.rs`
+`5b590253`, `runners/arena-recorder/src/main.rs` `a4abcf9c`).
 
-```bash
-cargo build -p qualia-arena-recorder --offline -j 2
-cargo test -p qualia-shm -p qualia-arena-recorder --offline -j 2
-sh docs/evidence/T54/arena-recorder-coherence/run_repeats.sh t54_fixed 20
-python3 docs/evidence/T54/arena-recorder-coherence/reverts.py prefix-guard .
-sh docs/evidence/T54/arena-recorder-coherence/run_repeats.sh t54_prefix 5
-```
-
-in `/home/jetson/remediate/515a506` (a `git archive` of `515a506`, #227's merge; Jetson Orin NX,
-aarch64, 6 cores, kernel `5.15.148-tegra`, rustc 1.94.0) with `RUSTFLAGS="-C target-feature=+fp16"
---offline -j 2`, restoring the four overlaid files to the archive's own bytes afterwards. The files and
-their hashes at this head:
-
-| path | md5 (board == worktree) |
+| path (overlaid from this head) | md5 (board == worktree) |
 | --- | --- |
 | `crates/types/src/lib.rs` | `92d6eadd9fb7adc7d380411434c3f50e` |
 | `crates/shm/src/lib.rs` | `ed6be29a75898fa9b59234f56e39dad0` |
 | `crates/shm/tests/shm.rs` | `6bfad0dea1676c5364df9d52b0a3b966` |
-| `runners/arena-recorder/src/main.rs` | `b42d1749cc7edacc16310a6024741ca9` |
+| `runners/arena-recorder/src/main.rs` | `77719c4d90d02d14ce2b5fd7e91929bd` |
 
-Same caveat as #234's evidence: the archive predates #229 and the changed files are overlaid on it
-byte-identical, so the runs carry for those files without the tree being literally the PR head.
+```text
+$ cargo build -p qualia-arena-recorder --offline -j 2
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.94s      (exit 0, no warnings)
+
+$ cargo test -p qualia-shm -p qualia-arena-recorder --offline -j 2
+running 10 tests
+test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s  (arena-recorder unit, incl. the new test)
+test result: ok.  5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s  (recorder.rs)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s  (shm.rs)
+                                                                              (exit 0)
+
+$ sh run_repeats.sh t54_fixed 20
+t54c_fixed summary: pass=20 fail=0    (0.14..0.29s each; runs/board-fixed/01..20.log)
+```
 
 ## Falsification
 
-Four scratch reverts, all reproducible with `reverts.py`; `runs/host-*.log` are the dev-host runs.
+Four scratch reverts, all reproducible with `reverts.py`; `runs/board-*/` and `runs/host-*.log` are the
+runs.
 
-| mode | what it removes | host result |
-| --- | --- | --- |
-| `prefix-guard` | the parity writer **and** the fix's pair: the caller-side `coherent_belief` guard is back and the test calls it the way the recorder used to | **fails** — `a coherent read saw two publishes mixed together`, `left: 1`, `right: 0` |
-| `writer-parity` | the counter (parity toggle restored); reader left fixed | passes — the fence keeps the closing load where it is, so a torn acceptance needs an even flip count *and* a copy that straddles a rewrite |
-| `reader-fence` | the acquire fence; counter left fixed | passes — the counter alone rejects any copy a publish touched |
-| `both` | both halves, but with the guard inside `snapshot` rather than at the caller | passes |
+| mode | what it removes | host | board |
+| --- | --- | --- | --- |
+| `prefix-guard` | the parity writer **and** the fix's pair: the caller-side `coherent_belief` guard is back and the test calls it the way the recorder used to | **fails**, 1447 torn of 2000 (`host-prefix-guard.log`) | **fails 5/5**, 1906..1930 torn of 2000 (`board-prefix/01..05.log`) |
+| `writer-parity` | the counter (parity toggle restored); reader fixed | passes (`host-writer-parity.log`) | — |
+| `reader-fence` | the acquire fence; counter fixed | passes (`host-reader-fence.log`) | — |
+| `both` | both halves, but with the guard inside `snapshot` rather than at the caller | passes (`host-both.log`) | — |
 
-So the test catches the pre-fix *protocol* — the pair as it was, guard at the caller with no fence —
-and each half alone is latent in the new shape on this CPU. The board half of this table (the same
-`prefix-guard` revert failing on Pinkie, plus ≥20 repeats of the fixed test at this head) is the pending
-lease pass.
+The test drives the writer from the reader's progress: 500 publishes while the reader is inside one
+copy, each writing the same marker set (three elements spread through each belief array plus the
+scalars), so the copy reads markers from different publishes and the even number of flips returns the
+index to where it started. The pre-fix guard — parity index, no fence, guard at the caller — accepts
+that copy, and the board shows it in the quiet set: 1906..1930 of 2000 accepted copies mixed two publishes,
+five runs out of five. With the fix the counter rejects every copy a publish touched (20/20 on the board, 20
+repeats).
+
+Two honest notes. First, getting there needed the writer's *cycle* to be much faster than the reader's
+copy: with each publish rewriting 16 KiB the copy finished before the writer reached the copied buffer,
+so the earlier driver showed nothing even on the pre-fix shape. Second, the two halves alone are latent
+on both machines (`writer-parity`, `reader-fence`, `both`): in the new shape a torn acceptance needs an
+even parity subset *and* a copy that straddles a rewrite, and the guard inside `snapshot` keeps the
+closing load where the fence put it on these compilers.
 
 ```text
-the test-first run, pre-fix code, dev host (runs/host-prefix-guard.log):
+the reverted form on the board, runs/board-prefix/01.log (quiet set):
 thread 'tests::a_coherent_read_of_the_recorded_belief_is_never_torn' panicked at ...:
 assertion `left == right` failed: a coherent read saw two publishes mixed together
-  left: 1
+  left: 1930
  right: 0
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.07s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.10s
 ```
 
 ## Host
 
 ```text
 $ cargo test -p qualia-arena-recorder -p qualia-shm -j 2            exit 0, no warnings
-test result: ok. 10 passed ... finished in 0.13s   (arena-recorder unit, incl. the new test)
-test result: ok.  5 passed ... finished in 3.11s   (recorder.rs)
-test result: ok. 14 passed ... finished in 0.24s   (shm.rs; Windows adds two platform cases)
+test result: ok. 10 passed ... (arena-recorder unit, incl. the new test)
+test result: ok.  5 passed ... (recorder.rs)
+test result: ok. 14 passed ... (shm.rs; Windows adds two platform cases)
 $ cargo test -p qualia-l3-belief -j 2
 test result: ok. 2 passed ... (the other reader of write_idx: it compares the value before and after a
                               refused start, which a counter preserves)
