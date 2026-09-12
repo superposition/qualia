@@ -1,0 +1,49 @@
+# T68 family check: `figures` and `journal` on the same roots
+binary: C:/tmp/Impl265GateRoot/target/debug/qualia-gates.exe; code of figures.rs/journal.rs is unchanged by this ticket.
+
+== figures, out-of-tree cwd, no --root (default root = working directory's worktree) ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe figures
+[stderr] figures: FAIL - docs/figures/_house.py: missing
+figures: FAIL - docs/figures: missing
+[exit 1]
+
+== figures --root <empty tree> (a named root that holds nothing) ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe figures --root C:/tmp/Impl265GateRoot/emptytree
+[stderr] figures: FAIL - docs/figures/_house.py: missing
+figures: FAIL - docs/figures: missing
+[exit 1]
+
+== figures --root <directory that is not there> ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe figures --root C:/tmp/Impl265GateRoot/nope
+[stderr] usage: qualia-gates figures [--root DIR] [--self-test]
+figures: usage error - no such directory: C:/tmp/Impl265GateRoot/nope
+[exit 2]
+
+== journal, out-of-tree cwd (no --pr by design) ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe journal
+journal-gate: FAIL - 1 problem(s); the gate is not open
+[stderr] journal-gate: checklists: C:\tmp\Impl265GateRoot\docs\journal-review.md is missing
+[exit 1]
+
+== journal, in a tree with no docs/journal-review.md ==
+$ (cwd=C:/tmp/Impl265GateRoot/emptytree) qualia-gates.exe journal
+journal-gate: FAIL - 1 problem(s); the gate is not open
+[stderr] journal-gate: checklists: C:\tmp\Impl265GateRoot\emptytree\docs\journal-review.md is missing
+[exit 1]
+
+== journal --help: there is no --root flag on this gate ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe journal --help
+The journal publish gate (step 37b)
+
+Usage: qualia-gates.exe journal [OPTIONS]
+
+Options:
+      --repo <REPO>          OWNER/NAME of the repository that holds the entry PR
+      --pr <PR>              Entry PR number
+      --comments <COMMENTS>  JSON array of comment bodies, instead of the PR
+      --diff <DIFF>          Unified diff of the entry PR, instead of the PR
+      --entry <ENTRY>        A local entry markdown file, instead of a PR
+      --url <URL>            Live entry URL; its figures must return 200 too
+      --self-test            Run the built-in fixtures
+  -h, --help                 Print help
+[exit 0]

@@ -793,6 +793,30 @@ repository's parity-fixture candidate and are labelled **not promotion-passing**
 they measure the runtime paths, not a promoted model. The residual the ticket carries is the
 corpus, not a fixture, a threshold or a model size.
 
+## D-028 — A gate finds its root by evidence, and fails when it has nothing to check
+
+Instance: 2026-09-12, T68 ([#265](https://github.com/superposition/qualia/issues/265)). `qualia-gates
+provenance` printed `provenance: OK` having compared **0 files**: `cwd_root()` fell back to the
+directory holding the executable whenever the binary lived outside the tree, which is exactly the
+layout an out-of-tree `CARGO_TARGET_DIR` produces — and several agents ran that way that session to
+respect D-014, so any of them could have quoted a green that checked nothing (one committed quote
+did: `docs/evidence/T67/leash-drive/`). The rule: a gate resolves the tree it checks from evidence —
+`--root`, else the nearest ancestor carrying the repository's own marker (`.git`, or a `Cargo.toml`
+with a `[workspace]` table) — **never from where the executable sits**; either way the candidate is
+normalised to the top level of the git work tree it lies in, because `git ls-files` prints paths
+relative to the directory it runs in and `--root .` from `crates/gates` otherwise compared 1 of that
+crate's 8 files under paths that do not exist in the reference and passed. A root that cannot be
+resolved is an error naming what was searched (exit 2). A comparison of zero authored files is a
+failure (exit 1): its message names the root and the reference, and wherever any file was listed it
+also carries the tracked count, the authored count and the machine-generated skips, so the diagnosis
+cannot send the reader after a cause that is not there.
+That emptiness test is a guard in `run()`, not a type-level guarantee — `provenance: OK` is printed
+only after it passes and every earlier return is 1 or 2, so the green is unreachable while the guard
+stands; the ticket allowed a guard or an impossibility and this is the guard. A green from an empty
+input is worse than a red, because it is a check that did not happen. `figures` and `journal` were
+measured and do not share the executable fallback: their default root is the working directory's
+worktree and a root holding nothing already fails them (evidence: `docs/evidence/T68/gate-root/`).
+
 ## D-003 — Repository
 
 

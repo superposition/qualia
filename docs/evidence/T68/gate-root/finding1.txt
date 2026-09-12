@@ -1,0 +1,57 @@
+# T68 finding 1: the partial green before the normalisation (binary built from 478b446, the head the reviewer measured)
+binary (before): C:/tmp/Impl265GateRoot/oldtarget/debug/qualia-gates.exe
+`git ls-files` in crates/gates lists 8 path(s), subdirectory-relative, which is what the gate then joins at the reference root:
+  Cargo.toml
+  src/figures.rs
+  src/git.rs
+  src/journal.rs
+  src/main.rs
+  src/mission.rs
+  src/provenance.rs
+  src/pytext.rs
+
+== --root . from crates/gates (478b446, before the normalisation) ==
+$ (cwd=C:/tmp/Impl265GateRoot/old/crates/gates) qualia-gates.exe provenance --root .
+provenance: compared 1 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 0.000
+provenance: OK
+[exit 0]
+
+== --root <crates/gates> from outside (478b446, before the normalisation) ==
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/tmp/Impl265GateRoot/old/crates/gates
+provenance: compared 1 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 0.000
+provenance: OK
+[exit 0]
+
+== the same two commands with the fixed binary (root normalised to the work tree top) ==
+
+--- --root . from crates/gates ---
+$ (cwd=C:/Users/ericm/wt/T68/crates/gates) qualia-gates.exe provenance --root .
+[27 EOL-IDENTICAL lines elided]
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK
+[exit 0]
+
+--- --root <crates/gates> from outside ---
+$ (cwd=C:/tmp/Impl265GateRoot) qualia-gates.exe provenance --root C:/Users/ericm/wt/T68/crates/gates
+[27 EOL-IDENTICAL lines elided]
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK
+[exit 0]
