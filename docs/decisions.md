@@ -62,7 +62,7 @@ the contract pass checks them line for line against the reference, and operators
 them. They stay byte-identical to the reference even where a label (`tx`, `weight`, `keyframes`) uses
 vocabulary the re-authored internals no longer share.
 
-`scripts/provenance_check.py` is the arbiter of copied text — it measures code runs and prose runs,
+`crates/gates` — the `qualia-gates provenance` subcommand (#238) — is the arbiter of copied text: it measures code runs and prose runs,
 and a single-line format string is below its thresholds. Ticket #91 does not list the log lines among
 the things its rewrite changes, and the lidar scrub (#137) treated the same question the same way.
 C25's clean-room request to re-author the two `qualia-pose:` format strings is declined on this basis;
