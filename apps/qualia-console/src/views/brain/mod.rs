@@ -13,6 +13,12 @@
 //!   edge pulses by `weight × rate[source]` from the fly model's observe-only
 //!   slot (`FlySimSlot`), which is exactly the coupling term `crates/fly-circuit`
 //!   integrates;
+//! - **connectome** — the released male-CNS connectome itself, read from the
+//!   artifact the importer writes (`QUALIA_CONNECTOME_DIR`): 139,662 placed somata
+//!   of 166,700 CSR nodes, coloured by cell type, with the firing set of the tick
+//!   that is showing (`QUALIA_CONNECTOME_SPIKES`, a recorded `spikes.bin` or the
+//!   runner's socket) drawn bright and larger on top — see
+//!   [`connectome`];
 //! - **matrices** — the per-layer generative weight matrix and belief vector as
 //!   decimated heatmaps with a short time axis, and the braid markers on it.
 //!
@@ -28,6 +34,7 @@
 //! fly rate vector faithfully, so while the fly drive is not wired (T30/T31) the
 //! vector is zero and the pulses are flat — the view never fabricates motion.
 
+pub mod connectome;
 pub mod layout;
 pub mod matrices;
 pub mod prior;
@@ -551,9 +558,63 @@ pub fn render(ui: &mut Ui, state: &mut ConsoleState) {
         None => theme::state_line(ui, "layout: not derived from this prior", theme::WARN),
     }
 
+    let cloud_state = connectome::cloud();
+    let connectome_cloud = match &cloud_state {
+        connectome::CloudState::Ready(cloud) => Some(Arc::clone(cloud)),
+        _ => None,
+    };
+    let connectome_frame = connectome::frame();
+
+    match &cloud_state {
+        connectome::CloudState::Ready(cloud) => {
+            theme::field_path(ui, "cloud artifact", &cloud.directory);
+            theme::field(
+                ui,
+                "cloud counts",
+                &format!(
+                    "{} nodes, {} placed, {} types",
+                    cloud.node_count, cloud.placed, cloud.types
+                ),
+                Some("male CNS v1.0"),
+            );
+            theme::field(ui, "cloud source", &cloud.source, None);
+        }
+        connectome::CloudState::Unset => theme::state_line(
+            ui,
+            "cloud: set QUALIA_CONNECTOME_DIR to the artifact directory",
+            theme::TEXT_SECOND,
+        ),
+        connectome::CloudState::Failed(error) => {
+            theme::state_line(ui, &format!("cloud: {error}"), theme::WARN)
+        }
+    }
+    if let Some(error) = &connectome_frame.error {
+        theme::state_line(ui, &format!("spike stream: {error}"), theme::WARN);
+    } else if connectome_frame.ticks_read == 0 {
+        theme::state_line(
+            ui,
+            "spike stream: set QUALIA_CONNECTOME_SPIKES to spikes.bin or tcp://host:port",
+            theme::TEXT_SECOND,
+        );
+    } else {
+        theme::field(
+            ui,
+            "spike stream",
+            &format!(
+                "tick {}, {:.1} frames/s, {} firing",
+                connectome_frame.tick,
+                connectome_frame.rate_hz,
+                connectome_frame.firing_count()
+            ),
+            None,
+        );
+        theme::field(ui, "spike source", &connectome_frame.source, None);
+    }
+
     ui.add_space(theme::GAP_S);
     ui.horizontal(|ui| {
         ui.checkbox(&mut view.toggles.brain, "connectome");
+        ui.checkbox(&mut view.toggles.connectome, "male-CNS cloud");
         ui.checkbox(&mut view.toggles.cloud, "point cloud");
         ui.checkbox(&mut view.toggles.world, "voxels");
         ui.checkbox(&mut view.toggles.floor, "floor grid");
@@ -578,6 +639,8 @@ pub fn render(ui: &mut Ui, state: &mut ConsoleState) {
         view.toggles,
         view,
         &assets,
+        connectome_cloud.as_deref(),
+        &connectome_frame,
     );
     view.counts = counts;
 
@@ -636,6 +699,19 @@ pub fn render(ui: &mut Ui, state: &mut ConsoleState) {
             view.counts.edges_drawn,
             view.counts.nodes_total,
             view.counts.edges_total
+        ),
+        None,
+    );
+
+    theme::field(
+        ui,
+        "cloud draw",
+        &format!(
+            "{} of {} points, {} of {} firing",
+            view.counts.connectome_drawn,
+            view.counts.connectome_placed,
+            view.counts.firing_drawn,
+            view.counts.firing_total
         ),
         None,
     );

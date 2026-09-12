@@ -5856,6 +5856,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "qualia-connectome-stream",
  "qualia-fly-circuit",
  "qualia-mcap",
  "qualia-shm",
