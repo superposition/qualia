@@ -150,9 +150,10 @@ ls: cannot access '/dev/iio:device*': No such file or directory
 ```
 
 No responder at `0x68`, `0x69`, `0x76`, `0x28`, `0x6a` or `0x6b`, and no IIO device: the robot's
-inertial data exists **only** in the leash's `sensors.imu`/`raw_frame`. Nothing in this workspace
-consumes it (no `Imu` type and no inertial slot in `crates/types`); the audit records that as a gap,
-not as a missing device.
+inertial data exists **only** in the leash's `sensors.imu`/`raw_frame`. `runners/leash-sensors` reads
+and reports the stream's availability (`leash surface imu=available(waveshare-ugv)`) and deliberately
+writes nothing into the arena — there is no inertial slot and no `Imu` type in `crates/types`, so no
+runner consumes it. The audit records that as a gap, not as a missing device.
 
 ### The rest of the machine
 
@@ -184,7 +185,7 @@ the operator's live `/qualia_body` stack was untouched.
 | `qualia-camera` | **device** (leash MJPEG, HTTP) | `QUALIA_CAMERA_STREAM_URL=http://192.168.55.1:8000/camera/stream.mjpg ./qualia-camera` → `qualia-camera: consuming live MJPEG stream …` / `frame_seq=2 src=640x480 thumb=64x48 luma_mean=0.469 luma_std=0.149 quality=usable` … `frame_seq=362` |
 | `qualia-lidar` | **device** (serial), blocked | default `QUALIA_LIDAR_PORT=/dev/ttyACM0` @ `230400` (`runners/lidar/src/lib.rs`); the direct open on Pinkie returns `errno=16 EBUSY` (above). Superseded on this robot: it cannot open the port the leash holds. Its `publish_scan` is the one scan encoder the bridge reuses |
 | `qualia-drive` | **device** (serial), blocked | default `QUALIA_DRIVE_PORT=/dev/ttyTHS1` @ `115200` (`QUALIA_DRIVE_TICK_MS=100`, disarmed unless `QUALIA_DRIVE_ARMED`); the direct open on Pinkie returns `errno=16 EBUSY`. The motion authority is the leash's; the agent reaches it over HTTP (`motion.navigate` → `POST /navigation/goals`) |
-| `qualia-health` | no device (arena) | `QUALIA_SHM_NAME=/qualia_t59 ./qualia-health` → stdout is `HealthReport` frames, `#[repr(C)]` bytes at 10 Hz; a 6 s run wrote 15 401 B to stdout and the child log carried `qualia-health: opening shm '/qualia_t59'` |
+| `qualia-health` | no device (arena) | `QUALIA_SHM_NAME=/qualia_t59 ./qualia-health` → stdout is raw `HealthReport` frames at 10 Hz (32 B × `NUM_LAYERS` 8 = 256 B each, `#[repr(C)]`); a 6 s run'"'"'s captured output is 15 401 B — 15 360 B of frames (60 of them) plus the 41 B stderr line `qualia-health: opening shm '"'"'/qualia_t59'"'"'` |
 | `qualia-vision` | fixture-only unless a Gemini key | `… ./qualia-vision` with no key → `qualia-vision: WARNING: GEMINI_API_KEY not set` / `Running in offline mode — synthetic world model only` / `offline tick 360, 2 objects, brightness=0.00`. Online path (key present): `using arena camera preview seq=16 640x480 (53740B, age=67ms)` → `calling Gemini Vision API (71656B image)...` — the frame is real and current; the model call needs the network and a key |
 | `qualia-pose` | no device (arena) | `… ./qualia-pose` → `starting lidar pose graph from shm=/qualia_t59` / `initialized pose from first scan points=135` / `pose_seq=258 x_m=-0.004 z_m=-0.001 yaw_deg=-0.02 score=0.009 matches=133 keyframes=1` — ICP on the real scans the bridge published |
 | `qualia-map` | no device (arena) | `… ./qualia-map` → `starting persistent lidar mapping from shm=/qualia_t59` / `map_seq=2 occupied_cells=60 observed_cells=604 bin_occ=31 bin_free=577 bin_unknown=64928` / `skip integration pose_conf=0.910 pose_age_ms=319 min_conf=0.700 max_age_ms=250` |
