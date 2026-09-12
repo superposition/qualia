@@ -633,7 +633,11 @@ fn decode_positions(
     Ok(neurons)
 }
 
-/// `magic(4) version u16 reserved u16 count u32` = 12 bytes.
+/// `magic(4) version u16 reserved u16` = 8 bytes. This is where `spikes.bin`'s
+/// frames start: the spike stream has no count in its header.
+pub const SPIKES_HEADER_LEN: usize = 8;
+/// `magic(4) version u16 reserved u16 count u32` = 12 bytes; the weights and
+/// positions headers carry a count, the spike stream does not.
 const BASE_HEADER_LEN: usize = 12;
 /// The weights header adds a reserved u32 before the u64 edge count, so the
 /// `rowptr` section starts 8-aligned.

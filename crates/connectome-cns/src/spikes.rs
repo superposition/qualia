@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Write};
 use std::path::Path;
 
-use crate::{CnsError, BASE_HEADER_LEN, FORMAT_VERSION, SPIKES_MAGIC};
+use crate::{CnsError, FORMAT_VERSION, SPIKES_HEADER_LEN, SPIKES_MAGIC};
 
 /// One tick's firing set.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,7 +79,7 @@ pub fn read_spikes(path: &Path) -> Result<Vec<SpikeFrame>, CnsError> {
 
 /// Decode a `QLSP` stream from memory.
 pub fn decode_spikes(bytes: &[u8]) -> Result<Vec<SpikeFrame>, CnsError> {
-    if bytes.len() < BASE_HEADER_LEN {
+    if bytes.len() < SPIKES_HEADER_LEN {
         return Err(CnsError::Artifact(format!(
             "spikes: {} bytes is shorter than the header",
             bytes.len()
@@ -97,7 +97,7 @@ pub fn decode_spikes(bytes: &[u8]) -> Result<Vec<SpikeFrame>, CnsError> {
             "spikes: format version {version}, this build writes {FORMAT_VERSION}"
         )));
     }
-    let mut cursor = BASE_HEADER_LEN;
+    let mut cursor = SPIKES_HEADER_LEN;
     let mut frames = Vec::new();
     while cursor < bytes.len() {
         let head = bytes
