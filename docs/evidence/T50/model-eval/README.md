@@ -72,7 +72,7 @@ facts, both measured here:
    `crates/jepa-model/src/bin/qualia-jepa-plan-eval.rs:183` and `:260`).
 
 So the step is measured against **the repository's own parity fixture candidate** — the recipe in
-`crates/jepa-model/src/parity.rs:433-487` (a deterministic `JepaCandidateModel` written through the
+`crates/jepa-model/src/parity.rs:433-486` (a deterministic `JepaCandidateModel` written through the
 public `write_candidate_checkpoint`, the same synthetic gate block the crate's own tests use), built
 into a brand-new directory for this capture by `harness-candidate.rs`. It is a loadable checkpoint
 and nothing more: no number here is an accuracy claim, and the weights are the test recipe's, not a
@@ -181,7 +181,7 @@ one, still), so the historical artifacts stay red and no new unreadable one can 
 | `propose-request.json` | 113 877 | `5d38e407e0d139af6ff834f9c39c705a5165d9000152b0e4eaabb09e2b849aca` |
 | `comparison-input.json` | 54 436 | `5ccfb5d10cf65df3922887914caee9692c9374255fd9ad3557ae04813801d070` |
 | `trainer-refusals.txt` | 1 458 | `120b52a797c73aab941eb29b562bf5a34a208671d4802dfe14f425030885b861` |
-| `harness-candidate.rs` | 2 862 | `d03071b664c5a17940cb2cea94cea9c1e70bfbfe867a446b9b7ed569079254da` |
+| `harness-candidate.rs` | 2 862 | `1b4bf2c31c3ddc9cf8683499ad9ebe0d27fc05055b75aaeb04d4112464866dbc` |
 | `harness-probe.rs` | 4 845 | `a711190cb45c0bf41e9bf6f2a068c86fb3e95b575149d409451256c156c6b4df` |
 
 `*-capture.sqlite` are **trimmed** exports: `StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL`, with the

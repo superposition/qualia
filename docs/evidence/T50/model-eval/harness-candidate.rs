@@ -1,6 +1,6 @@
 //! T50 close-out scratch: write the repo's own parity-fixture candidate checkpoint.
 //!
-//! The recipe is `crates/jepa-model/src/parity.rs`'s test module (parity.rs:440-487):
+//! The recipe is `crates/jepa-model/src/parity.rs`'s test module (parity.rs:433-486):
 //! a deterministic `JepaCandidateModel` built through the public API, published by
 //! the public writer `write_candidate_checkpoint` with the same synthetic gate block
 //! that test uses. It is not a trained model; it is what `CoherentJepaRuntime::from_checkpoint`

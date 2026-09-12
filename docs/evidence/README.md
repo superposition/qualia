@@ -71,9 +71,12 @@ ticket is not `status:done` until its capture is committed here, and the capture
 ticket's own comment, so the comment stream says which directory holds the evidence.
 
 Commit `capture.json`, `kernels.json`, `kernels.csv` and the README always, plus the export row for
-the backend that ran. Commit the export while it fits the size the tree already carries: the largest
-committed file is `Cargo.lock` at about 196 KB (191 KiB). When a full export is larger, trim it to
-what mage reads and say in the directory README that it is a trimmed export. An `ncu` report cannot
+the backend that ran. That budget is a rule, not a measurement of the tree: commit the export while
+it stays within the sizes the tree already carries, and trim it to what mage reads when it does not,
+saying so in the directory README. For scale, the largest tracked files at this writing are
+`docs/evidence/T52/planner-batch/after-capture.sqlite` 1,306,624 B,
+`assets/mark/psi-hero.png` 1,228,236 B and `Cargo.lock` 248,472 B (`git ls-tree -r -l HEAD`;
+`Cargo.lock` is not the largest file this convention once recorded it as). An `ncu` report cannot
 be trimmed — commit `capture.ncu-rep` whole however large it is (the T50 reports are ~594 KB each)
 and name it in the README. For `nsys` that is the
 `StringIds` and `CUPTI_ACTIVITY_KIND_KERNEL` tables with the `StringIds` rows the kernel table does
