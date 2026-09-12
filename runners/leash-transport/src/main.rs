@@ -7,22 +7,27 @@
 //! `runners/drive` cannot reach the wire and its records carry drive authority.
 //! What is left for a bench session is the command that keeps the robot
 //! stopped: the leash's own `stop` tool ("Send a non-latching zero-speed motor
-//! stop"). This runner calls it, and each acknowledgement becomes one interval
-//! with `authority: leash`, `applied_left = applied_right = 0.0`.
+//! stop", `safety: physical-stop`, no token or approval in its input schema).
+//! This runner calls it, and every acknowledgement becomes one interval whose
+//! fields are copied from the leash's own reply:
 //!
-//! **No motion is commanded.** Every interval this runner records says the
-//! leash accepted a zero-speed stop; the fields a reader would look for to see
-//! motion — `requested_*`, `clamped_*`, `applied_*` — are all `0.0`, and
-//! `speed_scale` is `1.0` because nothing scaled a zero command down. The
-//! ledger's value is that the *transport path* is exercised end to end and
-//! acknowledged by the body's owner; it is not evidence of driving, and the
-//! evidence README says so beside the numbers.
+//! ```text
+//! {"left":0.0,"max_speed":0.35,"ok":true,"right":0.0,"soft_odometry_limited":false,
+//!  "speed_mode":"medium","stopped_by_deadman":false}
+//! ```
 //!
-//! `valid` is this runner's own field meaning "the leash acknowledged this
-//! interval's command" — it is what the dataset leg reads as the transport's
-//! acceptance. `armed` is copied from the leash's `health` at startup
-//! (`deadman_ok && !estop && mode == "live"`) so the record carries the
-//! harness's own state rather than a claim about it.
+//! **No motion is commanded.** The command is a stop, and the record carries
+//! what the leash answered: `requested_*` is the zero this runner asked for,
+//! `clamped_*` and `applied_*` are the leash's own `left`/`right`. A refusal
+//! (`ok: false`) is recorded as `valid: false` rather than dropped, so the
+//! ledger carries the transport's answer either way.
+//!
+//! `valid` is therefore not this runner's opinion: it is the leash's `ok`.
+//! `armed` is copied from the leash's `health` at startup
+//! (`mode == "live" && deadman_ok && !estop`) so the record carries the
+//! harness's own state rather than a claim about it, and `safety_flags` uses the
+//! leash's own vocabulary (`LEASH_ACTION_SAFETY_*`) for the two flags its reply
+//! reports.
 //!
 //! Intervals tile: each starts where the previous acknowledgement ended, so a
 //! transition window is covered rather than sampled. A failed call appends
@@ -46,7 +51,11 @@ use qualia_leash_sensors::{
     TIMEOUT_MS_ENV,
 };
 use qualia_shm::ShmRegion;
-use qualia_types::{AppliedActionSnapshot, ACTION_AUTHORITY_LEASH};
+use qualia_types::{
+    AppliedActionSnapshot, ACTION_AUTHORITY_LEASH, LEASH_ACTION_SAFETY_DEADMAN,
+    LEASH_ACTION_SAFETY_SOFT_ODOMETRY_LIMIT,
+};
+use serde::Deserialize;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -96,6 +105,40 @@ impl Settings {
     }
 }
 
+/// The leash's own report of one stop, as `DriveOutcome`.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct DriveOutcome {
+    /// The leash's verdict: the command was accepted and applied.
+    #[serde(default)]
+    ok: bool,
+    /// The left speed that reached the wire, as the leash reports it.
+    #[serde(default)]
+    left: f32,
+    /// The right speed that reached the wire, as the leash reports it.
+    #[serde(default)]
+    right: f32,
+    /// The harness's speed ceiling at the time.
+    #[serde(default)]
+    max_speed: f32,
+    /// The active speed mode.
+    #[serde(default)]
+    speed_mode: String,
+    /// The leash's own soft-odometry limit flag.
+    #[serde(default)]
+    soft_odometry_limited: bool,
+    /// The leash's own deadman flag.
+    #[serde(default)]
+    stopped_by_deadman: bool,
+}
+
+impl DriveOutcome {
+    /// The leash's flags, in the leash's own vocabulary.
+    fn safety_flags(&self) -> u32 {
+        u32::from(self.soft_odometry_limited) * LEASH_ACTION_SAFETY_SOFT_ODOMETRY_LIMIT
+            | u32::from(self.stopped_by_deadman) * LEASH_ACTION_SAFETY_DEADMAN
+    }
+}
+
 fn main() {
     let settings = Settings::from_env();
 
@@ -113,7 +156,7 @@ fn main() {
     let agent = qualia_leash_sensors::agent(settings.timeout);
 
     println!(
-        "qualia-leash-transport: recording the leash's acknowledged zero-speed stop into {} every {}ms; authority=leash, applied speed 0.0/0.0",
+        "qualia-leash-transport: recording the leash's acknowledged zero-speed stop into {} every {}ms; authority=leash",
         settings.shm_name,
         settings.poll.as_millis()
     );
@@ -145,6 +188,8 @@ fn main() {
     let producer_epoch = now_ns();
     let mut last_end_ns = producer_epoch;
     let mut sequence = 0u64;
+    let mut accepted = 0u64;
+    let mut refused = 0u64;
     let mut failures = 0u64;
     let mut reported_ack = false;
 
@@ -153,60 +198,80 @@ fn main() {
         match call(&agent, &settings.base_url, "stop") {
             Ok(ack) => {
                 failures = 0;
+                let outcome: DriveOutcome = serde_json::from_str(&ack).unwrap_or_default();
                 let end_ns = now_ns();
-                if end_ns > last_end_ns {
-                    let start_ns = last_end_ns;
-                    let next = sequence + 1;
-                    let snapshot = AppliedActionSnapshot {
-                        producer_epoch,
-                        action_sequence: next,
-                        interval_start_ns: start_ns,
-                        interval_end_ns: end_ns,
-                        requested_left: 0.0,
-                        requested_right: 0.0,
-                        clamped_left: 0.0,
-                        clamped_right: 0.0,
-                        applied_left: 0.0,
-                        applied_right: 0.0,
-                        speed_scale: 1.0,
-                        safety_flags: 0,
-                        authority: ACTION_AUTHORITY_LEASH,
-                        valid: true,
-                        armed,
-                        deadman_active: armed,
-                        collision_clamped: false,
-                        ..AppliedActionSnapshot::default()
-                    };
-                    match history.append(snapshot) {
-                        Ok(_) => {
-                            sequence = next;
-                            last_end_ns = end_ns;
-                            if !reported_ack {
-                                reported_ack = true;
-                                println!(
-                                    "qualia-leash-transport: leash acknowledged the stop: {}",
-                                    preview(&ack)
-                                );
-                            }
-                            if sequence == 1 || sequence % settings.log_every == 0 {
-                                println!(
-                                    "qualia-leash-transport: interval {} accepted {}..{} applied=0.000/0.000 speed_scale=1.000 authority=leash armed={}",
-                                    sequence, start_ns, end_ns, armed,
-                                );
-                            }
+                if end_ns <= last_end_ns {
+                    continue;
+                }
+                let start_ns = last_end_ns;
+                let next = sequence + 1;
+                let snapshot = AppliedActionSnapshot {
+                    producer_epoch,
+                    action_sequence: next,
+                    interval_start_ns: start_ns,
+                    interval_end_ns: end_ns,
+                    requested_left: 0.0,
+                    requested_right: 0.0,
+                    clamped_left: outcome.left,
+                    clamped_right: outcome.right,
+                    applied_left: outcome.left,
+                    applied_right: outcome.right,
+                    speed_scale: 1.0,
+                    safety_flags: outcome.safety_flags(),
+                    authority: ACTION_AUTHORITY_LEASH,
+                    valid: outcome.ok,
+                    armed,
+                    deadman_active: armed,
+                    collision_clamped: false,
+                    ..AppliedActionSnapshot::default()
+                };
+                match history.append(snapshot) {
+                    Ok(_) => {
+                        sequence = next;
+                        last_end_ns = end_ns;
+                        if outcome.ok {
+                            accepted += 1;
+                        } else {
+                            refused += 1;
                         }
-                        Err(error) => {
-                            eprintln!(
-                                "qualia-leash-transport: applied-action append failed at {next}: {error}"
+                        if !reported_ack {
+                            reported_ack = true;
+                            println!(
+                                "qualia-leash-transport: leash acknowledged the stop: {}",
+                                preview(&ack)
                             );
                         }
+                        if sequence == 1 || sequence % settings.log_every == 0 {
+                            println!(
+                                "qualia-leash-transport: interval {} {}..{} ok={} left={:.3} right={:.3} max_speed={:.3} speed_mode={} flags=0x{:x} authority=leash armed={} accepted={} refused={}",
+                                sequence,
+                                start_ns,
+                                end_ns,
+                                outcome.ok,
+                                outcome.left,
+                                outcome.right,
+                                outcome.max_speed,
+                                outcome.speed_mode,
+                                outcome.safety_flags(),
+                                armed,
+                                accepted,
+                                refused,
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "qualia-leash-transport: applied-action append failed at {next}: {error}"
+                        );
                     }
                 }
             }
             Err(error) => {
                 failures = failures.saturating_add(1);
                 if failures == 1 || failures % 20 == 0 {
-                    eprintln!("qualia-leash-transport: stop unavailable (failure {failures}): {error}");
+                    eprintln!(
+                        "qualia-leash-transport: stop unavailable (failure {failures}): {error}"
+                    );
                 }
             }
         }

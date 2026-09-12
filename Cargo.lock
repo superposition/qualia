@@ -6127,6 +6127,7 @@ dependencies = [
  "qualia-leash-sensors",
  "qualia-shm",
  "qualia-types",
+ "serde",
  "serde_json",
  "ureq",
 ]
