@@ -263,17 +263,6 @@ fn write_connectome_record(
 ) -> Result<(), BridgeError> {
     let entity_path = record.entity_path;
     match record.content {
-        ConnectomeProjectionContent::Text(text) => {
-            let component = TextLog::new(text);
-            let result = if is_static {
-                recording.log_static(entity_path, &component)
-            } else {
-                recording.log(entity_path, &component)
-            };
-            result.map_err(|error| {
-                BridgeError::new("failed to log a connectome text record", error)
-            })?;
-        }
         ConnectomeProjectionContent::Document(markdown) => {
             let component = TextDocument::from_markdown(markdown);
             let result = if is_static {

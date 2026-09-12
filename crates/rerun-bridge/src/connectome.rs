@@ -83,14 +83,13 @@ pub fn firing_color() -> Color {
     Color::from_rgb(255, 236, 96)
 }
 
-/// The colour of the cell type at `index` in the interned label table.
-///
 /// A golden-ratio walk around the hue circle: a type keeps one colour across
 /// runs and a table of eleven thousand labels needs no palette in the
-/// recording. Saturation and value stay below the firing colour's brightness.
+/// recording. Saturation and value stay well below the firing colour, so a
+/// firing node pops out of the cloud.
 pub fn cell_type_color(index: u32) -> Color {
     let hue = (f64::from(index) * 0.618_033_988_749_895).fract();
-    hsv_to_rgb(hue, 0.62, 0.78)
+    hsv_to_rgb(hue, 0.55, 0.62)
 }
 
 fn hsv_to_rgb(hue: f64, saturation: f64, value: f64) -> Color {
@@ -151,7 +150,6 @@ pub struct ConnectomeProjection<'a> {
 /// The payload written at one connectome entity path.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectomeProjectionContent {
-    Text(String),
     Document(String),
     /// One point per entry, one colour per entry, one radius for all of them
     /// (UI points when negative).
@@ -168,13 +166,6 @@ pub enum ConnectomeProjectionContent {
 pub struct ConnectomeProjectionRecord {
     pub entity_path: String,
     pub content: ConnectomeProjectionContent,
-}
-
-fn text_record(entity_path: &str, text: String) -> ConnectomeProjectionRecord {
-    ConnectomeProjectionRecord {
-        entity_path: entity_path.to_string(),
-        content: ConnectomeProjectionContent::Text(text),
-    }
 }
 
 fn document_record(entity_path: &str, markdown: String) -> ConnectomeProjectionRecord {
@@ -269,10 +260,15 @@ pub fn collect_connectome_tick_records(
             entity_path: ConnectomeEntityTaxonomy::firing_count().to_string(),
             content: ConnectomeProjectionContent::Scalars(firing as f64),
         },
-        text_record(
+        document_record(
             ConnectomeEntityTaxonomy::stream_summary(),
             format!(
-                "tick={tick} t_ns={} firing={firing} drawn={drawn} unplaced_firing={} nodes={}",
+                "# Tick {tick}\n\n\
+                 - wall clock: {} ns unix\n\
+                 - firing: {firing}\n\
+                 - drawn: {drawn}\n\
+                 - firing nodes with no soma position: {}\n\
+                 - nodes: {}\n",
                 projection.wall_clock_ns,
                 firing - drawn,
                 cloud.node_count
