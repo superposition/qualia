@@ -41,6 +41,7 @@ members = [
     "runners/l6-semantic",
     "runners/lidar",
     "runners/map",
+    "runners/mission-broker",
     "runners/pose",
     "runners/session",
     "runners/vision",

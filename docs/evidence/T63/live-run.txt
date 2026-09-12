@@ -1,0 +1,15 @@
+qualia-mission-broker: agent https://127.0.0.1:8080 token=configured coach model=deepseek-chat base_url=https://api.deepseek.com key=1448…(redacted, 35 chars) timeout_ms=8000
+qualia-mission-broker: tick 1 braid session=(none) generation=0 open_missions=0
+qualia-mission-broker: coach request model=deepseek-chat base_url=https://api.deepseek.com key=1448…(redacted, 35 chars) prompt_digest=sha256:471331be8e551c60e3fc739e7b88e06eafd8e5bff92045365de3c094c816a44b prompt_bytes=2859 timeout_ms=8000
+qualia-mission-broker: coach response id=14e8c6f7-8f7d-472d-a537-30415f7e20ab model=deepseek-flash latency_ms=435 usage=prompt_tokens=775 completion_tokens=144 finish_reason=stop
+qualia-mission-broker: coach decision content={"decision_kind":"promote","target_proposal_ids":["proposal-frontier-corner-a"],"output_ids":["proposal-frontier-corner-a"],"reason":"Frontier region proposal with fresh pose/lidar evidence, high mission relevance, and a bounded reachable centroid inside the operating area justifies one bounded exploration mission.","mission":{"objective_kind":"explore_frontier","summary":"Explore frontier region near corner A within bounded distance and runtime.","target_x_m":1.9,"target_y_m":1.1,"tolerance_m":0.5,"max_distance_m":2.0,"max_runtime_ms":60000,"max_replans":1}}
+qualia-mission-broker: coach decision decision_id=coach-7328529549370528-1 kind=promote targets=["proposal-frontier-corner-a"] outputs=["proposal-frontier-corner-a"]
+qualia-mission-broker: coach rationale "Frontier region proposal with fresh pose/lidar evidence, high mission relevance, and a bounded reachable centroid inside the operating area justifies one bounded exploration mission."
+qualia-mission-broker: canonical materialized canonical_id=proposal-frontier-corner-a source_proposal=proposal-frontier-corner-a
+qualia-mission-broker: mission envelope built mission_id=mission-coach-7328529549370528-1 command=start evidence_refs=2 deadline_in_ms=60000 objective=Explore frontier region near corner A within bounded distance and runtime.
+qualia-mission-broker: posted POST https://127.0.0.1:8080/mission-control/envelopes -> HTTP 202 accepted=true idempotent_replay=false
+qualia-mission-broker: read back GET /mission-control/missions -> mission mission-coach-7328529549370528-1 status=paused stage=awaiting_evidence code=awaiting_fresh_evidence detail=mission is paused until referenced fresh spatial evidence exists
+qualia-mission-broker: read back GET /mission-control/events -> seq=1 kind=accepted status=queued code=accepted detail=bounded mission was durably accepted
+qualia-mission-broker: read back GET /mission-control/events -> seq=2 kind=paused status=paused code=awaiting_fresh_evidence detail=mission is paused until referenced fresh spatial evidence exists
+qualia-mission-broker: run complete ticks=1 items=1 decided=1 posted=1 degraded=0 state=posted
+qualia-mission-broker: exit 0 state=posted ticks=1 decided=1 posted=1 degraded=0

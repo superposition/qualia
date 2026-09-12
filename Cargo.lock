@@ -6137,6 +6137,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualia-mission-broker"
+version = "0.1.0"
+dependencies = [
+ "qualia-sync-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "qualia-pose"
 version = "0.1.0"
 dependencies = [

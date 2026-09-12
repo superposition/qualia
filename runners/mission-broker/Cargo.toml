@@ -1,0 +1,21 @@
+[package]
+name = "qualia-mission-broker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The mission broker: a coach client over the braid's proposals, publishing bounded mission envelopes to the agent"
+
+[[bin]]
+name = "qualia-mission-broker"
+path = "src/main.rs"
+
+[dependencies]
+qualia-sync-types.workspace = true
+# The coach's HTTP client and the agent's operator surface: blocking, on the
+# broker's own thread, so a slow provider degrades a line instead of stalling
+# the tick; `rustls-tls` is what lets the client read the agent's self-signed
+# certificate the way the console and `qualia-watch` do (D-023).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

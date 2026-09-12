@@ -184,6 +184,9 @@ pub struct ConsoleState {
     pub brain: views::brain::BrainView,
     /// The runner telemetry frames the HUD panels draw this poll.
     pub hud: views::stats::StatsView,
+    /// The mission broker's decision stream (T63), the console's second
+    /// source: the Coach panel's reading, or the named reason it has none.
+    pub coach: views::coach::CoachView,
     /// The rate history those panels' sparklines draw; it survives a poll the
     /// way the Brain view keeps its camera.
     pub hud_history: views::stats::StatsHistory,
@@ -212,6 +215,7 @@ impl ConsoleState {
             telemetry: sample.telemetry,
             brain: sample.brain,
             hud: sample.stats,
+            coach: sample.coach,
             hud_history: views::stats::StatsHistory::default(),
             hud_layout: hud::HudLayout::default(),
             brain_assets: std::sync::Arc::new(views::brain::BrainAssets::load()),
@@ -232,6 +236,7 @@ impl ConsoleState {
         self.evidence = sample.evidence;
         self.telemetry = sample.telemetry;
         self.hud = sample.stats;
+        self.coach = sample.coach;
         self.hud_history.record(&self.hud);
         // The brain view keeps the operator's camera, its short history and the
         // markers earlier polls produced; only the readings are replaced.
@@ -286,6 +291,10 @@ pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
         state.hud_layout.set_on(!on);
     }
     hud::render(ui.ctx(), state);
+
+    // The coach's decisions, beside the HUD: the broker's own surface (T63),
+    // not a seventh view over the agent's state.
+    views::coach::render_panel(ui.ctx(), state);
 }
 
 /// One frame of the console: panels around [`render_view`].

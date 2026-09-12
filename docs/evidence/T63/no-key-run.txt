@@ -1,0 +1,8 @@
+qualia-mission-broker: agent https://127.0.0.1:8080 token=configured coach model=deepseek-chat base_url=https://api.deepseek.com key=none (llm_priors_ablated=true) timeout_ms=8000
+qualia-mission-broker: no coach credential in the environment (DEEPSEEK_API_KEY or QUALIA_COACH_API_KEY); llm_priors_ablated=true, no decision
+qualia-mission-broker: tick 1 braid session=mission-coach-7328531307768660-1 generation=0 open_missions=0
+qualia-mission-broker: no coach credential in the environment (DEEPSEEK_API_KEY or QUALIA_COACH_API_KEY); llm_priors_ablated=true, no decision for proposal-frontier-corner-a
+qualia-mission-broker: run complete ticks=1 items=1 decided=0 posted=0 degraded=2 state=degraded
+qualia-mission-broker: degraded: qualia-mission-broker: no coach credential in the environment (DEEPSEEK_API_KEY or QUALIA_COACH_API_KEY); llm_priors_ablated=true, no decision
+qualia-mission-broker: degraded: qualia-mission-broker: no coach credential in the environment (DEEPSEEK_API_KEY or QUALIA_COACH_API_KEY); llm_priors_ablated=true, no decision for proposal-frontier-corner-a
+qualia-mission-broker: exit 0 state=degraded ticks=1 decided=0 posted=0 degraded=2

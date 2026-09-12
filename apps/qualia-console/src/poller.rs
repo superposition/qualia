@@ -80,6 +80,8 @@ fn worker(
     // The stack's declared row set is a deployment fact, not a per-poll one:
     // read the manifest once and hold it for the life of the poller.
     let sensing = crate::stack::load_sensing_set();
+    // The broker's status address is read once, the way every other address is.
+    let coach_url = crate::views::coach::coach_url();
     let mut evidence = EvidenceScan::default();
 
     loop {
@@ -109,6 +111,10 @@ fn worker(
         let mut brain = shm.brain;
         brain.record_braid(&braid);
         brain.observe_coupling_scale(observed_at_ns);
+        // The coach is the broker's second source, on loopback: a broker that
+        // is not running degrades the Coach panel with a named line and never
+        // touches the braid's own reading.
+        let coach = crate::views::coach::sample(&coach_url);
         let sample = Sample {
             observed_at_ns,
             connection,
@@ -120,6 +126,7 @@ fn worker(
             evidence: evidence.refresh(&evidence_root, shm.ledger),
             brain,
             stats: shm.stats,
+            coach,
         };
 
         let live = sample.connection == crate::Connection::Live;

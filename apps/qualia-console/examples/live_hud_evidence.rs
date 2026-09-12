@@ -69,6 +69,10 @@ fn main() {
         evidence: EvidenceView::default(),
         brain,
         stats: shm.stats,
+        // The broker's own surface, live: the same read the window makes.
+        coach: qualia_console::views::coach::sample(
+            &qualia_console::views::coach::coach_url(),
+        ),
     };
 
     let mut state = ConsoleState::from_sample(sample, url);
