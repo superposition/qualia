@@ -7,6 +7,9 @@
 
 pub mod belief;
 pub mod brain;
+/// The mission broker's decision stream (T63), the console's second source:
+/// floating panel, read from `GET /coach` on the broker's loopback surface.
+pub mod coach;
 pub mod evidence;
 pub mod mission;
 /// The HUD's reading, not a seventh view: one row per runner telemetry frame,

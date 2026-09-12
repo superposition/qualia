@@ -93,17 +93,20 @@ answers with something that is not a usable decision object is the
 `AuthScope::MissionBroker` is excluded from the loopback bypass on purpose
 (`runners/agent/src/auth.rs:76-80` — only `Read`, `Peer` and `Compute` get it),
 so a loopback caller must still present the bearer. Measured against the
-from-`main` agent on `https://127.0.0.1:8080`:
+from-`main` agent on `https://127.0.0.1:8080`, with one well-formed
+`qualia.mission-envelope.v1` body:
 
 ```text
-POST /mission-control/envelopes with a valid body and no Authorization header -> HTTP 401
-POST /mission-control/envelopes with a valid body and a wrong bearer          -> HTTP 401
+no Authorization header   -> HTTP 401 {"error":"authentication_required"}
+a wrong bearer            -> HTTP 401 {"error":"authentication_required"}
+the real bearer (reqwest) -> HTTP 202 {"accepted":true,"idempotent_replay":false}
 ```
 
 One caution for the next agent: a body that does not deserialize answers `422`
 **before** the handler runs, because axum runs the `Json` extractor ahead of the
-handler's own `authorize` call. A `422` therefore says nothing about the bearer
-either way; only a request with a valid body exercises the auth check.
+handler's own `authorize` call (`runners/agent/src/mission_control.rs:465-477`).
+A `422` therefore says nothing about the bearer either way; only a well-formed
+envelope exercises the auth check, and only a `401` means the bearer was refused.
 
 ## The status surface is a second source
 

@@ -23,7 +23,7 @@ five existing front ends taught; every design decision in the source cites the l
 cargo run -p qualia-console
 ```
 
-Configuration is nine environment variables and nothing else:
+Configuration is ten environment variables and nothing else:
 
 |Variable|Meaning|Unset behaviour|
 |---|---|---|
@@ -36,6 +36,7 @@ Configuration is nine environment variables and nothing else:
 |`QUALIA_FLY_PRIOR_PATH`|the connectome prior directory the Brain view draws|the reference prior committed under `assets/brain/prior/`|
 |`QUALIA_FLY_COUPLING_SCALE`|the coupling dial the Brain view marks on its time axis (T30)|read from the stack manifest's `env`, else absent|
 |`QUALIA_CONSOLE_LAYOUT`|where the HUD's panel positions and open/closed state are remembered|the per-user state directory (`%LOCALAPPDATA%\qualia\console-layout.bin` on Windows, `$XDG_STATE_HOME/qualia/console-layout.bin` or `$HOME/.local/state/qualia/console-layout.bin` elsewhere)|
+|`QUALIA_COACH_URL`|the mission broker's status surface, read by the Coach panel (T63)|`http://127.0.0.1:8091`, the broker's own `QUALIA_COACH_STATUS_PORT` default|
 
 The Telemetry view's rows are the ABI's sensing slots — `qualia-lidar`, `qualia-camera` and
 `qualia-vslam` — one row each, carrying the newest frame its publisher wrote or an explicit
@@ -51,6 +52,21 @@ renders the committed fixture `tests/fixtures/braid-state.json` and names the re
 window's banner rather than showing an empty window. The region-backed panels (Belief, World,
 Telemetry, Brain and the HUD) read the shared region whether or not the agent answers, so a dead
 braid no longer blanks a live stack.
+
+## The Coach panel is a second source
+
+The **Coach** panel (`views/coach.rs`, T63) shows the mission broker's model state — configured,
+no key, timeout, error, last latency, last error — and the newest decisions with their provenance
+(model id, response id, token usage, `llm_priors_ablated`), read from the broker's read-only
+loopback surface `GET /coach` (`qualia.coach-state.v1`, default `http://127.0.0.1:8091`,
+`QUALIA_COACH_URL` to move it). A broker that is not running degrades the panel with one named line
+("coach broker not running at …") — the console never draws a decision it did not receive.
+
+This is deliberately the console's **only** second source beside the agent, and it is temporary. The
+agent owns missions; the durable home of a coach decision should be the agent's world-model surface
+(`/world-model/decisions`, a `503` stub in this build), and `runners/mission-broker/README.md`
+records the same direction from the broker's side. When the agent grows that stream, the Coach panel
+should read it and `GET /coach` should be retired — do not grow a third way to see the same thing.
 
 The binary's wgpu backends (`dx12`, `gles`, `metal`, `vulkan`) are declared on this crate's own
 `wgpu` dependency, not only on the `egui_kittest` dev-dependency: `cargo test` unifies dev-dependency

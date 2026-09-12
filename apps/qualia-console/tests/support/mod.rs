@@ -9,6 +9,7 @@ use qualia_console::sample::FIXTURE_SHM_REGION;
 use qualia_console::views::belief::{BeliefReading, BeliefView};
 use qualia_console::views::brain::matrices::{MatrixReading, MATRIX_CELLS};
 use qualia_console::views::brain::{BrainView, CloudReading, FiringReading, PlanPose, SceneToggles};
+use qualia_console::views::coach::{coach_url, CoachView};
 use qualia_console::views::evidence::{
     EvidenceView, LedgerRow, SegmentReading, DEFAULT_EVIDENCE_ROOT,
 };
@@ -197,5 +198,11 @@ pub fn healthy(fixture: &BraidSnapshot, observed_at_ns: u64) -> Sample {
         // No stats region is opened in tests: the HUD draws nothing, which is
         // what an absent region means, and no test asserts on HUD panels.
         stats: StatsView::unattached(None, "test: no stats region".to_owned()),
+        // No broker runs in tests: the Coach panel shows its named degrade
+        // line, which is exactly what the window shows without one.
+        coach: CoachView::Unreachable {
+            url: coach_url(),
+            reason: "test: no broker".to_owned(),
+        },
     }
 }
