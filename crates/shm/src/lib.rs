@@ -901,7 +901,7 @@ impl<'a> LayerWriter<'a> {
     /// copy tell whether *any* publish landed inside that copy — two toggles
     /// would otherwise return it to where it started.
     pub fn publish(&self) {
-        self.slot.write_idx.fetch_add(1, Ordering::Release);
+        self.slot.write_idx.fetch_add(1, Ordering::AcqRel);
     }
 }
 

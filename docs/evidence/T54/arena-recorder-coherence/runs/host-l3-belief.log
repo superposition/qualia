@@ -1,0 +1,29 @@
+   Compiling qualia-shm v0.1.0 (C:\Users\ericm\wt\T54\crates\shm)
+   Compiling qualia-metal v0.1.0 (C:\Users\ericm\wt\T54\crates\metal)
+   Compiling qualia-l3-belief v0.1.0 (C:\Users\ericm\wt\T54\runners\l3-belief)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.21s
+     Running unittests src\main.rs (target\debug\deps\qualia_l3_belief-2eda4f03ab9824c8.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\fly.rs (target\debug\deps\fly-0316a8d0ca5e7e57.exe)
+
+running 5 tests
+test an_unrecognised_mode_is_refused_before_the_layer ... ok
+test a_verified_prior_without_the_feature_is_reported ... ok
+test a_tampered_artifact_disables_prior ... ok
+test missing_artifact_disables_prior ... ok
+test off_and_sim_never_read_a_prior ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests\runner.rs (target\debug\deps\runner-1ce19648c69915d2.exe)
+
+running 2 tests
+test a_host_without_a_runnable_backend_fails_naming_its_layer ... ok
+test a_refused_start_leaves_the_layer_slot_as_it_was ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+

@@ -2,7 +2,8 @@
 
 Board evidence for [#235](https://github.com/superposition/qualia/issues/235) (T54, *the remaining
 unfenced reader*), the third instance of the reader protocol class fixed in
-[#234](https://github.com/superposition/qualia/pull/234). `runs/` holds the board logs quoted below.
+[#234](https://github.com/superposition/qualia/pull/234). `runs/` holds the runs quoted below: dev-host
+logs for the host half, and the board logs once the pending lease pass has run.
 
 ## What was wrong
 
@@ -59,7 +60,7 @@ assertion `left == right` failed: a coherent read saw two publishes mixed togeth
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.08s
 ```
 
-The same test passes with the fix on the host and on the board.
+The same test passes with the fix on the host; the board run is the pending lease pass below.
 
 ## Audit of the remaining workspace
 
@@ -68,61 +69,82 @@ the shape existed in exactly three places — `runners/camera` and `runners/agen
 (both fixed in #234; this branch's base predates it) and `runners/arena-recorder` (this ticket). Every
 other such pair carries the fence: `crates/types` (six readers: lidar scan, lidar occupancy grid,
 camera frame, jepa slots, applied-action history, camera preview) and
-`runners/jepa-runtime/src/lib.rs::coherent_pose`. Nothing else was found; the nearest non-pair is
-`runners/vision/src/main.rs:703`, a whole-array read of the world model with no guard at all, which is
-a different shape and not this ticket's scope.
+`runners/jepa-runtime/src/lib.rs::coherent_pose`. Nothing else of that shape was found.
 
-## Board
+The adjacent *no-guard* family is wider, and is reported rather than changed:
+`runners/vision/src/main.rs:703` (a whole-array read of the world model),
+`runners/agent/src/realtime.rs:255-257` (the whole 4 MiB `LayerSlot::weights` behind a stray fence and
+no version check), and `apps/qualia-console/src/views/brain/matrices.rs:49-51` (the same array, no
+guard). Their writer, `ShmRegion::write_weight_tile`, copies tiles with no publication protocol at all —
+the weights sit outside the layer's double buffer, so this slot's counter does not cover them either.
+That is a different shape, out of this ticket's scope.
 
-Pinkie, Jetson Orin NX, `aarch64`, 6 cores, kernel `5.15.148-tegra`, rustc 1.94.0, in
-`/home/jetson/remediate/515a506` (a `git archive` of `515a506`, #227's merge), `RUSTFLAGS="-C
-target-feature=+fp16" --offline -j 2`. For this run four files were overlaid from the PR head; all four
-are byte-identical between the board and this worktree:
+## Board — pending the lease
+
+The board pass is queued behind T58 and T55, recorded as `blocked_on: board` in this ticket's braid with
+the command it will run (D-024). The two board logs from the earlier session were removed with this
+push: the reviewer found they were produced from a tree whose `main.rs` still imported `BeliefSlot`
+(the unused-import warning in the log), so they were not the artifact under review. The lease replaces
+them with:
+
+```bash
+cargo build -p qualia-arena-recorder --offline -j 2
+cargo test -p qualia-shm -p qualia-arena-recorder --offline -j 2
+sh docs/evidence/T54/arena-recorder-coherence/run_repeats.sh t54_fixed 20
+python3 docs/evidence/T54/arena-recorder-coherence/reverts.py prefix-guard .
+sh docs/evidence/T54/arena-recorder-coherence/run_repeats.sh t54_prefix 5
+```
+
+in `/home/jetson/remediate/515a506` (a `git archive` of `515a506`, #227's merge; Jetson Orin NX,
+aarch64, 6 cores, kernel `5.15.148-tegra`, rustc 1.94.0) with `RUSTFLAGS="-C target-feature=+fp16"
+--offline -j 2`, restoring the four overlaid files to the archive's own bytes afterwards. The files and
+their hashes at this head:
 
 | path | md5 (board == worktree) |
 | --- | --- |
 | `crates/types/src/lib.rs` | `92d6eadd9fb7adc7d380411434c3f50e` |
-| `crates/shm/src/lib.rs` | `4789c886c0bf9b271511dd5b20fc02cb` |
+| `crates/shm/src/lib.rs` | `ed6be29a75898fa9b59234f56e39dad0` |
 | `crates/shm/tests/shm.rs` | `6bfad0dea1676c5364df9d52b0a3b966` |
 | `runners/arena-recorder/src/main.rs` | `b42d1749cc7edacc16310a6024741ca9` |
 
-Every path either session touched was restored to the archive's own bytes afterwards, md5-verified
-(`crates/types/src/lib.rs` `282f59d0`, `crates/shm/src/lib.rs` `e227ece4`, `crates/shm/tests/shm.rs`
-`5b590253`, `runners/arena-recorder/src/main.rs` `a4abcf9c`, plus the camera and agent files
-`4195327f`/`883c7638`/`eb43c1fe`/`2cc8c2f8`/`b7730a80`).
+Same caveat as #234's evidence: the archive predates #229 and the changed files are overlaid on it
+byte-identical, so the runs carry for those files without the tree being literally the PR head.
+
+## Falsification
+
+Four scratch reverts, all reproducible with `reverts.py`; `runs/host-*.log` are the dev-host runs.
+
+| mode | what it removes | host result |
+| --- | --- | --- |
+| `prefix-guard` | the parity writer **and** the fix's pair: the caller-side `coherent_belief` guard is back and the test calls it the way the recorder used to | **fails** — `a coherent read saw two publishes mixed together`, `left: 1`, `right: 0` |
+| `writer-parity` | the counter (parity toggle restored); reader left fixed | passes — the fence keeps the closing load where it is, so a torn acceptance needs an even flip count *and* a copy that straddles a rewrite |
+| `reader-fence` | the acquire fence; counter left fixed | passes — the counter alone rejects any copy a publish touched |
+| `both` | both halves, but with the guard inside `snapshot` rather than at the caller | passes |
+
+So the test catches the pre-fix *protocol* — the pair as it was, guard at the caller with no fence —
+and each half alone is latent in the new shape on this CPU. The board half of this table (the same
+`prefix-guard` revert failing on Pinkie, plus ≥20 repeats of the fixed test at this head) is the pending
+lease pass.
 
 ```text
-$ cargo build -p qualia-arena-recorder --offline -j 2
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.48s      (exit 0, no warnings)
-
-$ cargo test -p qualia-shm -p qualia-arena-recorder --offline -j 2
-     Running unittests src/main.rs (target/debug/deps/qualia_arena_recorder-...)
-running 10 tests
-test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... ok
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
-     Running tests/recorder.rs (target/debug/deps/recorder-...)
-running 5 tests
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.46s
-     Running unittests src/lib.rs (target/debug/deps/qualia_shm-...)
-running 0 tests
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-     Running tests/shm.rs (target/debug/deps/shm-...)
-running 12 tests
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
-running 0 tests
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-                                                                              (exit 0)
+the test-first run, pre-fix code, dev host (runs/host-prefix-guard.log):
+thread 'tests::a_coherent_read_of_the_recorded_belief_is_never_torn' panicked at ...:
+assertion `left == right` failed: a coherent read saw two publishes mixed together
+  left: 1
+ right: 0
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.07s
 ```
 
 ## Host
 
 ```text
-$ cargo test -p qualia-arena-recorder -p qualia-shm -j 2
-test result: ok. 10 passed ... (arena-recorder unit)   test result: ok. 5 passed ... (recorder)
-test result: ok. 14 passed ... (shm integration, Windows includes two platform cases)
-                                                                              (exit 0)
+$ cargo test -p qualia-arena-recorder -p qualia-shm -j 2            exit 0, no warnings
+test result: ok. 10 passed ... finished in 0.13s   (arena-recorder unit, incl. the new test)
+test result: ok.  5 passed ... finished in 3.11s   (recorder.rs)
+test result: ok. 14 passed ... finished in 0.24s   (shm.rs; Windows adds two platform cases)
 $ cargo test -p qualia-l3-belief -j 2
-test result: ok. 2 passed ... (the other reader of write_idx: it compares the value before/after a
+test result: ok. 2 passed ... (the other reader of write_idx: it compares the value before and after a
                               refused start, which a counter preserves)
-                                                                              (exit 0)
+$ python scripts/provenance_check.py
+provenance: OK
 ```
