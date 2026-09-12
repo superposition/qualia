@@ -112,19 +112,22 @@ degrades with `coach broker not running at http://127.0.0.1:8091: <reason>`
 
 ## The no-key run
 
-`no-key-run.txt`, the same binary with every credential key unset:
+`no-key-run.txt`, the same binary against the same live agent with every
+credential key unset (the mission-broker bearer is still configured, so the
+degradation is the coach's and nothing else):
 
 ```text
+qualia-mission-broker: agent https://127.0.0.1:8080 token=configured coach model=deepseek-chat base_url=https://api.deepseek.com key=none (llm_priors_ablated=true) timeout_ms=8000
 qualia-mission-broker: no coach credential in the environment (DEEPSEEK_API_KEY or QUALIA_COACH_API_KEY); llm_priors_ablated=true, no decision
-qualia-mission-broker: run complete ticks=1 items=0 decided=0 posted=0 degraded=2 state=degraded
-qualia-mission-broker: exit 0 state=degraded ticks=1 decided=0 posted=0 degraded=2
+qualia-mission-broker: tick 1 braid session=mission-coach-7328531307768660-1 generation=0 open_missions=0
+qualia-mission-broker: no coach credential in the environment (DEEPSEEK_API_KEY or QUALIA_COACH_API_KEY); llm_priors_ablated=true, no decision for proposal-frontier-corner-a
+qualia-mission-broker: run complete ticks=1 items=1 decided=0 posted=0 degraded=2 state=degraded
 ```
 
-No envelope, no decision, exit 0 — the second degradation line in that capture
-is the braid read against an agent that was not yet up, which is why the item
-was never reached. `llm_priors_ablated` is `true` with the reason; it is `false`
-exactly when a model produced the decision, which the live run's status payload
-records.
+The item was reached and the coach was asked — and no decision was produced, no
+envelope was built, and the run exited 0. `llm_priors_ablated` is `true` with the
+reason here and `false` on the live run's status payload, i.e. exactly when a
+model produced the decision.
 
 ## Honest limits
 
