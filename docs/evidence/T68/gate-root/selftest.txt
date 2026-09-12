@@ -24,3 +24,15 @@ figures: self-test OK (17 mutations)
 $ (cwd=C:/Users/ericm/wt/T68) qualia-gates.exe journal --self-test
 journal-gate: self-test OK - 36 checks
 [exit 0]
+
+# the acceptance form: cargo run --quiet -p qualia-gates -- <gate> --self-test (in tree)
+
+== cargo run --quiet -p qualia-gates -- journal --self-test ==
+$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- journal --self-test
+journal-gate: self-test OK - 36 checks
+[exit 0]
+
+== cargo run --quiet -p qualia-gates -- figures --self-test ==
+$ (cwd=C:/Users/ericm/wt/T68) CARGO_TARGET_DIR=C:/tmp/Impl265GateRoot/target cargo run --quiet -p qualia-gates -- figures --self-test
+figures: self-test OK (17 mutations)
+[exit 0]
