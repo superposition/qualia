@@ -12,6 +12,7 @@ docs/evidence/
   README.md                  this file
   baseline-2026-09-11/       the reference capture later tickets must beat
   T<NN>/<slug>/              one directory per needs:profile ticket
+  board/<slug>/              board evidence that is not a profiler capture
 ```
 
 `<slug>` is free and names the capture rather than the ticket: the T16 capture is
@@ -22,6 +23,11 @@ form is
 ```bash
 ls docs/evidence/T*/*/README.md
 ```
+
+`board/<slug>/` is the same idea for a run on Pinkie that is not a profiler capture — a build, or a
+binary smoke that launches no CUDA kernel. Its README says that it is not a capture, which ticket's
+claim it backs, and the command and output observed on the board; it commits no `capture.json` and no
+`kernels.json`, because there are no kernels to record.
 
 ## What a capture directory holds
 
