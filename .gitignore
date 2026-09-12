@@ -16,3 +16,6 @@ deploy/**/camera-stream.env
 # Python bytecode from the figure scripts
 __pycache__/
 *.pyc
+# egui_kittest writes these beside a snapshot when UPDATE_SNAPSHOTS=1 runs.
+apps/qualia-console/tests/snapshots/*.old.png
+apps/qualia-console/tests/snapshots/*.diff.png

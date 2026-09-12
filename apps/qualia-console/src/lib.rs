@@ -40,7 +40,9 @@ pub mod client;
 pub mod hud;
 pub mod poller;
 pub mod sample;
-mod shm_sample;
+/// The region read path, public so an evidence run (and the console's own
+/// example) samples the live arena through the same code the window does.
+pub mod shm_sample;
 pub mod stack;
 pub mod theme;
 pub mod views;
