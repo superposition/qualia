@@ -96,7 +96,9 @@
 //! registers is generated here and is deliberately *not* the bearer secret
 //! (leash refuses that: "pilot session token must be distinct from the operator
 //! bearer token"). Neither value is ever logged: the log carries the file's
-//! path and the first bytes of a hash of the session token, and nothing else.
+//! path and one eight-hex label derived once at startup from the session token,
+//! the same label on every line of the run, so a session can be followed through
+//! the log.
 //! The bearer secret is never written to the arena, a log line, an evidence file
 //! or a commit.
 //!
@@ -367,6 +369,11 @@ struct Leash {
     bearer: String,
     /// The short pilot session token this process registers. Never logged.
     session: String,
+    /// This process's session label: an eight-hex digest derived once, in
+    /// [`Leash::new`], so every line of the run's log carries the same one and a
+    /// session can be followed through the log. Derived from the session token,
+    /// so it names the session without being it.
+    label: String,
     speed_mode: String,
     ttl: Duration,
     /// When the current lease must be refreshed.
@@ -393,11 +400,14 @@ impl Leash {
         if bearer.is_empty() {
             return Err(format!("{} is empty", token_file.display()));
         }
+        let session = mint_session_token(&bearer);
+        let label = digest(&session)[..8].to_owned();
         Ok(Self {
             agent,
             base_url,
             route,
-            session: mint_session_token(&bearer),
+            label,
+            session,
             bearer,
             speed_mode,
             ttl,
@@ -405,10 +415,9 @@ impl Leash {
         })
     }
 
-    /// The first bytes of a hash of the session token, for the log. The token
-    /// itself never reaches a log line.
-    fn session_label(&self) -> String {
-        mint_session_token(&self.session)[..8].to_owned()
+    /// This process's session label, the same on every line it logs.
+    fn session_label(&self) -> &str {
+        &self.label
     }
 
     /// Registers or refreshes the pilot lease when it is due.
@@ -659,7 +668,8 @@ impl Transport<'_> {
             }
             return;
         }
-        match self.leash.drive(frame.left, frame.right) {
+        let outcome = self.leash.drive(frame.left, frame.right);
+        match outcome {
             Ok(outcome) => {
                 self.counters.failures = 0;
                 self.counters.accepted = self.counters.accepted.saturating_add(1);
@@ -690,8 +700,11 @@ impl Transport<'_> {
                 self.counters.failures = self.counters.failures.saturating_add(1);
                 self.last_command_ns = 0;
                 eprintln!(
-                    "qualia-leash-transport: drive refused (T={} left={:.3} right={:.3}): {error}; sending zero",
-                    frame.tick, frame.left, frame.right
+                    "qualia-leash-transport: drive refused (T={} left={:.3} right={:.3}) session={}…: {error}; sending zero",
+                    frame.tick,
+                    frame.left,
+                    frame.right,
+                    self.leash.session_label()
                 );
                 if error.to_ascii_lowercase().contains("estop") {
                     self.health.estop = true;
@@ -966,6 +979,16 @@ fn spawn_command_reader() -> mpsc::Receiver<(u64, Result<WheelFrame, String>)> {
         }
     });
     receiver
+}
+
+/// A digest of one string with a fixed seed, so the same input gives the same
+/// digest on every call in this process. The log's session label needs one value
+/// for the whole run: a label that changed per line could not be used to follow
+/// a session.
+fn digest(text: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hasher.write(text.as_bytes());
+    format!("{:016x}", hasher.finish())
 }
 
 /// A per-process session token that is not the operator's bearer secret: the

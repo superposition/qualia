@@ -76,12 +76,19 @@ Four runs, all against the real harness; the logs are committed verbatim next to
 | [`transport-unreachable.log`](transport-unreachable.log) | `http`, host, base URL on a closed port | none | every stop fails → `holding, no command will be applied`, and the command is refused without a `drive` being attempted |
 | [`transport-mcp.log`](transport-mcp.log) | `mcp`, host | live | the ticket's `tools/call` interface measured: `stop` carries, `drive` is refused in the harness's own words |
 
-The zero-speed demonstration, in the transport's own line:
+`transport-mcp.log`, `transport-run.log` and `transport-unreachable.log` were captured at `3512198`;
+they differ from the head only in that their refusal lines do not yet carry the run's session label,
+which the last commit added. They are otherwise verbatim.
+
+The zero-speed demonstration, in the transport's own lines (this pair is
+[`transport-http-live.log`](transport-http-live.log), captured at the head this PR carries; the same
+label `session=c7428df8…` is on both lines because it is derived once per run):
 
 ```text
-qualia-leash-transport: drive refused (T=1 left=0.000 right=0.000): POST http://192.168.55.1:8000/motors/drive refused HTTP 400: {"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}; sending zero
+qualia-leash-transport: carrying our wheel commands to http://192.168.55.1:8000 over http; deadman=1000ms speed_mode=low lease_ttl=20s session=c7428df8… token_file=… authority=leash arena=/qualia_t67
+qualia-leash-transport: drive refused (T=1 left=0.000 right=0.000) session=c7428df8…: POST http://192.168.55.1:8000/motors/drive refused HTTP 400: {"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}; sending zero
 qualia-leash-transport: leash acknowledged the stop: zero command confirmed
-qualia-leash-transport: idle 260 stop intervals; estop=false accepted=261 refused=0 failures=0
+qualia-leash-transport: idle 60 stop intervals; estop=false accepted=61 refused=0 failures=0
 ```
 
 and in the harness's own words over the ticket's interface:
@@ -129,7 +136,11 @@ The command lane is healthy, the controller is connected, the stop receipt is a 
 the drive acknowledgement is what is missing.
 
 The harness's journal records each refusal with its own reason
-([`leash-journal-denials.txt`](leash-journal-denials.txt); 11 refusals between 13:51Z and 14:03Z):
+([`leash-journal-denials.txt`](leash-journal-denials.txt)). The committed page holds **20 denials
+between 13:51:29Z and 14:09:17Z: 14 of them `reason="runtime v2 Waveshare acknowledgement timed out"`
+and 6 `reason="invalid pilot token"`.** The two classes are different things and the distinction is
+part of the lease finding below — the timeout is the drive path refusing the command, the invalid
+token is a lease that a stop had already revoked:
 
 ```text
 2026-09-12T14:03:22.110521Z  WARN leash_harness::capability: capability policy denied capability="drive" safety="physical-motion" origin="operator-http" policy_mode="require-token" reason="runtime v2 Waveshare acknowledgement timed out"
@@ -139,8 +150,9 @@ The harness's journal records each refusal with its own reason
 ## The environmental state: the drive acknowledgement
 
 `POST /motors/drive` is refused **for every command, zero speed included**, with
-`{"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}` (HTTP 400), reproduced 11
-times across 13:51–14:07Z, while `POST /motors/stop/verified` is acknowledged every time
+`{"error":"runtime v2 Waveshare acknowledgement timed out","ok":false}` (HTTP 400): **14 refusals of
+that reason between 13:51:29Z and 14:09:17Z** in the committed journal page, while
+`POST /motors/stop/verified` is acknowledged every time
 (`acknowledged: true`, `"zero command confirmed"`) and MCP `stop` answers `ok: true` with
 `max_speed: 0.22`. The operator's answer to this audit: **the acknowledgement timeout is a known
 physical condition they will fix, and they will say when to retry.** No moving command was attempted,
@@ -194,8 +206,10 @@ a stop is acknowledged (`transport-run.log`, `the stop is acknowledged again; ho
 Read from the file `QUALIA_LEASH_OPERATOR_TOKEN_FILE` names (the same key `runners/agent` and
 `config/stack-manifest.default.json` already use for this secret), trimmed, never logged, never
 written to the arena, and not sent as the session token (leash refuses that case explicitly). The log
-carries the file's *path* and an eight-hex label derived from the session token. Proof, over every
-tracked file and over this directory:
+carries the file's *path* and one eight-hex **session label**: a digest of the session token, derived
+once at startup and stored, so every line of a run carries the same value and a session can be
+followed through the log — it names the session without being it. Proof that the secret itself is
+absent, over every tracked file and over this directory:
 
 ```console
 $ tr -d '\r\n' < <bearer file> > /tmp/token-oneline.txt && wc -c /tmp/token-oneline.txt
@@ -223,11 +237,18 @@ FILE_GREP_RC=1
 
 ```console
 $ cargo build -j 2 -p qualia-leash-sensors -p qualia-leash-transport      # BUILD_RC=0
-$ cargo run --quiet -p qualia-gates -- provenance
-provenance: compared 0 authored file(s) (0 generated skipped); 0 identical, 0 EOL-identical, 0 code runs over 20, 0 prose runs over 2
-provenance: highest identical-code-line share 0.000
-provenance: OK
+$ cargo run -j 2 --quiet -p qualia-gates -- provenance
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 27 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+provenance: OK                                                            # GATE_RC=0
 ```
+
+Run the gate **from the worktree with the worktree's own target directory**. `cargo-gates`'s
+`cwd_root()` falls back to the directory holding the binary when the running binary's
+`--git-common-dir` does not match the checkout's, so a `CARGO_TARGET_DIR` outside the tree makes the
+gate compare **0 authored files** and still print `provenance: OK` — a pass that checked nothing.
+That is how an earlier run of this audit quoted `compared 0 authored file(s)`; it is corrected here,
+and it is worth its own ticket rather than a note.
 
 On Pinkie, the harness's own surfaces (all read-only except the two stops and the one refused
 `estop_reset` probe):
