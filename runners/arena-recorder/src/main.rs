@@ -23,7 +23,7 @@ use qualia_mcap::{
 use qualia_session_store::SessionStore;
 use qualia_shm::{LayerReader, ShmRegion};
 use qualia_types::{
-    AppliedActionSnapshot, BeliefSlot, JepaEvidencePayload, JepaTelemetryPayload,
+    AppliedActionSnapshot, JepaEvidencePayload, JepaTelemetryPayload,
     LidarOccupancyGridSnapshot, LidarScanSnapshot, NUM_LAYERS,
 };
 use serde::Deserialize;
@@ -686,7 +686,9 @@ impl Recorder {
         let mut health = Vec::with_capacity(NUM_LAYERS);
         let mut observed_any = false;
         for layer in 0..NUM_LAYERS {
-            let Some(belief) = coherent_belief(region, layer) else {
+            let Some(belief) =
+                LayerReader::new(region.layer_slot(layer)).snapshot(SNAPSHOT_ATTEMPTS)
+            else {
                 continue;
             };
             health.push(json!({
@@ -888,20 +890,8 @@ fn prior_timestamp_ns(prior: &serde_json::Value, fallback: u64) -> u64 {
         .unwrap_or(fallback)
 }
 
-/// Reads one layer without accepting a half-written belief.
-fn coherent_belief(region: &ShmRegion, layer: usize) -> Option<BeliefSlot> {
-    let slot = region.layer_slot(layer);
-    for _ in 0..SNAPSHOT_ATTEMPTS {
-        let before = slot.write_idx.load(Ordering::Acquire);
-        let belief = *LayerReader::new(slot).read();
-        let after = slot.write_idx.load(Ordering::Acquire);
-        if before == after {
-            return Some(belief);
-        }
-    }
-    None
-}
-
+/// Wall-clock time in nanoseconds since the Unix epoch, or zero if the clock is
+/// set before it.
 fn now_ns() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1333,5 +1323,88 @@ mod tests {
         );
         assert_eq!(prior_timestamp_ns(&json!({"created_at_ms": u64::MAX}), 9), 9);
         assert_eq!(prior_timestamp_ns(&json!({}), 9), 9);
+    }
+
+    /// A coherent read of a layer's belief is never torn, even when a writer
+    /// publishes twice inside the copy: the second publish refills the buffer
+    /// being copied and the two flips return the index to where it started, so
+    /// a guard that only compares the index's parity accepts a copy that mixed
+    /// both publishes.
+    #[test]
+    fn a_coherent_read_of_the_recorded_belief_is_never_torn() {
+        let (region, _name) = scratch_region("belief-torn");
+        let layer = 0;
+        let slot = region.layer_slot(layer);
+        let stop = AtomicBool::new(false);
+        let reading = AtomicBool::new(false);
+
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                let writer = LayerWriter::new(slot);
+                let mut round = 0u32;
+                while !stop.load(Ordering::Relaxed) {
+                    // Wait for the reader to enter a copy, then publish twice
+                    // inside it, so the copy straddles two publishes.
+                    while !reading.load(Ordering::Acquire) {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        std::hint::spin_loop();
+                    }
+                    // Publish often enough that the copy cannot outrun the
+                    // writes: whichever buffer the reader selected is rewritten
+                    // several times inside it, and an even number of flips
+                    // returns the index to where it started, so a guard that
+                    // only compares the index's parity accepts a copy that
+                    // mixed the publishes.
+                    for _ in 0..32 {
+                        round = round.wrapping_add(1);
+                        let fill = round as f32;
+                        let back = writer.back_buffer();
+                        back.mean.fill(fill);
+                        back.precision.fill(fill);
+                        back.prediction.fill(fill);
+                        back.residual.fill(fill);
+                        back.vfe = fill;
+                        back.challenge_vfe = fill;
+                        back.timestamp_ns = round as u64;
+                        writer.publish();
+                    }
+                    // The writes above are the whole hazard; let the reader
+                    // finish its call before the next pair.
+                    while reading.load(Ordering::Acquire) && !stop.load(Ordering::Relaxed) {
+                        std::hint::spin_loop();
+                    }
+                }
+            });
+
+            let mut accepted = 0u64;
+            let mut torn = 0u64;
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while accepted < 2000 && Instant::now() < deadline {
+                reading.store(true, Ordering::Release);
+                let belief = LayerReader::new(slot).snapshot(SNAPSHOT_ATTEMPTS);
+                reading.store(false, Ordering::Release);
+                let Some(belief) = belief else {
+                    continue;
+                };
+                // Every field of one publish carries that publish's fill, so a
+                // copy that mixed two of them shows both.
+                let fill = belief.mean[0];
+                let coherent = belief.mean.iter().all(|&value| value == fill)
+                    && belief.precision.iter().all(|&value| value == fill)
+                    && belief.prediction.iter().all(|&value| value == fill)
+                    && belief.residual.iter().all(|&value| value == fill)
+                    && belief.vfe == fill
+                    && belief.challenge_vfe == fill;
+                accepted += 1;
+                if !coherent {
+                    torn += 1;
+                }
+            }
+            stop.store(true, Ordering::Relaxed);
+            assert_eq!(torn, 0, "a coherent read saw two publishes mixed together");
+            assert_eq!(accepted, 2000, "the reader never caught a complete belief");
+        });
     }
 }

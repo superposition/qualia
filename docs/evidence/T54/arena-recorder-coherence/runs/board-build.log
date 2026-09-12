@@ -1,0 +1,21 @@
+   Compiling qualia-types v0.1.0 (/home/jetson/remediate/515a506/crates/types)
+   Compiling qualia-mcap v0.1.0 (/home/jetson/remediate/515a506/crates/mcap-log)
+   Compiling qualia-jepa v0.1.0 (/home/jetson/remediate/515a506/crates/jepa)
+   Compiling qualia-jepa-dataset v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-dataset)
+   Compiling qualia-jepa-model v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-model)
+   Compiling qualia-sync-types v0.1.0 (/home/jetson/remediate/515a506/crates/sync-types)
+   Compiling qualia-jepa-registry v0.1.0 (/home/jetson/remediate/515a506/crates/jepa-registry)
+   Compiling qualia-shm v0.1.0 (/home/jetson/remediate/515a506/crates/shm)
+   Compiling qualia-session-store v0.1.0 (/home/jetson/remediate/515a506/crates/session-store)
+   Compiling qualia-braid v0.1.0 (/home/jetson/remediate/515a506/crates/braid)
+   Compiling qualia-arena-recorder v0.1.0 (/home/jetson/remediate/515a506/runners/arena-recorder)
+warning: unused import: `BeliefSlot`
+  --> runners/arena-recorder/src/main.rs:26:28
+   |
+26 |     AppliedActionSnapshot, BeliefSlot, JepaEvidencePayload, JepaTelemetryPayload,
+   |                            ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `qualia-arena-recorder` (bin "qualia-arena-recorder") generated 1 warning (run `cargo fix --bin "qualia-arena-recorder" -p qualia-arena-recorder` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.27s
