@@ -38,6 +38,15 @@ figure was taken from the layer drew **9,976 of the 139,662 placed points and 3,
 19,223–64,135 firing nodes** (the cloud is decimated to 10,000 and the firing set strided to 4,096, and
 the panel reports both, like every other layer in that scene).
 
+**Re-captured on the rebase onto `main` (`d447147`, 2026-09-12).** The committed snapshot was re-blessed
+for main's theme, and both figures were re-rendered on the rebased console by the same commands. On the
+re-captured frame the layer drew **9,976 of the 139,662 placed points and 3,728 of the tick's 36,480
+firing nodes**; the panel's `cloud draw` counts read across twelve runs of the rebased tree were 9,976 of
+139,662 points every run and 3,563 / 3,728 firing. The tick the figure shows is a property of the
+wall-clock-paced playback, not of the code — `spikes.bin` is byte-identical (sha256 above) and the reader
+paces frames against its own `t_ns`, so a host under load lands a few ticks later (tick 6 here) than the
+pre-rebase capture did (tick 5, 44,431).
+
 ## The stream this figure shows
 
 `spikes.bin` — 40,199,848 B, sha256
