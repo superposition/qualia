@@ -542,7 +542,7 @@ and both are installs, not architecture. `nsys`: the board's own apt sources
 `Packages` index carries. `apt-get download` fails on the board's clock ("certificate … not yet
 valid"), so the `.deb` was fetched with `curl -k` through the gadget proxy (23.9 MB/s), unpacked with
 `sudo dpkg -i` (three GUI-only X libraries were staged from the host, because the proxy's plain-HTTP
-path is broken — see `docs/evidence/board/readiness/README.md`) and configured with
+path was broken at the time — see `docs/evidence/board/readiness/README.md`) and configured with
 `dpkg --configure`; `/usr/local/bin/nsys` then prints `NVIDIA Nsight Systems version
 2024.5.4.34-245434855735v0` and `nsys profile --stats=false /bin/true` exits 0. `mage`: the board's
 `pip 22.0.2` installs `triton 3.8.0` and `torch 2.14.0+cpu` from their `aarch64` wheels
@@ -551,6 +551,21 @@ the repository), then `mage` 0.1.0 — `pip3 show mage` → `Version: 0.1.0`, `m
 `mage profile-exec --backend nsys --capture-range all -- <board binary>` parsed **494** CUPTI kernel
 rows out of a capture taken on the board. The measurements, commands and what remains missing are in
 `docs/evidence/board/readiness/README.md`.
+
+**Further amended 2026-09-12** — the other two limits that work found are also fixed rather than
+standing. The board's clock, 9 d 12 h 42 m 40 s behind the dev host at the start
+(`2026-09-02T14:50:48Z` vs `2026-09-12T03:33:28Z`), was set from the host's UTC
+(`echo jetson | sudo -S date -u -s …`) and written to the RTC with `hwclock -w`; it now reads within
+a second of the host, and `apt-get download nsight-systems-2024.5.4` — which had failed with
+`certificate … not yet valid` — fetches 313 MB at 33.0 MB/s with the published sha256, with
+`repo.download.nvidia.com`, `download.pytorch.org`, `index.crates.io` and `pypi.org` all answering
+`200` without `-k`. The host's gadget proxy had a plain-HTTP defect in the same class: it parsed the
+authority with `rpartition(":")` and then `int(port)`, so an `http://` request (no port) made the
+"port" the hostname and the client got `502 Bad Gateway`; the parse now branches on `":" in
+hostport`, the supervised process was restarted, and `http://ports.ubuntu.com/ubuntu-ports/dists/jammy/Release`
+answers `200` while `apt-get -o Acquire::http::Proxy=… download libxcb-cursor0` stages the deb. The
+WiFi association remains the one physical limit, unchanged from the paragraph above
+(`CTRL-EVENT-ASSOC-REJECT status_code=1`).
 
 ## D-003 — Repository
 

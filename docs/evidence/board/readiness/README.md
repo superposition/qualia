@@ -7,27 +7,32 @@ Waveshare-carried Jetson Orin NX (D-010), with the command that shows it and the
 The two limits the issue asked to challenge — the board's lack of `mage` and of `nsys` — were
 attempted rather than assumed, and **both are now installed**; §"The two attempts" quotes every
 command and every failure on the way. Nothing in this file is inferred from a cache listing or from
-a decision entry: each row was run on the board on 2026-09-02 (board clock) / 2026-09-12 (dev host).
+a decision entry: every row was run on the board during this work — the board's own clock read
+`2026-09-02` for the rows taken before it was corrected and `2026-09-12` (matching the dev host) for
+the rows after.
 
 The board itself, measured: `aarch64`, kernel `5.15.148-tegra`, L4T **R36.4.7** (JetPack 6),
 6 cores, 3 601 MiB RAM (`free -m` read 1 475 used / 479 free / 1 897 available during this work),
 Ubuntu 22.04.5, glibc 2.35, `nvpmodel` **10W**, 233 GiB root filesystem with **76 GiB free** at the
-end of this work (87 GiB at the start — the batch's builds are what moved it). Its clock reads
-`2026-09-02T14:3xZ` against the dev host's `2026-09-11`, ≈9 days behind — D-010's skew, and the
-cause of the TLS failure §"The two attempts" records.
+end of this work (87 GiB at the start — the batch's builds are what moved it). Its clock read
+`2026-09-02T14:50:48Z` when this work started, 9 d 12 h 42 m 40 s behind the dev host's
+`2026-09-12T03:33:28Z` (D-010's skew) — that is what made every TLS fetch below fail with
+"certificate … not yet valid" — and it was **set from the host's UTC and written to the RTC on
+2026-09-12**; it now reads within a second of the host (§"Fixed on 2026-09-12, and what is still missing" has the
+before/after).
 
 ## The checklist
 
 | Capability | State | Command that shows it | Version / observed |
 | --- | --- | --- | --- |
 | `ssh` access | **present** | `ssh pinkie 'uname -a'` — alias in `~/.ssh/config` (`HostName 192.168.55.1`, `User jetson`, `IdentityFile C:/Users/ericm/.ssh/qualia_jetson_ed25519`) | `Linux ubuntu 5.15.148-tegra … aarch64` |
-| Network route | **present, HTTPS only** | `curl -x http://192.168.55.100:8085 https://index.crates.io/config.json` | `200`; the host's CONNECT proxy `C:/tmp/board3/gadget_proxy.py`, supervised as `gadget-proxy`, bound `192.168.55.100:8085` |
-| DNS on the board | **absent** | `getent hosts crates.io` | no output, `GETENT_RC=2`; the proxy dials every host for it |
+| Network route | **present (HTTPS and HTTP)** | `curl -x http://192.168.55.100:8085 https://index.crates.io/config.json`, then `curl -x http://192.168.55.100:8085 http://ports.ubuntu.com/ubuntu-ports/dists/jammy/Release` | `200` both; the host's CONNECT/forward proxy `C:/tmp/board3/gadget_proxy.py`, supervised as `gadget-proxy`, bound `192.168.55.100:8085` (its plain-HTTP path was `502` until 2026-09-12 — §"Fixed on 2026-09-12, and what is still missing") |
+| DNS on the board | **absent by design** | `getent hosts crates.io` | no output, `GETENT_RC=2`; the proxy dials every host for it, so nothing on the board needs a resolver |
 | WiFi association | **absent** | `nmcli device status` | `wlP1p1s0  wifi  disconnected`; the association is rejected (`CTRL-EVENT-ASSOC-REJECT status_code=1`, 17–29 % signal vs the host's 62 % — physical, D-022, not a provisioning gap) |
 | Cargo registry cache | **present** | `cargo fetch --locked` (head `60beee4`) | `FETCH_RC=0` in 2 s, `1.7G /home/jetson/.cargo/registry`; the head's lock needed no download |
 | crates.io through the proxy | **present** | `HTTPS_PROXY=http://192.168.55.100:8085 cargo search candle-core` | `candle-core = "0.11.0"` returned; D-022 records the sparse index at `https://index.crates.io/config.json` returning `200` |
 | PyPI through the proxy | **present** | `pip3 download --dest wheels --only-binary=:all: triton textual rich numpy hatchling` | `Successfully downloaded …`; `pypi.org/simple/` returns `200`, and the aarch64 wheels land (§"`mage`") |
-| PyTorch CPU index through the proxy | **present (needs `--trusted-host`)** | `pip3 download --index-url https://download.pytorch.org/whl/cpu torch` | its certificate is "not yet valid" on the board's clock; `--trusted-host download.pytorch.org --trusted-host download-r2.pytorch.org` fetches it (§"`mage`") |
+| PyTorch CPU index through the proxy | **present** | `pip3 download --index-url https://download.pytorch.org/whl/cpu torch` | `200` for `https://download.pytorch.org/whl/cpu/torch/` without `-k` now the board's clock is right; until 2026-09-12 the same fetch needed `--trusted-host` (§"`mage`") |
 | Native build, plain | **present** | `cargo build --release -j 4 -p qualia-types` | `BUILD_PLAIN_RC=0`, `3m 43s`; `cargo 1.94.0`, `rustc 1.94.0` |
 | Native build, candle-bearing, `+fp16` | **present** | `RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 4 -p qualia-jepa-model --bins` | `BUILD_FP16_RC=0`, `5m 26s` from a fresh target dir; `qualia-jepa-train` 4 592 760 B, `qualia-jepa-parity` 2 469 984 B, `qualia-jepa-plan-eval` 2 379 432 B, `qualia-jepa-runtime-probe` 2 106 864 B |
 | Native build, candle-bearing, no `+fp16` | **rejected by the compiler** | same command without `RUSTFLAGS` | D-016: `gemm-f16`'s inline asm is rejected by the default `neon`-only target (`instruction requires: fullfp16`); the Orin's A78AE has the feature |
@@ -41,7 +46,7 @@ cause of the TLS failure §"The two attempts" records.
 | `nsys` | **present** | `nsys --version` | `NVIDIA Nsight Systems version 2024.5.4.34-245434855735v0` at `/usr/local/bin/nsys` |
 | `tegrastats` | **present** | `tegrastats --interval 1000` (bounded with `timeout 3`) | see §"Other board tools" |
 | Disk headroom | **present** | `df -h /` | 76 GiB free of 233 GiB (66 % used) after this work; 87 GiB free before it |
-| The host's plain-HTTP proxy path | **broken** | `apt-get … install libxcb-cursor0` (any `http://ports.ubuntu.com` fetch) | the proxy answers `502 Bad Gateway` for absolute-URI `GET`; see §"What is still missing" |
+| Plain-HTTP through the proxy | **present (fixed 2026-09-12)** | `apt-get -o Acquire::http::Proxy=http://192.168.55.100:8085 download libxcb-cursor0` | `Fetched 9 880 B`, deb staged; before the fix the same fetch was `502 Bad Gateway` (§"Fixed on 2026-09-12, and what is still missing") |
 
 ## The two attempts
 
@@ -63,7 +68,8 @@ nsight-systems-2024.5.4:
         600 https://repo.download.nvidia.com/jetson/common r36.4/main arm64 Packages
 ```
 
-The first route, `apt-get download`, fails on the board's clock: its certificates are "not yet
+The first route, `apt-get download`, failed on the board's clock when this attempt ran (the clock was
+corrected later in the same session — §"Fixed on 2026-09-12, and what is still missing"): its certificates were "not yet
 valid". Every other route below works around that, and none needs an account.
 
 ```console
@@ -72,6 +78,16 @@ Err:1 https://repo.download.nvidia.com/jetson/common r36.4/main arm64 nsight-sys
   Certificate verification failed: The certificate is NOT trusted. The certificate chain uses not yet valid certificate.
 E: Failed to fetch https://repo.download.nvidia.com/.../nsight-systems-2024.5.4_2024.5.4.34-245434855735v0_arm64.deb
 APT_NSYS_RC=100
+```
+
+After the clock fix, the same command — with no `-k` anywhere — works unchanged:
+
+```console
+jetson@ubuntu:~$ apt-get -o Acquire::https::Proxy=http://192.168.55.100:8085 download nsight-systems-2024.5.4
+Get:1 https://repo.download.nvidia.com/jetson/common r36.4/main arm64 nsight-systems-2024.5.4 arm64 2024.5.4.34-245434855735v0 [313 MB]
+Fetched 313 MB in 9s (33.0 MB/s)
+APT_NSYS3_RC=0
+404b1d921366d94f60a027298523e295c5484ee6f6e3b8a27da304ad4fd92bad  nsight-systems-2024.5.4_2024.5.4.34-245434855735v0_arm64.deb
 ```
 
 `curl -k` gets the same file through the same proxy:
@@ -101,7 +117,7 @@ lrwxrwxrwx root/root        0 2024-09-17 17:32 ./opt/nvidia/nsight-systems/2024.
 
 **The install.** The system route needs three X libraries the JetPack rootfs lacks
 (`libxcb-xinerama0`, `libxcb-xinput0`, `libxcb-cursor0`, all GUI-only) and the proxy's plain-HTTP
-path is broken (§"What is still missing"), so those three were staged from the host and installed
+path was broken at the time (§"Fixed on 2026-09-12, and what is still missing"), so those three were staged from the host and installed
 locally. The package then configures cleanly:
 
 ```console
@@ -160,8 +176,10 @@ Two board facts the install had to work around, worth knowing for the next one:
 `pip install --user numpy` alone is a no-op on this image because the system's `numpy 1.21.5`
 satisfies the unversioned requirement, and mage's `numpy>=2.2.6` then fails at import — the version
 needs pinning so the user-site wheel shadows `/usr/lib/python3/dist-packages`. And
-`download.pytorch.org`'s certificate is also "not yet valid" on the board's clock, so its wheels need
-`--trusted-host` (or a `curl -k` fetch); PyPI's own certificate validates.
+`download.pytorch.org`'s certificate was also "not yet valid" on the board's clock when these wheels
+were staged, so the command above carries `--trusted-host` (or a `curl -k` fetch); after the clock fix
+of 2026-09-12 the flag is no longer needed — `https://download.pytorch.org/whl/cpu/torch/` answers
+`200` without it — and PyPI's own certificate validated throughout.
 
 Then mage drove `nsys` itself, over a board binary, and read the export:
 
@@ -282,22 +300,49 @@ jetson@ubuntu:~$ timeout 3 tegrastats --interval 1000
 `ncu` needs root (`perf_event_paranoid=2`, no NOPASSWD), so its captures run under `sudo -S` with the
 board's password on stdin, as `docs/evidence/T16/board-kernels/` and the T50/T18 captures do.
 
-## What is still missing
+## Fixed on 2026-09-12, and what is still missing
 
-- **The host proxy's plain-HTTP path is broken.** `gadget_proxy.py` parses `host:port` with
-  `rpartition(":")` and then `int(port)`; for an authority without a port (every `http://` request)
-  the "port" is the hostname, the parse raises, and the client gets `502 Bad Gateway`. HTTPS works
-  because it arrives as `CONNECT`. The board's plain-HTTP archives — `http://ports.ubuntu.com`,
-  i.e. `apt-get install` of anything not already in the image — therefore cannot be fetched through
-  the proxy. Workaround used here: fetch those `.deb`s on the dev host and `scp` them. A one-line
-  fix in the host's scratch script (not this repository) would remove the limitation.
-- **The board's WiFi still does not associate** (`CTRL-EVENT-ASSOC-REJECT status_code=1`, 17–29 %
-  signal). D-022 records that as a physical/antenna finding, not a provisioning gap; the proxy over
-  the USB gadget link is the working route, and the board resolves nothing itself.
-- **The board's clock still runs ~9 days behind**, which is what makes `apt-get download`,
-  `pip` from `download.pytorch.org` and any freshly-issued certificate fail with "not yet valid".
-  `curl -k`/`--trusted-host` are the workarounds; setting the clock needs `sudo date -s` and was
-  left alone so the board's timestamps stay comparable with the batch's captures.
+Two of the three gaps this work first found were provisioning bugs, not limits, and both are fixed
+with the before/after measured. The third is physical.
+
+**Fixed: the board's clock.** It read `2026-09-02T14:50:48Z` against the dev host's
+`2026-09-12T03:33:28Z` — 9 d 12 h 42 m 40 s behind (D-010's skew), which is why `apt-get download`,
+`pip` from `download.pytorch.org` and every freshly-issued certificate failed with "not yet valid".
+It was set from the host's UTC and written to the RTC:
+
+```console
+$ echo jetson | sudo -S date -u -s "$(date -u +'%Y-%m-%d %H:%M:%S')"
+Sat Sep 12 03:33:52 AM UTC 2026          # DATE_SET_RC=0
+$ echo jetson | sudo -S hwclock -w       # HWCLOCK_W_RC=0; hwclock -r → 2026-09-11 23:34:02 -04:00
+BOARD_NOW=2026-09-12 03:33:55 UTC   HOST_NOW=2026-09-12 03:33:57   # ≤2 s, the ssh round trip
+```
+
+After it, with no `-k` anywhere: `repo.download.nvidia.com` `200`, `download.pytorch.org` `200`,
+`index.crates.io` `200`, `pypi.org` `200`, and `apt-get download nsight-systems-2024.5.4` fetched
+313 MB at 33.0 MB/s with the published sha256 (§"The two attempts"). `systemd-timesyncd` is still
+`active` and unsynchronised — it has no DNS to reach a pool — so the `hwclock -w` write is what makes
+the fix survive a reboot.
+
+**Fixed: the host proxy's plain-HTTP path.** `C:/tmp/board3/gadget_proxy.py` parsed the authority
+with `rpartition(":")` and then `int(port)`; for an `http://` request (no port) the "port" was the
+hostname, the parse raised, and the client got `502 Bad Gateway`. The parse now branches on
+`":" in hostport`, the process was restarted (`hub restart gadget-proxy`, pid 21620, `ready`), and:
+
+```console
+$ curl -x http://192.168.55.100:8085 http://ports.ubuntu.com/ubuntu-ports/dists/jammy/Release
+ports_release_rc=200 bytes=269219
+$ apt-get -o Acquire::http::Proxy=http://192.168.55.100:8085 download libxcb-cursor0
+Fetched 9,880 B in 0s (26.1 kB/s)
+```
+
+The `http://` archives are reachable through the proxy now, so staging Ubuntu `.deb`s from the host
+is no longer necessary.
+
+**Still missing: the board's WiFi does not associate.** `CTRL-EVENT-ASSOC-REJECT status_code=1` on
+both bands, 17–29 % signal against the host's 62 %, `wlP1p1s0` disconnected. D-022 records that as a
+physical/antenna finding, not a provisioning gap: the USB gadget link plus the proxy is the working
+route, and the board resolves nothing itself — its DNS absence is by design, since the proxy dials
+every host on its behalf.
 
 ## The standing rule
 
