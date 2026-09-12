@@ -273,6 +273,26 @@ Consequences:
   issue without the work reaching the trunk; the tracker lies until someone checks. When a ticket's
   work is found stranded, replay it and reopen the issue rather than trusting the label.
 
+## D-020 — The kernels' value contract is the accumulation order and the `fmaf` pin
+
+The CPU reference in `crates/cuda/src/cpu.rs` is the oracle the kernels are checked against, and its
+module doc (`cpu.rs:14-22`) makes the *bits* part of the twin, not only the order of operations.
+Instance: #221 vectorized both row walks and the emitted bits moved — 2.9 % of the weights one ULP
+apart — until the scalar multiply-add's contraction was pinned with `fmaf` and the accumulation kept
+in ascending column order.
+
+- **The order is interface.** Every walk accumulates its row in ascending column order; a tiled or
+  shared-memory reduction re-associates the sum, so #172's step-2 recommendation (a tiled reduction)
+  was refused in #221 rather than deferred. The refusal is recorded above each vector loop in
+  `kernels/belief_update.cu` and `kernels/cognition_update.cu`.
+- **The contraction is interface.** nvcc chooses FMA contraction per instruction, so the `fmaf` pin is
+  what makes the result reproducible; without it, a future vectorization moves a few percent of the
+  weights by one ULP and every test stays green.
+- **No test catches either.** The device comparison is `1e-5 + 1e-4 × scale`
+  (`crates/cuda/tests/gpu.rs:43-51`), which a one-ULP move passes; D-009 makes the emitted values
+  interface, so the contract lives in the doc and the loop comments, and the enforceable form is an
+  FNV-1a probe over the `gpu.rs` fixtures.
+
 ## D-003 — Repository
 
 

@@ -29,7 +29,18 @@ said was missing:
 ```bash
 cargo +1.98.1 build --release -j 2 -p qualia-jepa-model --features cuda \
   --bin qualia-jepa-parity --bin qualia-jepa-plan-eval      # MODEL_RC=0
+cargo +1.98.1 build --release -j 2 --target aarch64-unknown-linux-gnu -p qualia-jepa-model \
+  --bin qualia-jepa-parity --bin qualia-jepa-plan-eval      # rc 101: error[E0463], no `core`
 ```
+
+The aarch64 build the DoD's limb asks for **was attempted and cannot run here**: the WSL toolchain has
+no `aarch64-unknown-linux-gnu` target (`rustup target list --installed` → wasm32-unknown-unknown,
+x86_64-pc-windows-gnu, x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu), no `aarch64-linux-gnu-gcc`
+and no `cross`, so the build dies at rc 101 with `error[E0463]: can't find crate for 'core'`; D-018
+records the same fault. The record would be D-018's lane (a) — a native aarch64 build on Pinkie from a
+`git archive` of the head — except that these two binaries need `candle-core`, which the board's
+offline cache does not carry and has no DNS to fetch, so no aarch64 record for the model binaries
+exists on either side today. No cross-build is claimed.
 
 `ldd` on them resolves `libcuda.so.1`, `libcublas.so.12` and `libcurand.so.10`.
 
@@ -69,14 +80,22 @@ only property this capture needs from it.
 ## The numbers (milliseconds)
 
 Plain runs are three repeats, wall time between `date +%s%N` stamps around the process; the profiled
-run is the committed capture. `step` is the step's own work inside the process (`infer` + eight
-`predict_latent_step` calls for E; 64 × 16 = 1 024 `predict_step` calls for F1; 120 decisions for F2).
+run is the committed capture. **Row E is the ticket's own binary; rows F1 and F2 name the probe binary
+that stands in for it** — `t50close-probe` (`harness-probe.rs`), which calls the same two public
+functions `qualia-jepa-plan-eval` calls, on the same runtime, because the binary's provenance gate
+stops it before them (§"The checkpoint"). `step` is the step's own work inside the process (`infer` + eight
+`predict_latent_step` calls for E; 64 × 16 = 1 024 `predict_step` calls for F1; the 120-decision
+comparison for F2), and the plain-wall column is the **whole process** around it — for F2 that is
+39 ms of probe start-up against a 52 µs step. The plain runs are measured, not artifacted: only the
+`nsys` captures and the two probe reports (`propose-report.json`, `compare-report.json`) are
+committed, so the three plain-wall triples (E 879/934/1046, F1 905/1061/1496, F2 39/39/40) are this
+README's record of runs whose command lines are in §"How it was taken".
 
 | # | path | plain wall (3 runs) | step | under `nsys` | device work | dominant cost |
 | --- | --- | --- | --- | --- | --- | --- |
-| E | `qualia-jepa-parity --target cuda` | **934 ms** (879 / 934 / 1046) | 2 × 9 synchronized steps ≈ **3 ms** | capture committed | 192 launches, **351 µs** of kernels | process start-up + CUDA module/library load (**38.6 + 12.0 ms**), one cold first step (66.0 ms CUDA / 11.3 ms CPU) |
-| F1 | `plan-eval propose` (64 candidates × 16 steps) | 1 061 ms (905 / 1 061 / 1 496) | **462 ms** (461.2 / 461.9 / 532.2) | capture committed | 15 360 launches, **24 813 µs** of kernels | per-call host↔device round trips: **0.450 ms per `predict_step`** (15 launches — 11 driver-API + 4 runtime-API — 3 D2H, 7 H2D, 20 allocations, 34 event records each) |
-| F2 | `plan-eval compare` (120 decisions) | **39 ms** (39 / 39 / 40) | **39 ms** | kernel-less capture | no launch | dataset manifest parse + integrity validation (**0.85–0.91 s**) in the binary; the 120-decision arithmetic is 39 ms |
+| E | `qualia-jepa-parity --target cuda` | **934 ms** (879 / 934 / 1046) | 2 × 9 synchronized steps ≈ **3 ms** warm (2.8 CPU + 3.0 CUDA) + the 11.3/66.0 ms cold first call | capture committed | 192 launches, **351 µs** of kernels | process start-up + CUDA module/library load (**38.6 + 12.0 ms**), one cold first step (66.0 ms CUDA / 11.3 ms CPU) |
+| F1 | `plan-eval propose` — `t50close-probe` → `evaluate_rollout_proposals` (64 candidates × 16 steps) | 1 061 ms (905 / 1 061 / 1 496) | **462 ms** (461.2 / 461.9 / 532.2) | capture committed | 15 360 launches, **24 813 µs** of kernels | per-call host↔device round trips: **0.450 ms per `predict_step`** (15 launches — 11 driver-API + 4 runtime-API — 3 D2H, 7 H2D, 20 allocations, 34 event records each) |
+| F2 | `plan-eval compare` — `t50close-probe` → `compare_offline_planners` (120 decisions) | **39 ms** process (39 / 39 / 40) | **0.052 ms** (`step_ms` in `compare-report.json`) | kernel-less capture | no launch | the binary's dataset parse + integrity validation (**0.91 s**) in front of the 52 µs comparison |
 
 Row E's report is committed as `parity-report.json`: `passes: true`, eight-step `predicted_mean`
 rmse 4.58e-6 against thresholds `rmse_max 2e-4` / `max_abs_max 2e-3` / `cosine_min 0.99999`, and
@@ -100,7 +119,8 @@ step's *traced* work is milliseconds while the process is ~1 s.
   — the lever, if one is wanted, is a warm runtime reused across checks, outside this ticket.
 - **F2** — `crates/jepa-model/src/bin/qualia-jepa-plan-eval.rs:250` is the comparison's verification call site; the work before
   it is `verify_comparison_evidence`, which parses the dataset manifest and re-hashes the MCAPs it
-  cites. That prologue is the cost (0.85–0.91 s measured), and the comparison itself is 39 ms.
+  cites. That prologue is the cost (**0.91 s** measured), and the comparison itself is **52 µs**
+  (`compare-report.json` `step_ms`).
 
 ## What still blocks the promoted-model run
 
@@ -110,7 +130,12 @@ The two blockers, restated as the ticket's closure question:
    the planner both require a model that clears the promotion gates, and no artifact this host can
    produce does. Whether a synthetic fixture can ever clear them (calibration slope 0.9–1.1,
    `clamp_fraction ≤ 0.01`, a held-out rollout that beats both frozen baselines) is #47's question,
-   together with row D.
+   and the slope figure (3.375, against the gate's 0.9–1.1) lives in #172's 21:33Z profiling comment
+   rather than in `trainer-refusals.txt`, which records the refusals only;
+   together with row D; the residual — this run, the rollout divergence and F1's batching refactor —
+   is tracked as **T52, [#225](https://github.com/superposition/qualia/issues/225)**, `blocked_on:` a
+   promotion-passing checkpoint.
+
 2. **Pinkie.** The board's offline registry cache carries no `candle-core` and the board has no DNS,
    so the model steps cannot be built or run there; the step-5 bar ("including on Pinkie") is
    satisfied only by the kernel captures (`docs/evidence/T50/pinkie-kernels*/`). This capture is a
@@ -188,7 +213,7 @@ mage profile-exec --backend nsys --capture-range all --no-persist -- \
   t50close-probe propose ...                                               # exit 0, 15 360 launches
 
 # F2 — the comparison step (CPU only; nsys records no launch)
-t50close-probe compare --request <scratch>/cand-requests/comparison-input.json # exit 0, 39 ms
+t50close-probe compare --request <scratch>/cand-requests/comparison-input.json # exit 0, 39 ms process; 0.052 ms step
 mage profile-exec --backend nsys --capture-range all --no-persist -- \
   t50close-probe compare ...                                               # exit 1, "captured no CUDA kernel launches"
 
