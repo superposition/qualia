@@ -330,6 +330,9 @@ The four facts, in the DoD's order:
 | `E-kernels.csv` | 33 429 | E's per-launch kernel rows (202 launches captured) |
 | `F1-kernels-aggregate.csv` | 1 097 | F1's per-kernel projection (18 480 launches → 8 kernels) |
 | `board-parity-run.txt`, `board-parity-report.json` | 4 752, 2 654 | the live Pinkie run and its report |
+| `plan-eval-refusals.txt` | 1 386 | the ticket's plan-eval binary refusing the fixture before its step |
+| `step3-test.txt` | 605 | step 3's test re-run on this branch |
+| `digest-fix/t52-digest-probe.rs`, `digest-fix/probe-Cargo.toml` | 1 235, 295 | the scratch probe's source, so §1 can be re-run |
 
 `E`'s launch-level kernel rows are committed because the file is 33 KB; F1's are 2.9 MB and stay on
 the capturing machine (the aggregate answers the same question), exactly as T50's capture does.
