@@ -12,8 +12,9 @@ names. The path is `next_step` and `Ladder::step` in `crates/braid/src/heal.rs` 
 WSL2 `Ubuntu-22.04` on the dev host, RTX 4090, driver 591.74, `nsys` 2025.3.2.474 (the host carries
 no `ncu` in the guest), `mage` 0.1.0 built from `superposition/mage` at `7a798f6`, rustc 1.98.1 (the
 guest's stable 1.85 cannot build the braid dependency tree). The trace ran on the dev host, not on
-Pinkie: Pinkie has no `nsys`, and the decision path touches no device, so there is no board capture
-to take (D-012's backend table).
+Pinkie: Pinkie carried no `nsys` when this capture was taken (it has carried 2024.5.4 since
+2026-09-12, so this kernel-less timeline can now be traced on the board —
+`../../board/readiness/README.md`), and the decision path touches no device (D-012's backend table).
 
 ## Shape
 

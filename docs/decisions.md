@@ -528,10 +528,45 @@ impossible before provisioning is provisional, not architecture. Companion recor
 in place by PR [#231](https://github.com/superposition/qualia/pull/231) (merged as `56d8170`, head
 `a1a0656`), which adds the rootless `cargo-zigbuild` cross lane and its board run at
 `docs/evidence/board/cross-lane/README.md`; D-018's original paragraph stays as history under that
-amendment. What this entry does not overturn:
-the board carries no `nsys` and no `mage` as measured, so a step-level `nsys` timeline still has no
-board path; whether either is installable is the readiness workstream's item
+amendment. What this entry did not overturn at its commit:
+the board carried no `nsys` and no `mage` as measured then, so a step-level `nsys` timeline had no
+board path; whether either was installable was the readiness workstream's item
 ([#230](https://github.com/superposition/qualia/issues/230)).
+
+**Amended 2026-09-12** (dev-host date; the board's clock read 2026-09-02) — that item is discharged,
+and both are installs, not architecture. `nsys`: the board's own apt sources
+(`/etc/apt/sources.list.d/nvidia-l4t-apt-source.list`) point at NVIDIA's Jetson repository, and
+`apt-cache policy nsight-systems-2024.5.4` reports candidate `2024.5.4.34-245434855735v0` from
+`repo.download.nvidia.com/jetson/common r36.4/main arm64` — 313 390 022 B, sha256
+`404b1d921366d94f60a027298523e295c5484ee6f6e3b8a27da304ad4fd92bad`, the value the repository's own
+`Packages` index carries. `apt-get download` fails on the board's clock ("certificate … not yet
+valid"), so the `.deb` was fetched with `curl -k` through the gadget proxy (23.9 MB/s), unpacked with
+`sudo dpkg -i` (three GUI-only X libraries were staged from the host, because the proxy's plain-HTTP
+path was broken at the time — see `docs/evidence/board/readiness/README.md`) and configured with
+`dpkg --configure`; `/usr/local/bin/nsys` then prints `NVIDIA Nsight Systems version
+2024.5.4.34-245434855735v0` and `nsys profile --stats=false /bin/true` exits 0. `mage`: the board's
+`pip 22.0.2` installs `triton 3.8.0` and `torch 2.14.0+cpu` from their `aarch64` wheels
+(`pip3 download` through the proxy; PyPI's `mage` name is another project, so the package comes from
+the repository), then `mage` 0.1.0 — `pip3 show mage` → `Version: 0.1.0`, `mage --help` exits 0, and
+`mage profile-exec --backend nsys --capture-range all -- <board binary>` parsed **494** CUPTI kernel
+rows out of a capture taken on the board. The measurements, commands and what remains missing are in
+`docs/evidence/board/readiness/README.md`.
+
+**Further amended 2026-09-12** — the other two limits that work found are also fixed rather than
+standing. The board's clock, 9 d 12 h 42 m 40 s behind the dev host at the start
+(`2026-09-02T14:50:48Z` vs `2026-09-12T03:33:28Z`), was set from the host's UTC
+(`echo jetson | sudo -S date -u -s …`) and written to the RTC with `hwclock -w`; a bracketed
+measurement puts it 1.43 s behind the host and stable (board epoch against the host's before/after
+window, twice), and `apt-get download nsight-systems-2024.5.4` — which had failed with
+`certificate … not yet valid` — fetches 313 MB at 33.0 MB/s with the published sha256, with
+`repo.download.nvidia.com`, `download.pytorch.org`, `index.crates.io` and `pypi.org` all answering
+`200` without `-k`. The host's gadget proxy had a plain-HTTP defect in the same class: it parsed the
+authority with `rpartition(":")` and then `int(port)`, so an `http://` request (no port) made the
+"port" the hostname and the client got `502 Bad Gateway`; the parse now branches on `":" in
+hostport`, the supervised process was restarted, and `http://ports.ubuntu.com/ubuntu-ports/dists/jammy/Release`
+answers `200` while `apt-get -o Acquire::http::Proxy=… download libxcb-cursor0` stages the deb. The
+WiFi association remains the one physical limit, unchanged from the paragraph above
+(`CTRL-EVENT-ASSOC-REJECT status_code=1`).
 
 ## D-003 — Repository
 

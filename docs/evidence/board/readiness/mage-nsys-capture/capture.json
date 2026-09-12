@@ -1,0 +1,34 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "<binary>",
+    "--backend",
+    "cuda",
+    "--iterations",
+    "5",
+    "--warmup",
+    "1"
+  ],
+  "profiler_argv": [
+    "/usr/local/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=<output-dir>/mage-nsys-doiq0b7c/capture",
+    "<binary>",
+    "--backend",
+    "cuda",
+    "--iterations",
+    "5",
+    "--warmup",
+    "1"
+  ],
+  "command": "<binary> --backend cuda --iterations 5 --warmup 1",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 494
+}

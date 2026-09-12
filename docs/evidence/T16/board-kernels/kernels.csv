@@ -1,0 +1,9 @@
+launch,kernel,cc,block_size,grid_size,duration_us,sm_frequency_mhz,elapsed_cycles,l2_elapsed_cycles,registers_per_thread,static_shared_mem_kb,dynamic_shared_mem_kb,driver_shared_mem_per_block_kb,shared_memory_config_kb,stack_bytes,threads,waves_per_sm,block_limit_sm,block_limit_registers,block_limit_shared_mem,block_limit_warps,theoretical_active_warps_per_sm,theoretical_occupancy_pct,achieved_occupancy_pct
+0,action_score,8.7,"(256, 1, 1)","(2, 1, 1)",96.61,305.34,29498,235992,30,1.02,0,1.02,16.38,512,512,0.08,16,8,8,6,48,100,
+1,belief_couple,8.7,"(4, 1, 1)","(1, 1, 1)",21.06,619.63,13047,51088,26,0,12,1.02,32.77,512,4,0.02,16,64,28,48,16,33.33,
+2,belief_update,8.7,"(1024, 1, 1)","(1, 1, 1)",3410.0,305.98,1043067,8344536,42,8.19,0,1.02,16.38,512,1024,0.25,16,1,1,1,32,66.67,
+3,cognition_update,8.7,"(1024, 1, 1)","(1, 1, 1)",3600.0,305.98,1100957,8807648,40,8.19,0,1.02,16.38,512,1024,0.25,16,1,1,1,32,66.67,
+4,cognition_update,8.7,"(1024, 1, 1)","(1, 1, 1)",3600.0,305.98,1102042,8816344,40,8.19,0,1.02,16.38,512,1024,0.25,16,1,1,1,32,66.67,
+5,cognition_patch,8.7,"(1, 1, 1)","(1, 1, 1)",16.93,302.28,5117,40912,16,0,0,1.02,16.38,512,1,0.02,16,128,16,48,16,33.33,
+6,costmap_stats,8.7,"(256, 1, 1)","(16, 1, 1)",19.42,303.49,5895,47128,16,0,0,1.02,8.19,512,4096,0.67,16,16,8,6,48,100,
+7,perception_voxel,8.7,"(256, 1, 1)","(48, 1, 1)",259.9,305.81,79480,635840,21,0,0,1.02,8.19,512,12288,2,16,10,8,6,48,100,

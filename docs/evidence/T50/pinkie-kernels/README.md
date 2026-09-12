@@ -23,9 +23,10 @@ holds `capture.json`, `kernels.json`, `kernels.csv`, the backend's export and th
 directory holds eight files — those four, plus one export pair per run: `metrics.csv` with
 `base-capture.ncu-rep`, and `metrics-none.csv` with `none-capture.ncu-rep`.
 
-This capture is **manual**, under `docs/evidence/README.md`'s `## Manual capture` clause: mage is not
-available on Pinkie — it carries no `nsys`, and at the time of writing had no DNS of its own and no
-mage installed (a network/install state, not architecture; D-022) — so the two
+This capture is **manual**, under `docs/evidence/README.md`'s `## Manual capture` clause: mage was
+not available on Pinkie when it was taken — no `nsys`, no DNS of its own, no mage installed (a
+network/install state, not architecture; D-022; since 2026-09-12 the board carries `nsys` 2024.5.4
+and `mage` 0.1.0, `../../board/readiness/README.md`) — so the two
 `ncu` runs were driven by hand. `capture.json` therefore keeps mage's manifest field names for the
 primary (`base`) run — `argv` (the profiled argv), `profiler_argv`, `returncode`, `status`,
 `kernel_count` — with the
@@ -358,12 +359,14 @@ committed; on the development host it sits at `C:/tmp/wp-ev/capture-basic.ncu-re
   `qualia-jepa-runtime-probe` reporting `synchronized_latency_p50_us` 3168 (cpu) / 2039 (cuda) and
   `outputs_finite: true` on both, and `cargo fetch` downloading nothing because the board's registry
   cache is complete for that head (the board job's comments on #225/#228; D-022).
-- **No timeline capture.** There is no `nsys` binary on the board and, at the time of writing, no
-  network to install one, and `mage` is not installed there either, so #64's `mage profile-exec
-  --backend nsys` path cannot run on Pinkie. This capture is `ncu` only, and kernel-level rather than
-  step-level. That block is target-side and is not a wheel or toolchain limit: per
-  `docs/evidence/README.md`'s `## Manual capture` clause, the board carries no `nsys`, and at the
-  time of writing had no DNS of its own and no mage installed (D-022).
+- **No timeline capture.** There was no `nsys` binary on the board when this capture was taken, and
+  no network to install one then, and `mage` was not installed there either, so #64's `mage profile-exec
+  --backend nsys` path could not run on Pinkie. This capture is `ncu` only, and kernel-level rather than
+  step-level. That block was target-side and was not a wheel or toolchain limit: per
+  `docs/evidence/README.md`'s `## Manual capture` clause, the board had no `nsys` and no DNS of its
+  own and no mage installed (D-022). It is no longer a limit — `nsys` 2024.5.4 and `mage` 0.1.0 were
+  installed on the board on 2026-09-12 (`../../board/readiness/README.md`), where a board-side
+  `mage profile-exec --backend nsys` capture now comes from.
 - **No DRAM verdict.** See the `n/a` above.
 - **Duration is a profiler duration.** Both runs report the duration of an isolated, replayed launch,
   not a throughput measurement of the pipeline. Compare launch count and shape first, then cycles,
@@ -388,6 +391,8 @@ committed; on the development host it sits at `C:/tmp/wp-ev/capture-basic.ncu-re
 
 `ssh -i ~/.ssh/qualia_jetson_ed25519 jetson@192.168.55.1` — L4T 5.15.148-tegra, aarch64, 6 cores,
 3.6 GiB RAM, `NV Power Mode: 10W`, driver 540.4.0, CUDA toolkit 12.9.41, `ncu` 2025.2.0.0 at
-`/usr/local/cuda/bin/ncu` (not on `PATH`), `nvcc` 12.9.41 present, no `nsys`, no `mage`, 161 GiB free
+`/usr/local/cuda/bin/ncu` (not on `PATH`), `nvcc` 12.9.41 present, no `nsys` and no `mage` at the
+time of this capture (`nsys` 2024.5.4 and `mage` 0.1.0 were installed on 2026-09-12 —
+`../../board/readiness/README.md`), 161 GiB free
 on `/`. The GPU was idle at the start: `nvidia-smi` reported no running processes. The host's 4090 was
 not used by this work at any point.

@@ -11,8 +11,9 @@ kernel the coupling runs with.
 * **Board:** `aarch64`, driver `NVRM 540.4.0`, CUDA `12.9`, `ncu 2025.2.0.0 (build 35613519)`,
   compute capability **8.7**, `LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat`.
 * **Capture:** **manual**, under `docs/evidence/README.md`'s `## Manual capture` clause — Pinkie
-  carries no `nsys`, and at the time of writing had no DNS of its own and no mage installed (a
-  network/install state, not architecture; D-022) — so the two dial runs and the `ncu`
+  carried no `nsys` and no mage, and had no DNS of its own, when this capture was taken (a
+  network/install state, not architecture; D-022; since 2026-09-12 the board carries `nsys` 2024.5.4
+  and `mage` 0.1.0, `../../board/readiness/README.md`) — so the two dial runs and the `ncu`
   pass were driven by hand. `capture.json` keeps mage's manifest field names (`argv`,
   `profiler_argv`, `returncode`, `status`, `kernel_count`) with the board, build, dial and
   comparison facts alongside.

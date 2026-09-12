@@ -12,10 +12,10 @@ device suite, built from the same tree, single-threaded, profiled with mage.
 `nsys` runs on the **dev workstation's WSL2 Ubuntu-22.04 distribution** against the **RTX 4090**
 (`GPU-fb7c6e5e-95d2-8da6-98ae-b08353b6fe01`), Nsight Systems **2025.3.2.474**, driven by mage's
 `profile-exec --backend nsys`. [D-012](../../../decisions.md) makes Pinkie the profiling target, but
-the board carries **no `nsys` and no mage** (T50's board report records both as absent; at the time
-of writing there was no offline route to install them — the `nsys` absence is the target-side limit,
-the `mage` half an install state, D-022), so the pair cannot be taken there; the board's own `ncu` counters
-for these two kernels are in [`../pinkie-kernels/`](../pinkie-kernels/) and are the cross-check for
+the board carried **no `nsys` and no mage** when this capture was taken (T50's board report records
+both as absent then; since 2026-09-12 it carries `nsys` 2024.5.4 and `mage` 0.1.0, both installs —
+`../../board/readiness/README.md`), so the pair was taken on the dev host; the board's own `ncu`
+counters for these two kernels are in [`../pinkie-kernels/`](../pinkie-kernels/) and are the cross-check for
 the shape and the register counts below. This directory is therefore the **dev-host substitution**
 that [`../../baseline-2026-09-11/`](../../baseline-2026-09-11/README.md) also uses, and the board re-measure of the refactor is still owed by
 this ticket.
@@ -275,8 +275,10 @@ The suite totals are **not** like for like — 13 launches then, 16 now, because
 `perception_voxel` and `belief_couple` joined the suite — so the comparison that means anything is
 the per-kernel rows above, and the `before` column of this directory's own pair for the
 launch-set-matched one. `../pinkie-kernels/` remains the board's measurement of the unrefactored
-kernels (12 976 128 ns `belief_update`, 12 991 136 / 13 046 368 ns `cognition_update`); the board
-has no `nsys` and the refactor has not been measured there. That re-measure is owed by this ticket.
+kernels (12 976 128 ns `belief_update`, 12 991 136 / 13 046 368 ns `cognition_update`); the board had
+no `nsys` when this pair was taken (it has since 2026-09-12, so the refactor can now be re-measured
+there — `../../board/readiness/README.md`) and the refactor has not been measured there. That
+re-measure is owed by this ticket.
 
 ## Files
 

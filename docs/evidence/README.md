@@ -29,10 +29,20 @@ binary smoke that launches no CUDA kernel. Its README says that it is not a capt
 claim it backs, and the command and output observed on the board; it commits no `capture.json` and no
 `kernels.json`, because there are no kernels to record.
 
+`board/readiness/` is the board's one non-slug directory: it holds the readiness checklist
+(`board/readiness/README.md`), and a capture taken to prove a capability there follows the capture
+layout rather than the non-capture rule above. Such a **readiness proof** lives at
+`board/readiness/<slug>/` (e.g. `board/readiness/mage-nsys-capture/`), carries what a ticket capture
+carries — `capture.json`, `kernels.json`, `kernels.csv`, the backend's export and its own README — is
+exempt from the `T<NN>/<slug>/` path because no ticket's definition of done rests on it, and says in
+its README which capability it proves and that it is not a `needs:profile` ticket's capture.
+
 ## What a capture directory holds
 
 Every capture directory holds `capture.json`, `kernels.json`, `kernels.csv` and its own `README.md`,
-plus the export of the backend that ran — never a `capture.sqlite` from a target that has no `nsys`:
+plus the export of the backend that ran — never a `capture.sqlite` from a target that has no `nsys`
+(Pinkie had none when the captures in this tree were taken, and has carried `nsys` 2024.5.4 since
+2026-09-12 — `board/readiness/README.md`):
 
 | File | Contents |
 | --- | --- |
@@ -94,14 +104,16 @@ directory in `error` — so the committed evidence names no machine.
 mage profiles a native executable, so build the ticket's binary first and hand `profile-exec` its
 path. The profiling target is **Pinkie**, the Waveshare-carried Jetson Orin NX at
 `jetson@192.168.55.1` ([`decisions.md`](../decisions.md) D-010, D-012): it carries `ncu` at
-`/usr/local/cuda/bin/ncu` and no `nsys`, so a capture there uses `--backend ncu`. Its binary is the
-ticket's aarch64 build — a native build on the board, or a host cross-build (the cross image,
+`/usr/local/cuda/bin/ncu`, and since 2026-09-12 also `nsys` 2024.5.4 at `/usr/local/bin/nsys` and
+`mage` 0.1.0 (`board/readiness/README.md`), so a capture there can use either backend; the captures
+already in this tree used `--backend ncu` because the board had no `nsys` when they ran. Its binary
+is the ticket's aarch64 build — a native build on the board, or a host cross-build (the cross image,
 `Cross.toml` / `docker/Dockerfile.cross-aarch64`, was unusable on this host when D-018 was written;
 that entry is amended) — copied to the board. At the time of writing the board resolved no DNS
 itself; D-022 records the provisioning that now reaches crates.io through the host's gadget proxy.
 
 ```bash
-# on Pinkie: mage and the aarch64 binary are copied over first (at the time of writing the board has no DNS of its own and no mage; D-022)
+# on Pinkie: mage and the aarch64 binary are copied over first (the board resolves no DNS of its own; its mage/nsys were installed on 2026-09-12 — D-022, board/readiness/README.md)
 mage profile-exec --backend ncu --capture-range all \
   --output-dir ~/mage-capture-scratch/T<NN>/<slug> \
   -- ./gpu-<hash> --test-threads=1
@@ -139,9 +151,10 @@ the target and capture range. Reports: …`, and a kernel-less `ncu` run prints 
 
 Capture by hand when mage is not available on the target, or when mage cannot express the capture
 the ticket needs (its backend argv is fixed), for a reason that lives with the target or with mage
-rather than with this repository. Pinkie is that case: it carries no `nsys`, and at the time of
-writing had no DNS of its own and no `mage` installed, so its captures are produced manually. State
-that reason and the exact command
+rather than with this repository. Pinkie was that case when the captures in this tree were taken —
+no `nsys`, no `mage`, no DNS of its own — and since 2026-09-12 it carries `nsys` 2024.5.4 and
+`mage` 0.1.0 (`board/readiness/README.md`), so this clause now covers the other reasons it names.
+State that reason and the exact command
 used in the directory README, and keep the manifest's field names — `argv`, `returncode`, `status`,
 `error`. Commit the raw backend export (`capture.ncu-rep` and `metrics.csv` for `ncu`) when it fits
 the size the tree carries; when it cannot be committed, the directory README says `kernels.json` and
@@ -153,7 +166,9 @@ kernel-less rule and the `nsys` SQLite rule above are unchanged.
 Profiling happens on the target, and per D-012 that target is **Pinkie**; the evidence ships with the
 ticket from there. A capture on the dev host is not the convention. Two classes of dev-host capture
 are the carve-outs: a kernel-less CPU timeline — it opens no CUDA device for the board's `ncu`, and
-Pinkie carries no `nsys` to trace it there (T35 and T31) — and a run whose package the board cannot
+Pinkie carried no `nsys` to trace it there when T35 and T31 were captured (since 2026-09-12 it
+carries `nsys` 2024.5.4, so a CPU timeline can be traced on the board; `board/readiness/README.md`)
+— and a run whose package the board cannot
 execute — T50's model step needing `candle-core/cuda`, recorded at the time of writing as absent
 from the board's offline registry cache and unfetchable from a DNS-less host; D-022 now measures the
 board building and running that package natively, so that stated reason is superseded. Each may be
@@ -170,7 +185,7 @@ So the backend a target actually carries decides the export, and the file table 
 | Backend | Where it resolves | The export it writes |
 | --- | --- | --- |
 | `ncu` | Pinkie, `/usr/local/cuda/bin/ncu`; the host's WSL2 carries it too | `capture.ncu-rep` and `metrics.csv`; no SQLite |
-| `nsys` | the dev host's WSL2 distribution; Pinkie has none | `capture.sqlite` |
+| `nsys` | the dev host's WSL2 distribution, and Pinkie since 2026-09-12 (`/usr/local/bin/nsys`, 2024.5.4) | `capture.sqlite` |
 
 Record the backend in `capture.json` and the export in the directory, and never demand a
 `capture.sqlite` from a target that has no `nsys`.
