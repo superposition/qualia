@@ -646,7 +646,9 @@ enumerating the hardware the ticket asked to capture:
   complete JPEG frames in 5 s.
 - There is no other inertial source: `ls /dev/iio:device*` and `/sys/bus/iio/devices` are empty, and
   `i2cdetect` on buses 0/1/2/7 returns only `fusb301`, `ina3221`, `24c02` EEPROMs, `vrs-pseq` and
-  i2c-7's `0x15`/`0x3c`/`0x42` — no MPU/ICM/BNO address.
+  i2c-7's `0x15`/`0x3c`/`0x42` — no MPU/ICM/BNO address. (amended 2026-09-12: the complete `i2cdetect -y -r 0 1 2 7` scan taken during T59's board window shows
+**no responder at 0x15 on any bus** — either this enumeration caught a device that was absent at scan time, or
+that address is wrong; `docs/evidence/T59/devices/README.md` records the discrepancy)
 
 **The rule.** Killing or displacing the leash to borrow a port is the wrong trade: it is the robot's
 safe-stop and actuation service, and its guarantees are why a drive path is allowed to exist. A
