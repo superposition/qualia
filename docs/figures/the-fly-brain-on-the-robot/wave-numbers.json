@@ -1,15 +1,23 @@
 {
   "entry": "the-fly-brain-on-the-robot",
-  "note": "Every number the two charts draw is read from this file, and every value here is a line of a named committed source. The diagram's labels are typed into make_figures.py; each traces to a source named in the entry's Evidence table or figure captions. A generator that cannot find a chart value refuses rather than guesses.",
+  "note": "Every number the charts draw is read from this file, and every value here is a line of a named committed source. The diagram's labels are typed into make_figures.py; each traces to a source named in the entry's Evidence table or figure captions. A generator that cannot find a chart value refuses rather than guesses.",
   "sources": {
     "t55": "docs/evidence/T55/connectome-runner/README.md (and its host-*.log / board-loop.log)",
+    "host_trace": "docs/evidence/T55/connectome-runner/host-loop-gpu-trace.csv",
+    "board_trace": "docs/evidence/T55/connectome-runner/board-loop-trace.csv",
+    "board_trace_rerun": "docs/evidence/T55/connectome-runner/board-loop-trace-rerun.csv",
     "t56": "docs/evidence/T56/floating-brain/README.md",
     "t58": "docs/evidence/T58/real-sessions/README.md",
     "t59": "docs/evidence/T59/devices/README.md",
     "t63": "docs/evidence/T63/README.md",
     "t65": "docs/evidence/T65/calibration/README.md",
+    "d025": "docs/decisions.md, D-025 (the leash owns the hardware)",
     "d026": "docs/decisions.md, D-026",
     "d027": "docs/decisions.md, D-027",
+    "drive": "runners/drive/src/main.rs",
+    "lif": "crates/connectome-cns/src/lif.rs",
+    "decoder": "crates/connectome-cns/src/main.rs (the decoder and the loop's trace)",
+    "flycircuit": "crates/fly-circuit/README.md",
     "braid236": "https://github.com/superposition/qualia/issues/236 braid comments (2026-09-12)",
     "braid250": "https://github.com/superposition/qualia/issues/250 braid comments (2026-09-12)"
   },
@@ -27,6 +35,9 @@
     "placed": 139662,
     "unplaced": 27038,
     "types": 11752,
+    "release": "male-cns:v1.0",
+    "licence": "CC-BY 4.0",
+    "citation": "Berg et al., Cell, 2026",
     "source": "t55, t56"
   },
   "step_rates": [
@@ -65,6 +76,50 @@
   ],
   "frame_hz": 60,
   "frame_ms": 16.7,
+  "command_rule": {
+    "decoder_neurons": 2012,
+    "decoder_left": 1011,
+    "decoder_right": 1001,
+    "dead_band": 0.001,
+    "note": "the command is the sign of (right minus left) firing rate against the dead band; +1 right, -1 left, 0 hold; the throttle is the total output rate, capped at 1.0",
+    "source": "decoder"
+  },
+  "command_runs": [
+    {
+      "run": "board loop, first run",
+      "ticks": 300,
+      "seconds": 9.589,
+      "ticks_per_s": 31.3,
+      "left": 197,
+      "right": 99,
+      "hold": 4,
+      "non_hold": 296,
+      "source": "board_trace",
+      "clock_source": "issue #236 braid comment, 2026-09-12 — its trace has the counts, no time column"
+    },
+    {
+      "run": "board loop, fixed-reader re-run",
+      "ticks": 300,
+      "seconds": 9.358,
+      "ticks_per_s": 32.1,
+      "left": 98,
+      "right": 196,
+      "hold": 6,
+      "non_hold": 294,
+      "source": "board_trace_rerun"
+    },
+    {
+      "run": "host loop, the board's camera",
+      "ticks": 200,
+      "seconds": 1.775,
+      "ticks_per_s": 112.7,
+      "left": 130,
+      "right": 66,
+      "hold": 4,
+      "non_hold": 196,
+      "source": "host_trace"
+    }
+  ],
   "loops": [
     {
       "what": "host loop, the board's camera",
@@ -94,7 +149,12 @@
       "source": "t55"
     }
   ],
-  "snapshot_probe": {"fetches": 200, "ms": 2485, "per_s": 80.5, "source": "t55"},
+  "snapshot_probe": {
+    "fetches": 200,
+    "ms": 2485,
+    "per_s": 80.5,
+    "source": "t55"
+  },
   "sessions": [
     {
       "session": "t58-real-01",
@@ -141,19 +201,52 @@
     "spikes_sha256": "a0a27acbe61e0a9a5f013f77a9741ce466221b872bba711f7a07409f68593b28",
     "frames": 200,
     "ids": 10048960,
-    "first_ticks": [{"tick": 3, "fired": 19223}, {"tick": 4, "fired": 58109}, {"tick": 5, "fired": 44431}, {"tick": 6, "fired": 36480}],
+    "first_ticks": [
+      {
+        "tick": 3,
+        "fired": 19223
+      },
+      {
+        "tick": 4,
+        "fired": 58109
+      },
+      {
+        "tick": 5,
+        "fired": 44431
+      },
+      {
+        "tick": 6,
+        "fired": 36480
+      }
+    ],
     "drawn_points": 9976,
     "placed_points": 139662,
-    "firing_drawn_range": [3325, 3730],
+    "firing_drawn_range": [
+      3325,
+      3730
+    ],
     "source": "t56"
   },
   "console": {
     "live_panels": [
-      {"runner": "qualia-camera", "hz": 2.5},
-      {"runner": "qualia-health", "hz": 9.97},
-      {"runner": "qualia-vision", "hz": 4.99}
+      {
+        "runner": "qualia-camera",
+        "hz": 2.5
+      },
+      {
+        "runner": "qualia-health",
+        "hz": 9.97
+      },
+      {
+        "runner": "qualia-vision",
+        "hz": 4.99
+      }
     ],
-    "close_comment_run_hz": [2.54, 9.97, 4.98],
+    "close_comment_run_hz": [
+      2.54,
+      9.97,
+      4.98
+    ],
     "source": "docs/evidence/T60/live-hud/README.md (the #241 close comment's run read 2.54/9.97/4.98)"
   },
   "mission_broker": {
@@ -173,10 +266,45 @@
     "source": "T57 braid on #238 / PR #253"
   },
   "leash": {
-    "serial_ports": ["/dev/ttyACM0", "/dev/ttyTHS1"],
+    "service": "leash serve http",
+    "listen": "0.0.0.0:8000",
+    "profile": "waveshare-ugv",
+    "profile_role": "pinkie",
+    "drive_port": "/dev/ttyTHS1",
+    "drive_baud": 115200,
+    "lidar_device": "/dev/ttyACM0",
+    "lidar_source": "waveshare-ugv-ld06",
+    "lidar_beams": 360,
+    "lidar_rate_hz": 9.99918699186992,
+    "camera_device": "/dev/video0",
+    "camera_stream": "mjpeg",
+    "camera_size": "640x480",
+    "deadman_ms": 400,
+    "serial_ports": [
+      "/dev/ttyACM0",
+      "/dev/ttyTHS1"
+    ],
     "errno": 16,
     "runner_exit": 2,
     "camera_second_open_fd": 3,
-    "source": "t59"
+    "source": "t59, t58, d025"
+  },
+  "drive": {
+    "wheel_command": "DriveCommand::WheelSpeeds { left, right }",
+    "wire_frame": "{\"T\":1,\"L\":l,\"R\":r} frame",
+    "tick_ms": 100,
+    "max_wheel_cmd": 0.34,
+    "max_turn_cmd": 0.2,
+    "goal_reached_m": 0.25,
+    "front_stop_dist_m": 0.48,
+    "front_arc_rad": 0.35,
+    "pose_stale_ms": 1500,
+    "lidar_stale_ms": 1500,
+    "progress_timeout_s": 5,
+    "min_progress_m": 0.1,
+    "disarmed_code": "ACTION_SAFETY_DISARMED",
+    "transport_error_code": "ACTION_SAFETY_TRANSPORT_ERROR",
+    "link_claim": "claim the link at zero speed before any goal can be honoured",
+    "source": "drive"
   }
 }
