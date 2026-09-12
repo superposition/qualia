@@ -14,7 +14,10 @@ qualia-jepa = { workspace = true }
 qualia-mcap = { workspace = true }
 qualia-types = { workspace = true }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `manifest_digest` re-serializes a parsed manifest, so its floats must survive a
+# file round-trip bit for bit; the default best-effort parser rounds some
+# 17-digit literals by one ulp and a manifest would then fail its own digest.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 
 [dev-dependencies]

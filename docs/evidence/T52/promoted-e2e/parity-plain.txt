@@ -1,0 +1,37 @@
+T52 promoted-e2e — the three measured steps on the CUDA lane (unit: milliseconds)
+==============================================================================
+
+host      WSL2 Ubuntu-22.04, RTX 4090 (GPU 0), rustup 1.98.1, nvcc 12.8, nsys 2025.3.2.474
+lane      CUDA (D-011: one GPU job at a time; the three plain runs are sequential)
+checkpoint t52-e2e-fixture — T50's parity-fixture recipe, seed 0xc0ffee, regenerated on this
+           branch by t52-e2e-candidate; weights sha256
+           a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58 (the same bytes
+           T50's capture loaded). A loadable checkpoint and nothing more: NOT promotion-passing.
+"before"  #172/#224's record on main, docs/evidence/T50/model-eval/README.md (the same request
+           shapes: 64 candidates x 16 steps; 120 comparison decisions)
+
+E — qualia-jepa-parity --checkpoint <ck> --target cuda --output <json>       (rc 0, all runs)
+    before   934 ms median process (879 / 934 / 1046)
+    now      981 ms (1041 / 981 / 934)
+    report   parity-report.json: every head passes (rmse 2.08e-7 … 8.13e-7 against the
+             2e-4 threshold; cosine ≥ 0.99999999999994). E's cost is start-up and module load,
+             and it did not move; the F1 refactor below is inside `propose`, not here.
+
+F1 — t52-e2e-probe propose (evaluate_rollout_proposals), 64 candidates x 16 steps
+    before   462 ms step (461.2 / 461.9 / 532.2), main, one runtime call per candidate step
+    now      step 345.2 / 359.3 / 362.0 ms (median 359.3), 1 024 predict calls in 16 batched
+             calls; process wall 1147 / 1068 / 1089 ms
+    change   −102.7 ms (−22.2 %) on the median against #224's 462 ms
+    note     F1's own capture for the refactor measured a 322.6 ms median (−28.9 %) on this
+             same recipe (docs/evidence/T52/planner-batch/); both numbers are the batched
+             planner, and the spread is host/clock state between the two capture sessions.
+    device   E-kernels.csv / the F1 aggregate: 18 480 launches, 28 705.2 µs of kernels,
+             copy2d_f32 6 192, badd_f32 4 096, gemv2T 1 024 + 1 024, gemvx 2 048, urelu_f32 2 048,
+             bmaximum_f32 1 024, bminimum_f32 1 024 — the planner-batch capture's after mix,
+             launch for launch.
+
+F2 — t52-e2e-probe compare (compare_offline_planners), 120 decisions
+    before   39 ms process (39 / 39 / 40); step 0.052 ms
+    now      process 45 / 42 / 43 ms; step 0.0529 / 0.0431 / 0.0485 ms
+    note     the process number is probe start-up; the comparison itself is tens of microseconds
+             (compare-report.json, compare-plain.jsonl). No GPU work (CPU lane).

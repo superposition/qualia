@@ -16,7 +16,10 @@ candle-nn = { version = "=0.9.1", default-features = false }
 qualia-jepa = { workspace = true }
 qualia-jepa-dataset = { workspace = true }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# The candidate manifest and the training report carry f64 gate metrics that
+# parity and the planner read back; the default best-effort float parser can
+# move a value by one ulp, which would move an emitted value (D-008/D-009).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 
 [dev-dependencies]

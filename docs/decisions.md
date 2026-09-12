@@ -685,6 +685,84 @@ Consequences:
   ticket's render disappeared.
 - A merge that reverts a committed render is a correctness failure even when every test passes.
 
+## D-027 — The promotion floor stands: the first real capture is a gate fix, not a corpus
+
+Instance: 2026-09-12. Ticket [#225](https://github.com/superposition/qualia/issues/225) (T52),
+step 1, on the first real session the dataset leg admits: `t65-real-01`, 300 s bounded on Pinkie
+([#250](https://github.com/superposition/qualia/issues/250) / PR #256), MCAP 30 300 801 B, sha256
+`03ae6b0f4d2e44970d4e47e155c50cd46c74e73b9ba847f6d4e8508b35287110`.
+
+**What the capture fixed, and what it did not.** The dataset leg now reports
+`valid=1499 candidates=1500 sessions=1 environments=1 conditions=1` where `calibration_missing`
+previously rejected 0 of 4 501 (T58): calibration, pose and the leash-authority applied-action
+ledger are all real producers now. But the trainer's preflight never reaches an epoch. With the
+manifest-integrity defect below fixed, it refuses at the promotion floor, and the refusal is the
+named gate rather than a guess:
+
+```text
+$ qualia-jepa-train --manifest …/jepa-dataset-6f98b125….json --backend cuda --epochs 1 --batch-size 32 --seed 65
+qualia-jepa-train: dataset does not meet the 50k/12-session/3-condition/3-environment gate
+TRAIN_RC=1
+```
+
+**The numbers on both sides**, from the manifest's own audit (`docs/evidence/T52/promoted-e2e/`):
+
+| | `t65-real-01` | the floor (`validate_promotion_audit`, `crates/jepa-dataset/src/lib.rs:279-350`) |
+| --- | --- | --- |
+| valid transitions | **1 499** | ≥ 50 000 |
+| sessions | **1** | ≥ 12 |
+| environments | **1** | ≥ 3 |
+| conditions | **1** (`bench-static`) | ≥ 3, each ≥ 5 % of valid transitions |
+| splits | **train 1 499 only** | train, validation and test each non-empty, ≥ 4 096 each |
+
+`assign_environment_splits` holds out nothing below three environments
+(`crates/jepa-dataset/src/lib.rs:1464-1468`), so a one-room bench capture has no held-out split at
+all, and neither the ≥ 4 096-per-split rule nor the effective-rank gate's own ≥ 4 096-sample
+requirement can be met by 1 499 samples however they are split. **The shortfall is 33.4×
+(50 000 / 1 499) plus the session / environment / condition diversity** — and the diversity is the
+part no code change produces: it is the robot being driven in more places, and on this robot the
+drive belongs to the leash (D-024, D-025). This session's own transport ledger records a
+zero-speed stop, not motion.
+
+**The decision.** The gate stands, uncalibrated. T52 step 1's fix is **more/different data**, and
+what closes it is an operations programme: order 34× the accepted transitions, recorded across
+≥ 12 sessions in ≥ 3 environments under ≥ 3 conditions, by the producers #250 landed. The other two
+options are refused on record:
+
+- **A calibrated gate** would have to lower a *corpus precondition*, not recalibrate a measurement.
+  The 3-environment / 3-condition floor is the leakage boundary the gate exists for — "a long
+  recording inside one room therefore still fails, however many transitions, sessions and condition
+  labels it carries, because it cannot demonstrate a leakage boundary" (`lib.rs:271-278`) — and
+  lowering it would admit a one-room artifact as promoted evidence. (D-021's rank case was the
+  opposite: a threshold fed by a broken number, where the repair was the measurement.)
+- **A smaller model** cannot touch a corpus floor, and D-021 already ruled it out as the rank fix.
+
+No threshold moves in this entry.
+
+**One defect did fall out, and it is fixed here.** The trainer refused the manifest the dataset
+binary had just written at the integrity step (`dataset manifest is unsupported or has an invalid
+digest`), *before* the promotion gate — and it was not the writer: the file reproduces its own
+digest under the documented algorithm (sha256 over the compact JSON with `digest` cleared), and
+its `schema_version` matches. `serde_json`'s default best-effort float parser read the audit's
+`mean_sensor_skew_ns` literal `29192462.559039358` one ulp low (`29192462.55903936`, adjacent
+IEEE-754 bit patterns `4718601502228337473` / `4718601502228337474`), and `manifest_digest`
+**re-serializes the parsed struct** (`lib.rs:738-744`), so the reader's recomputation was a
+different digest. `write_immutable_manifest` cannot catch it: it verifies the digest of the
+in-memory struct before any parse. T58's all-zero audit carried no 17-digit literal, which is why
+it passed. Fixed by enabling `serde_json/float_roundtrip` in `crates/jepa-dataset` (the manifest)
+and `crates/jepa-model` (the candidate manifest and training report parity and the planner read
+back); no threshold moved and no manifest's own digest changed. Evidence:
+`docs/evidence/T52/promoted-e2e/digest-fix/`, with the regression test falsified by removing the
+feature. **Any other ticket whose path reads these artifacts on the board — #239's bounded training
+run in particular — needs the same feature, not a workaround.**
+
+**Consequence.** T52's step 2 — parity and plan-eval against a promotion-passing checkpoint —
+cannot run as written, because no such checkpoint exists and none can be produced from a
+one-environment corpus. The captures in `docs/evidence/T52/promoted-e2e/` are against the
+repository's parity-fixture candidate and are labelled **not promotion-passing** for that reason;
+they measure the runtime paths, not a promoted model. The residual the ticket carries is the
+corpus, not a fixture, a threshold or a model size.
+
 ## D-003 — Repository
 
 

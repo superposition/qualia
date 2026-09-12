@@ -1,0 +1,14 @@
+# dev host: the same manifest, trainer rebuilt from this branch with `float_roundtrip`
+# host: WSL2 Ubuntu-22.04, rustup 1.98.1, RTX 4090, lane cuda (D-011: one GPU job at a time)
+# build: cargo +1.98.1 build --release -j 2 -p qualia-jepa-model --features cuda \
+#          --bin qualia-jepa-train --bin qualia-jepa-parity --bin qualia-jepa-plan-eval   -> rc 0, 1m08s
+# command:
+#   qualia-jepa-train --manifest /mnt/c/tmp/Impl225PromotedE2E/board/t65-manifest.json \
+#       --checkpoint-id t52-t65-real-e1 --output-dir train-out \
+#       --backend cuda --epochs 1 --batch-size 32 --seed 65
+qualia-jepa-train: dataset does not meet the 50k/12-session/3-condition/3-environment gate
+TRAIN_RC=1
+
+# the manifest is the board's own file, copied off it unmodified:
+#   sha256 2fba5dc830354d6167e07a507b3b15001bb93aa144fbdafba4f9d19fa911cec0  (3 401 416 B)
+# the refusal is now the promotion gate, the same message qualia-jepa-dataset prints.

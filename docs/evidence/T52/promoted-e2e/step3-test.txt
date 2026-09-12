@@ -1,0 +1,11 @@
+# step 3's test, re-run on this branch (the refactor itself is merged as PR #226)
+# host: WSL2 Ubuntu-22.04, rustup 1.98.1, lane CPU (no accelerator feature for the lib tests)
+# command: cargo +1.98.1 test --release -j 2 -p qualia-jepa-model \
+#            the_same_emitted_values_across_the_batched_planner_step        -> rc 0
+
+     Running unittests src/lib.rs (…/deps/qualia_jepa_model-b9bd1905145cbaab)
+
+running 1 test
+test planner::tests::the_same_emitted_values_across_the_batched_planner_step ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.03s

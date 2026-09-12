@@ -1,0 +1,36 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "/home/superposition/t52target/release/t52-e2e-probe",
+    "propose",
+    "--checkpoint",
+    "/home/superposition/t52e2e/cand/t52-e2e-fixture",
+    "--request",
+    "/mnt/c/Users/ericm/qualia/docs/evidence/T50/model-eval/propose-request.json",
+    "--backend",
+    "cuda"
+  ],
+  "profiler_argv": [
+    "/usr/local/cuda/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=/home/superposition/t52e2e/nsys-propose/mage-nsys-c6wq34v4/capture",
+    "/home/superposition/t52target/release/t52-e2e-probe",
+    "propose",
+    "--checkpoint",
+    "/home/superposition/t52e2e/cand/t52-e2e-fixture",
+    "--request",
+    "/mnt/c/Users/ericm/qualia/docs/evidence/T50/model-eval/propose-request.json",
+    "--backend",
+    "cuda"
+  ],
+  "command": "/home/superposition/t52target/release/t52-e2e-probe propose --checkpoint /home/superposition/t52e2e/cand/t52-e2e-fixture --request /mnt/c/Users/ericm/qualia/docs/evidence/T50/model-eval/propose-request.json --backend cuda",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 18480
+}

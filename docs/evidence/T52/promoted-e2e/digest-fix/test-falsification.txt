@@ -1,0 +1,16 @@
+# the regression test, falsified by removing the feature again and restored
+# test: crates/jepa-dataset/src/tests.rs::manifest_round_trips_through_json_with_the_same_digest
+# command: cargo +1.98.1 test --release -j 2 -p qualia-jepa-dataset manifest_round_trips
+
+## without `float_roundtrip` (the Cargo.toml feature stashed out; only the feature differed)
+---- tests::manifest_round_trips_through_json_with_the_same_digest stdout ----
+thread 'tests::manifest_round_trips_through_json_with_the_same_digest' (2380) panicked at crates/jepa-dataset/src/tests.rs:206:5:
+assertion `left == right` failed
+  left: 29192462.55903936
+ right: 29192462.559039358
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.01s
+
+## with `float_roundtrip` (this branch)
+running 1 test
+test tests::manifest_round_trips_through_json_with_the_same_digest ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.01s

@@ -1,0 +1,11 @@
+# t52-digest-probe on the board's manifest, serde_json WITH `float_roundtrip`
+# same file, same command, after the feature was enabled in crates/jepa-dataset
+file_bytes=3401416
+schema=qualia.jepa-dataset.v3
+schema_expected_match=true
+stored=6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d
+recomputed=6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d
+digest_match=true
+compact_bytes=2426781
+roundtrip_stable=true
+recomputed2=6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d
