@@ -23,6 +23,7 @@
     "positions_bytes": 3334012,
     "positions_sha256_prefix": "016a285b",
     "weights_bytes": 180414198,
+    "artifact_mb": 190,
     "placed": 139662,
     "unplaced": 27038,
     "types": 11752,

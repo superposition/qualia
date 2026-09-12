@@ -22,16 +22,16 @@ why the drive path stops: the leash owns both serial ports (#240).
 view draws the connectome the belief layers couple, and the prior the tree carried was deliberately
 small — five types and nine edges in `assets/brain/prior/graph.bin`. The question this epic answers is
 whether the release's own wiring, run as the network rather than a hand-authored stand-in, can drive a
-controller we already own. The published male-CNS connectome is the first map to include the ventral
-nerve cord, the part that links sensory input to motor output, and running it here closes the tree's gap
-at the only size that is real: neuron for neuron, the release's own signs, nothing trained. It has to run
-on Pinkie because the body carries its computer (D-010), and at frame rate because a controller that
-steers has to decide inside a frame; the viral game demos of this release (Super Mario, Doom, Minecraft)
-ran the same graph at frame rate, and none put it behind a leash. What the wave demonstrated is that the
-released wiring drives a real controller path — 84.5 ticks/s free-running on the Orin, 112.7 ticks/s end
-to end in the host loop, 31–32 ticks/s in the board loop — and what it did not demonstrate is behaviour:
-the encoder and read-out are fixed constants, an undriven network is silent, and the loop's commands
-never reached a motor (§What this does not establish).
+controller we already own. The release carries the ventral nerve cord's motor neurons — `vnc_motor`,
+alongside `descending_neuron`, is what the loop's decoder reads out — so a sensory frame can reach a
+motor decision instead of stopping at the brain. Running it here closes the tree's gap at the only size
+that is real: neuron for neuron, the release's own signs, nothing trained. It has to run on Pinkie
+because the body carries its computer (D-010), and at frame rate because a controller that steers has to
+decide inside a frame. What the wave demonstrated is that the released wiring drives a real controller
+path — 84.5 ticks/s free-running on the Orin, 112.7 ticks/s end to end in the host loop, 31–32 ticks/s
+in the board loop — and what it did not demonstrate is behaviour: the encoder and read-out are fixed
+constants, an undriven network is silent, and the loop's commands never reached a motor (§What this does
+not establish).
 
 The wave worked ticket by ticket — T55, T56, T58, T59, T63 and T65 are its tickets, each with a
 directory under `docs/evidence/`, and each step left a **braid** comment recording where it stood on the
@@ -231,6 +231,8 @@ the file does not carry is a refusal rather than a guess, and the diagram's labe
 | Closed loop | host, 200 ticks in 1.775 s = 112.7 ticks/s, 10,048,960 spikes, 196 non-hold | same |
 | Closed loop | Orin, 300 ticks in 9.358 s = 32.1 ticks/s, 15,085,686 spikes, 294 non-hold, 31.2 ms/tick | same |
 | Leash snapshot probe on the board | 200 fetches in 2,485 ms = 80.5 snapshots/s | same |
+| Leash surface | camera snapshot (`/camera/snapshot`) and MJPEG, LD06 scans at 9.999 Hz, 360 beams per scan (`waveshare-ugv-ld06`, 269 valid returns) | `docs/evidence/T58/real-sessions/leash-sensors.log`; `docs/decisions.md` D-025 |
+| Encoder and decoder (chosen constants) | 8 luminance columns, gain 0.5, 95,494 visual-stage cells (`ol_intrinsic` + `R1-R6`/`R7*`/`R8*`); 2,012 descending/motor neurons, 1,011 L + 1,001 R | `docs/evidence/T55/connectome-runner/README.md` §The closed loop; `crates/connectome-cns/README.md` |
 | Firing stream | 40,199,848 B, sha256 `a0a27acb…3b28`, 200 frames, 10,048,960 ids; first non-empty tick 3 fires 19,223 | `docs/evidence/T56/floating-brain/README.md` |
 | Console Brain panel drew | 9,976 of 139,662 points; 3,728 of the captured tick's 36,480 firing nodes | same |
 | Session 1 | 900 s; MCAP 83,299,459 B, sha256 `97612acb…3334`; camera 4,502, lidar 8,775 records; 4,501 candidates, 0 valid, all `calibration_missing` | `docs/evidence/T58/real-sessions/README.md` |

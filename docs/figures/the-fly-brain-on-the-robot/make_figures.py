@@ -112,7 +112,7 @@ def step_rates() -> None:
     ax.set_xlim(10, 4000)
     ax.set_xlabel("ticks per second (log scale)", fontsize=10)
     ax.set_title(
-        "One artifact, four meters: the 25,582,938-edge step per device",
+        f"One artifact, four meters: the {need('connectome')['edges']:,}-edge step per device",
         fontsize=12,
         color=INK,
         pad=12,
@@ -125,8 +125,8 @@ def step_rates() -> None:
     fig.text(
         0.012,
         0.02,
-        "Source: docs/evidence/T55/connectome-runner/README.md §Rates — one 190 MB artifact, "
-        "board-verified.",
+        f"Source: docs/evidence/T55/connectome-runner/README.md §Rates — one "
+        f"{need('connectome')['artifact_mb']} MB artifact, board-verified.",
         fontsize=8.4,
         color=MUTED,
     )
