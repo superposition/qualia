@@ -1,0 +1,54 @@
+{
+  "schema_version": "qualia.jepa-checkpoint.v1",
+  "architecture_id": "qualia.jepa.grounded-tiny-cnn.v1",
+  "checkpoint_id": "t52-wave-e1",
+  "dataset_digest": "5aeeb4b47e44dd1b263c9b134b6008de76db7154a4d06165f4309963bb007dc5",
+  "training_seed": 42,
+  "backend": "cuda",
+  "dtype": "F32",
+  "target_encoder": "ema",
+  "parameter_count": 3856848,
+  "weights_sha256": "71ce248f9af213b9e7847aad0e110cf3a27c8d8dd648fc6b2e83a0c4992de95d",
+  "training_report_path": "/mnt/c/tmp/Impl225PromotedE2E/runs/wave-e1/jepa-training-report-aeb453c7fa8727a89258f26ff40b7a171a6d6cef872469e53893b8b818549ce1.json",
+  "training_report_sha256": "aeb453c7fa8727a89258f26ff40b7a171a6d6cef872469e53893b8b818549ce1",
+  "baseline_gate": {
+    "dataset_digest": "5aeeb4b47e44dd1b263c9b134b6008de76db7154a4d06165f4309963bb007dc5",
+    "valid_transitions": 50688,
+    "sessions": 792,
+    "conditions": 3,
+    "environments": 12,
+    "constant": {
+      "transition_nll": -2.874190190806985,
+      "rollout_error": 1.5156217021867633
+    },
+    "flat_mlp": {
+      "transition_nll": -1.3717183470726013,
+      "rollout_error": 512532393141.65704
+    },
+    "tiny_cnn": {
+      "transition_nll": -3.9382665554682412,
+      "rollout_error": 476520120.997079
+    }
+  },
+  "action_support": {
+    "sample_count": 42240,
+    "min_left": -0.4,
+    "max_left": 0.4,
+    "min_right": -0.4,
+    "max_right": 0.4,
+    "min_effective_forward": -0.4,
+    "max_effective_forward": 0.4,
+    "min_effective_turn": -0.4,
+    "max_effective_turn": 0.4,
+    "min_speed_scale": 0.5,
+    "max_speed_scale": 1.0,
+    "min_delta_seconds": 0.001,
+    "max_delta_seconds": 0.001
+  },
+  "grounding_geometry": {
+    "width": 64,
+    "height": 64,
+    "resolution_m": 0.05
+  },
+  "status": "candidate"
+}

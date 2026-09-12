@@ -1,0 +1,4 @@
+jepa train epoch=1/1 backend=cuda samples=42000 batches=1313 cnn_total=34.094590 cnn_nll=-2.830737 cnn_var=0.846852 cnn_cov=15.752420 cnn_ground=0.001613 flat_total=23.531972 flat_nll=-0.470702 seconds=21.713 samples_per_second=1934.36
+jepa calibrate constant_baseline_samples=42000
+candidate=t52-ch4-e1 weights=/mnt/c/tmp/Impl225PromotedE2E/runs/ch4-e1/t52-ch4-e1/weights.safetensors manifest=/mnt/c/tmp/Impl225PromotedE2E/runs/ch4-e1/t52-ch4-e1/manifest.json report=/mnt/c/tmp/Impl225PromotedE2E/runs/ch4-e1/jepa-training-report-8d0f4fc4cdb4976e501837346d3f39765b662a57a7afb729c534f2dfdcbae021.json gate=false
+qualia-jepa-train: candidate failed held-out predictive, grounding, or calibration gates

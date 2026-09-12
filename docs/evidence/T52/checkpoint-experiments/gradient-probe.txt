@@ -1,0 +1,33 @@
+GRADNORM predictor.output.weight 2.9701202e2
+GRADNORM predictor.hidden.weight 1.5726778e2
+GRADNORM occupancy_decoder.output.weight 1.5533789e2
+GRADNORM occupancy_decoder.hidden.weight 6.7686844e1
+GRADNORM predictor.output.bias 7.692099e-1
+GRADNORM predictor.hidden.bias 7.600657e-1
+GRADNORM occupancy_decoder.output.bias 2.2802618e-1
+GRADNORM occupancy_decoder.hidden.bias 1.8556738e-1
+GRADNORM encoder.camera.projection.weight -1e0
+GRADNORM encoder.camera.conv1.bias -1e0
+GRADNORM encoder.camera.projection.bias -1e0
+GRADNORM encoder.camera.conv3.bias -1e0
+GRADNORM encoder.camera.conv3.weight -1e0
+GRADNORM encoder.lidar.conv1.bias -1e0
+GRADNORM encoder.pose.projection.bias -1e0
+GRADNORM encoder.fusion.norm.weight -1e0
+GRADNORM encoder.lidar.conv1.weight -1e0
+GRADNORM encoder.lidar.conv2.weight -1e0
+GRADNORM encoder.camera.conv2.weight -1e0
+GRADNORM encoder.lidar.projection.bias -1e0
+GRADNORM encoder.lidar.projection.weight -1e0
+GRADNORM encoder.camera.conv1.weight -1e0
+GRADNORM adapter.projection.bias -1e0
+GRADNORM encoder.camera.conv2.bias -1e0
+GRADNORM encoder.lidar.conv3.weight -1e0
+GRADNORM encoder.lidar.conv3.bias -1e0
+GRADNORM encoder.pose.projection.weight -1e0
+GRADNORM adapter.projection.weight -1e0
+GRADNORM encoder.lidar.conv2.bias -1e0
+GRADNORM encoder.fusion.norm.bias -1e0
+DBG visible_graph_leaf_count=0 total_vars=30 encoder_vars=20
+DBG encoder_conv1 is_variable=true
+DBG mutate_encoder_conv1 visible_sum_before=4.196167e-5 after=7.6293945e-6 changed=true

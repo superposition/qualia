@@ -293,6 +293,72 @@ in ascending column order.
   interface, so the contract lives in the doc and the loop comments, and the enforceable form is an
   FNV-1a probe over the `gpu.rs` fixtures.
 
+## D-021 — The rank gate reads a representation training never moves; T52's fix is that measurement
+
+Ticket [#225](https://github.com/superposition/qualia/issues/225) (T52) asked for the checkpoint the
+promoted end-to-end run needs, and for a choice among three ways to get one: more/different training
+data, a calibrated gate, or a smaller model. Six bounded configurations on the 4090 — seven
+processes, since one is an instrumented re-run of another — (`docs/evidence/T52/checkpoint-experiments/`)
+answer it, and the answer is not data and not capacity.
+
+**The measured basis.**
+
+- The gate-minimum static fixture still cannot publish: on CUDA at one epoch the trainer refuses
+  with `validation.flat_mlp.rollout_error = NaN`. Its rank is `1.37182`, its calibration slope
+  `3.254` against the required `[0.9, 1.1]`, and `clamp_fraction 0.710` against `≤ 0.01`.
+- A non-degenerate fixture (a moving, action-conditioned grating; `wave-fixture.rs`) publishes, so
+  the `NaN` is a property of a degenerate fixture, not of the trainer. Holding the recipe and
+  lengthening only the *chain break* moves the rollout gate: `6.09e8` at chain 64, `3.743` at chain
+  16, and **`0.129` against the constant baseline's `1.485`** at chain 4 — where the predictive gate
+  and occupancy pass outright and `clamp_fraction` is `7.8e-5`.
+- Everything except the rank is reachable: `small-e1` (the predictor's hidden width 512 → 64 — a
+  temporary change, reverted before the commit; the code at HEAD is `PREDICTOR_HIDDEN_DIM = 512`,
+  and the run's manifest still declares `architecture_id: qualia.jepa.grounded-tiny-cnn.v1`) puts
+  the whole test split inside the calibration bands (`slope 0.973`, `mean_standardized_squared_residual 0.924`,
+  coverage `.519/.920/.957`, `clamp 3.1e-4`) on top of the predictive and occupancy gates.
+- `effective_rank` never moves. Four fixtures whose inputs differ by orders of magnitude read
+  `1.372 / 1.084 / 1.120 / 1.120` against a floor of `64`; and on the same fixture and seed the
+  representation is **byte-identical at one and ten epochs** — `encoder-freeze-diff.txt` shows the
+  predictor's tensors moving by up to `2.62` while all 20 `encoder.*` and all 20 `target_encoder.*`
+  tensors differ by exactly `0.000000e+00`.
+- Why: the encoder is not in the training objective's gradient. `gradient-probe.txt` reports
+  `predictor.output.weight` at `2.97e2` and **every `encoder.*` parameter absent from the backward
+  pass** (22 of the map's 30 variables, `is_variable() == true` among them); `visible.sum_all().backward()`
+  yields zero leaf variables, while mutating the map's `encoder.camera.conv1.weight` does change
+  `visible`, so the forward reads the map's storage but builds no gradient leaves for it. The EMA
+  target is frozen with it, and `effective_rank_report` is computed over that EMA target
+  (`crates/jepa-model/src/bin/qualia-jepa-train.rs`, `measure_holdout`).
+
+**The decision.** The fix is the second option — **a calibrated gate** — with the emphasis on the
+measurement rather than the threshold: the rank gate is fed by a held-out representation the
+pipeline never trains, so its verdict is not a function of the training the pipeline performs.
+Lowering `64` to anything above `1.37` would fit a band to a broken number. No threshold moves in
+this decision; the repair it names is a code change, and it lives in **T53
+([#228](https://github.com/superposition/qualia/issues/228))**, opened from this capture with this
+measurement and the test that must fail today. More data is ruled out by measurement (the rank is
+invariant across four fixtures and across a ten-fold epoch sweep), and a smaller model is ruled out
+as the *fix* while being real for calibration (it moves the calibration bands, not the rank). The
+repair owed is the encoder/EMA wiring the probe measured — the online encoder must be in the
+objective's gradient — after which the band is re-derived and the sweep re-run.
+
+**What this does not establish.** It does not establish that a repaired encoder clears the rank
+floor, and it does not establish that it then clears calibration: `ch4-e10` shows the calibration
+*growing worse* with more training (`slope 1.430 → 0.426`, `clamp_fraction 7.8e-5 → 0.595` over
+1 → 10 epochs), so a repaired encoder may still fail the calibration bands and the sweep has to be
+re-run on the repaired pipeline rather than assumed to come out green. It also does not isolate the
+mechanism — the probe measures that no gradient leaf exists for the encoder, not which detach site
+produces that; that gap is #228's test.
+
+**Consequence.** No artifact this repository can publish clears the promotion gates today, so T52's
+*produce* half — "produce (or obtain) a checkpoint whose held-out gates pass" — and with it step 2,
+`qualia-jepa-parity` and `qualia-jepa-plan-eval` against a **promotion-passing** checkpoint, **remain
+blocked on that repair**; they are not blocked on a fixture shape and not on training time, and the
+decision half of step 1 is discharged by this entry. The parity and plan-eval step times themselves
+are already measured against a loadable candidate (`docs/evidence/T50/model-eval/`); what is missing
+is only the promoted checkpoint's provenance. Step 4's board limb is recorded on its stated reason
+in the capture: no aarch64 artifact can be built here (#224's `rc 101`, `error[E0463]`, D-018) and
+none can run on Pinkie (no `candle-core` in the offline cache, no DNS; D-016).
+
 ## D-003 — Repository
 
 
