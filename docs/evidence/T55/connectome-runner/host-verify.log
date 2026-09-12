@@ -1,0 +1,6 @@
+$ qualia-connectome-cns verify --artifact artifact
+
+cns-verify: neurons 166700 edges 25582938 synapses 124177617
+cns-verify: sign +94542746 -26402637 ?3232234
+cns-verify: positioned 139662 types 11752 nodes 166700
+cns-verify: weights.bin 180414198 bytes, every section digest verified

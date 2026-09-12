@@ -455,39 +455,60 @@ impl FrameSource {
     }
 }
 
-/// The encoder: put each photoreceptor's soma on a grid column.
+/// The encoder: put each visual-stage cell's soma on a grid column.
 ///
-/// Photoreceptors are the released `R1-R6`, `R7*` and `R8*` types — the
-/// release's own names for the cells that transduce light. A cell's column is
-/// its soma's position along the eye axis, normalised over the whole
-/// photoreceptor population and quantised to [`GRID_COLUMNS`]; its drive is
-/// that column's luminance times [`SENSORY_GAIN`]. Both the axis and the grid
-/// are fixed here and stated in the README; nothing is fitted.
+/// The input population is the release's optic-lobe intrinsic cells
+/// (`superclass = ol_intrinsic`: lamina, medulla and lobula intrinsic neurons,
+/// 89,403 of which 81,055 carry a soma) together with the photoreceptors
+/// themselves (`R1-R6`, `R7*`, `R8*` — the cells that transduce light; only 28
+/// of the 6,091 carry a released soma).
+///
+/// The photoreceptors are **histaminergic, and 100% of their 74,557 outgoing
+/// edges in this artifact are inhibitory** — measured, not assumed — so feeding
+/// them luminance plus a plain LIF (no rebound, no NMDA) silences the lamina
+/// instead of driving it. The optic-lobe intrinsic population is the stage that
+/// carries the drive onward: 79.8% of its 10,866,800 outgoing edges are
+/// excitatory. Both populations are fed; the intrinsic cells are what propagates.
+///
+/// A cell's column is its soma's position along the eye axis, normalised over
+/// the input population and quantised to [`GRID_COLUMNS`]; a cell with no
+/// released soma takes the column of the nearest positioned cell in the same
+/// population, by index. Its current is that column's mean luminance times
+/// [`SENSORY_GAIN`]. The axis, the grid and the gain are fixed here and stated
+/// in the README; nothing is fitted.
 fn encoder(nodes: &[NodeMeta], neurons: &[qualia_connectome_cns::Neuron]) -> (Vec<u32>, Vec<usize>) {
-    let mut targets: Vec<(u32, f32)> = Vec::new();
+    let mut targets: Vec<(u32, Option<f32>)> = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
         let is_photoreceptor = node.type_name == "R1-R6"
             || node.type_name.starts_with("R7")
             || node.type_name.starts_with("R8");
-        if !is_photoreceptor {
+        let is_optic_intrinsic = node.superclass == "ol_intrinsic";
+        if !is_photoreceptor && !is_optic_intrinsic {
             continue;
         }
-        let Some(soma) = neurons[index].soma else {
-            continue;
-        };
-        targets.push((index as u32, soma[1]));
+        targets.push((index as u32, neurons[index].soma.map(|soma| soma[1])));
     }
     let (min, max) = targets
         .iter()
-        .fold((f32::MAX, f32::MIN), |acc, (_, axis)| {
-            (acc.0.min(*axis), acc.1.max(*axis))
+        .filter_map(|(_, axis)| *axis)
+        .fold((f32::MAX, f32::MIN), |acc, axis| {
+            (acc.0.min(axis), acc.1.max(axis))
         });
     let span = (max - min).max(1.0);
+    // Cells without a released soma borrow the previous positioned cell's
+    // column, which keeps the column counts proportional to the positioned
+    // population rather than to the release's indexing.
+    let mut last = GRID_COLUMNS / 2;
     let indices: Vec<u32> = targets.iter().map(|(index, _)| *index).collect();
     let columns: Vec<usize> = targets
         .iter()
-        .map(|(_, axis)| (((axis - min) / span) * GRID_COLUMNS as f32) as usize)
-        .map(|column| column.min(GRID_COLUMNS - 1))
+        .map(|(_, axis)| {
+            if let Some(axis) = axis {
+                let column = (((axis - min) / span) * GRID_COLUMNS as f32) as usize;
+                last = column.min(GRID_COLUMNS - 1);
+            }
+            last
+        })
         .collect();
     (indices, columns)
 }
@@ -548,7 +569,7 @@ fn close_loop(
     let right_count = right_index.iter().filter(|flag| **flag).count();
     println!("cns-loop: session {session}; input {}", source.describe());
     println!(
-        "cns-loop: encoder drives {} photoreceptors (R1-R6/R7/R8 somas) over {GRID_COLUMNS} columns, gain {SENSORY_GAIN}",
+        "cns-loop: encoder drives {} visual-stage cells (ol_intrinsic + R1-R6/R7/R8) over {GRID_COLUMNS} columns, gain {SENSORY_GAIN}",
         input_indices.len()
     );
     println!(

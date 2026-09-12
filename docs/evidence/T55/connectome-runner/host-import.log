@@ -1,0 +1,11 @@
+$ qualia-connectome-cns import --weights connectome-weights.feather --annotations body-annotations.feather --neurotransmitters body-neurotransmitters.feather --out artifact
+
+cns-import: neurons 166700
+cns-import: edges 25582938
+cns-import: synapses 124177617
+cns-import: sign +94542746 -26402637 ?3232234
+cns-import: source rows 151856684 source synapses 311833243
+cns-import: mapped rows 25582938 dropped pre 13640158 dropped post 121470994 folded 0
+cns-import: distinct bodies on the pre end 1834661
+cns-import: positioned 139662 types 11752
+cns-import: -> artifact in 26.0445714s

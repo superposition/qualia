@@ -121,10 +121,20 @@ They are not fitted to anything and not claimed to be the fly's.
 `loop` reads raw 8-bit grayscale frames (one `width * height` block after another — what
 `v4l2-ctl --stream-mmap --stream-to=...` writes from the camera), and per tick:
 
-* **Encoder** — the drive goes to the released photoreceptors: `type` in `R1-R6` / `R7*` / `R8*`. Each
-  cell's column is its soma's position along the eye axis, normalised over the whole photoreceptor
-  population and quantised to 8 columns; its current is that column's mean luminance times a fixed
-  gain of `0.5`. Fixed constants, stated here, fitted to nothing.
+* **Encoder** — the drive goes to the release's visual stage: the optic-lobe intrinsic cells
+  (`superclass = ol_intrinsic`, 89,403 cells of which 81,055 carry a soma) together with the
+  photoreceptors themselves (`type` in `R1-R6` / `R7*` / `R8*`, 6,091 cells, 28 with a soma). Each
+  cell's column is its soma's position along the eye axis, normalised over the population and
+  quantised to 8 columns, with unpositioned cells borrowing the previous positioned cell's column;
+  its current is that column's mean luminance times a fixed gain of `0.5`. Fixed constants, stated
+  here, fitted to nothing.
+
+  The photoreceptors are fed because that is where light enters, but they are **histaminergic and
+  100% of their 74,557 outgoing edges in this artifact are inhibitory** — measured — so on a plain
+  LIF (no rebound, no NMDA) luminance into the photoreceptors alone silences the lamina rather than
+  driving it. The optic-lobe intrinsic population, 79.8% of whose 10,866,800 outgoing edges are
+  excitatory, is the stage that carries the drive into the brain. Both are fed; the intrinsic cells
+  are what propagates.
 * **Decoder** — the read-out is the released `descending_neuron` and `vnc_motor` superclasses, split by
   the release's `somaSide` into L and R. `command` is the sign of (rate_R − rate_L) against a 0.001
   dead band; `throttle` is the total output rate. `-1` steers left, `+1` right, `0` hold.

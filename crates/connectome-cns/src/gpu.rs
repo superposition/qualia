@@ -136,7 +136,9 @@ impl LifDevice {
     pub fn bytes_resident(&self) -> usize {
         let neurons = self.neuron_count as usize;
         let edges = self.cols.len();
-        edges * (8 + 4 + 1 + 2) + neurons * (4 + 1 + 1 + 1 + 4)
+        // rowptr is per neuron; cols/sign/weight and the five per-neuron state
+        // arrays are per edge and per neuron respectively.
+        8 * (neurons + 1) + edges * (4 + 1 + 2) + neurons * (4 + 1 + 1 + 1 + 4)
     }
 
     /// Neuron count.

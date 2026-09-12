@@ -1,0 +1,12 @@
+$ # the leash owns the camera; the loop fetches its JPEG snapshot once per tick
+$ curl -sS -o /dev/null -w '%{http_code}\n' http://192.168.55.1:8000/camera/snapshot
+200
+
+$ qualia-connectome-cns loop --artifact artifact --camera http://192.168.55.1:8000/camera/snapshot --ticks 200 --spikes run/spikes_gpu.bin --trace run/trace_gpu.csv --device gpu --session leash-camera
+
+cns-loop: session leash-camera; input live JPEG camera at http://192.168.55.1:8000/camera/snapshot
+cns-loop: encoder drives 95494 visual-stage cells (ol_intrinsic + R1-R6/R7/R8) over 8 columns, gain 0.5
+cns-loop: decoder reads 2012 descending/motor neurons (1011 L, 1001 R)
+cns-loop: device NVIDIA GeForce RTX 4090
+cns-loop: 200 ticks in 1.775 s (112.7 ticks/s), 10048960 spikes, 196 non-hold commands
+cns-loop: run/spikes_gpu.bin -> run/trace_gpu.csv
