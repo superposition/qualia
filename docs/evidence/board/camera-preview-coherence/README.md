@@ -46,10 +46,11 @@ records the two reverts used to falsify the result.
 ## Files exercised on the board
 
 Every run below happened in `/home/jetson/remediate/515a506`: a `git archive` of commit `515a506`
-(the board's tree, #227's merge) **with the changed files overlaid from this PR**. The overlaid files
-are byte-identical to the PR head's — same git blob, same md5 — which is what carries these results
-for the reviewed files; the tree is not literally this PR's head (it and `d59e7ab` differ in 24 files
-this PR does not touch, and none of them are exercised above).
+(#227's merge) **with the changed files overlaid byte-identical from this PR**. The tree is not
+literally this PR's head: `515a506` predates #229 (T53's encoder fix in `crates/jepa-model`, merged
+later as `4fe77f6`), which is most of the 24-file difference between it and `d59e7ab`, and
+`crates/jepa-model` reaches `qualia-agent` through `qualia-jepa-registry`. Neither suite here asserts
+encoder behaviour, so the reviewed fix's results carry for the overlaid files.
 
 | path | blob at PR head | md5 (board == this worktree) |
 | --- | --- | --- |
