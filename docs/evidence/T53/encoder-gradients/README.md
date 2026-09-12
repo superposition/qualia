@@ -219,9 +219,9 @@ trains clears `all_gates_passed`, so there is still no promoted checkpoint to po
 **Measured on Pinkie** — the Jetson Orin NX at `jetson@192.168.55.1` (D-010): `aarch64`, Ubuntu
 22.04.5 (GLIBC 2.35), kernel `5.15.148-tegra`, driver `NVRM 540.4.0`, CUDA 12.9, 6 cores. The tree
 was head `18313c5`'s from a `git archive` (archive sha256
-`5c5feaa145375ab30e6c9c7da9de847c696f5e5045790161b8c1a2e28e8a4a66`); `1015432` differs from it only
-in this file, so the built source is the current head's source. Board3's posting on #228/#225 is the
-authority for the transcript below.
+`5c5feaa145375ab30e6c9c7da9de847c696f5e5045790161b8c1a2e28e8a4a66`); every later commit on this
+branch, `1015432` and after, differs from it only in this file, so the built source is the current
+head's source. Board3's posting on #228/#225 is the authority for the transcript below.
 
 ```text
 $ cargo fetch                                            FETCH_RC=0
@@ -303,7 +303,10 @@ working exactly as recorded: no cross-build here, a native aarch64 build on Pink
 archive` of the head.
 
 **The gap named in the first board posting is closed too.** `qualia-jepa-parity --target cuda` ran on
-Pinkie against the fixture checkpoint the cross-lane job wrote there and passed:
+Pinkie against the fixture checkpoint the cross-lane job wrote there and passed. The JSON below is
+*abridged for width* — each head's `values`, `max_abs` and `cosine` fields and the
+`architecture_id`/`runtime_id`/`fixture_schema` lines are elided, and only `rmse` and `passes` are
+kept — while the sha256 named after it covers the **full** 2 660 B report, not this projection:
 
 ```text
 $ LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat:/usr/local/cuda-12.9/lib64 \
