@@ -18,9 +18,13 @@ Two rules are read through every row:
 
 ## The machine
 
-Measured on Pinkie (`ssh pinkie`), board-local 02:09–02:19 EDT 2026-09-12, with the board otherwise
-idle (before the probe batch: `uptime` load 0.94; `ps -eo pcpu,comm --sort=-pcpu | head` showed
-`leash` 4.5 % and `sshd` 3.0 % as the only entries above 0.5 %).
+Measured on Pinkie (`ssh pinkie`) in two windows, board-local 02:09–02:19 and 02:56–03:02 EDT
+2026-09-12, with the board otherwise idle (before the first probe batch: `uptime` load 0.94; `ps -eo
+pcpu,comm --sort=-pcpu | head` showed `leash` 4.5 % and `sshd` 3.0 % as the only entries above
+0.5 %; before the second: load 0.65, no `cargo`/`rustc`, the 02:56 `date/uptime/ps/pgrep` quoted in
+the lease on [#240](https://github.com/superposition/qualia/issues/240)). The first window is the
+enumeration and probe batch; the second is the runner-level `qualia-lidar`/`qualia-drive` pass and the
+full `i2cdetect` scan.
 
 ### What enumerates
 
@@ -137,28 +141,61 @@ quoted as its reason.
 ### No IMU on this machine's own buses
 
 ```console
-$ for b in 0 1 7; do i2cdetect -y -r $b; done
--- bus 0:
-50: UU -- -- -- -- -- -- UU        (24c02 EEPROMs, kernel-held)
--- bus 1:
-20: -- -- -- -- -- UU --           (fusb301 at 0x25)
-40: UU -- -- -- -- -- --           (ina3221 power monitor at 0x40)
--- bus 7:
-30: -- -- -- -- -- -- -- -- -- -- -- 3c -- --
-40: -- 42 -- -- -- -- -- -- -- -- --
+$ for b in 0 1 2 7; do echo "--- bus $b"; echo jetson | sudo -S i2cdetect -y -r $b; done
+--- bus 0
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- -- 
+10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: UU -- -- -- -- -- -- UU -- -- -- -- -- -- -- -- 
+60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+70: -- -- -- -- -- -- -- --                         
+--- bus 1
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- -- 
+10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+20: -- -- -- -- -- UU -- -- -- -- -- -- -- -- -- -- 
+30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+40: UU -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+70: -- -- -- -- -- -- -- --                         
+--- bus 2
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- -- 
+10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+30: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+70: -- -- -- -- -- -- -- --                         
+--- bus 7
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:                         -- -- -- -- -- -- -- -- 
+10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+30: -- -- -- -- -- -- -- -- -- -- -- 3c -- -- -- 
+40: -- -- 42 -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+70: -- -- -- -- -- -- -- --                         
 $ ls /sys/bus/iio/devices
 $ ls /dev/iio:device*
 ls: cannot access '/dev/iio:device*': No such file or directory
 ```
 
-**That block is an excerpt.** Each bus's scan prints the full `00`–`70` grid and the `-- bus N:`
-headers are separators this audit added, not `i2cdetect`'s output; only the rows with a responder are
-reproduced. The rows the claim below rests on are the ones left out: the inertial addresses would
-appear on rows `60`/`70` (`0x68`, `0x69`, `0x6a`, `0x6b`, `0x76`) and `0x28` on row `20`, and all of
-those rows printed `--` for every bus scanned. The conclusion is corroborated from two independent
-directions (`docs/decisions.md`'s D-025 enumeration of buses 0/1/2/7, and the empty
-`/sys/bus/iio/devices` plus the missing `/dev/iio:device*` above), but the excerpt is not the whole
-scan and does not show the decisive rows.
+**The scan is complete**: every bus's `00`–`70` grid is above, so the rows the IMU claim rests on are
+visible rather than asserted — rows `60`/`70` (`0x68`, `0x69`, `0x6a`, `0x6b`, `0x76`) and `0x28` on
+row `20` are `--` on all four buses (`--- bus N` is this loop's own `echo`, and the bus 0 header
+shares its line with `sudo`'s prompt; nothing else is edited). The only responders are the ones D-025
+already names: `0x25` and `0x40` on bus 1 (`fusb301`, `ina3221`), `0x50`/`0x57` on bus 0 (the `24c02`
+EEPROMs, `UU` = kernel-held) and `0x3c`/`0x42` on bus 7, none of which is an inertial address. The
+excerpt this replaces showed only the responder rows and added its own separators; the first version
+of the block also dropped bus 2 and printed bus 7's row `30` two columns short — both are fixed here
+by quoting the scan instead of abridging it.
 
 No responder at `0x68`, `0x69`, `0x76`, `0x28`, `0x6a` or `0x6b`, and no IIO device: the robot's
 inertial data exists **only** in the leash's `sensors.imu`/`raw_frame`. `runners/leash-sensors` reads
@@ -190,12 +227,54 @@ the board's leash (`QUALIA_LEASH_BASE_URL=http://192.168.55.1:8000`, camera stre
 operator's own topology (the stack on this host, the robot's leash on Pinkie) on a private region, so
 the operator's live `/qualia_body` stack was untouched.
 
+Two of the rows below are measured **on the board itself**, which is what the ticket's acceptance
+asks for and what the first version of this audit left open: `qualia-lidar` and `qualia-drive` ran on
+Pinkie at `99f56a5`, 2026-09-12 03:02 board-local, under the D-024 lease posted on
+[#240](https://github.com/superposition/qualia/issues/240). Each was started with only
+`QUALIA_SHM_NAME=/qualia_t59` set — the port, baud, tick and arming keys are the runners' own
+defaults — against an `init`-owned private arena (`QUALIA_INIT_OWNER_ONLY=1`: `Owner-only mode:
+holding shared memory without spawning runners`, region `/qualia_t59` and `/qualia_t59_stats`
+created). Both refuse the port the leash holds and exit **2**, the documented "cannot open the port".
+The success path (assembling rotations, driving the motors) is deliberately not reachable on this
+robot: the leash owns both serial ports (D-025), so these rows measure the refusal and the exit code,
+not the read loop.
+
+```console
+$ # Pinkie, 99f56a5, under the lease on #240; 02:56–03:02 board-local
+$ export PATH=$HOME/.cargo/bin:$PATH CARGO_TARGET_DIR=$HOME/t59/target; cd ~/t59/src
+$ cargo build --release -j 2 -p qualia-init -p qualia-lidar -p qualia-drive
+    Finished `release` profile [optimized] target(s) in 3m 21s            # BUILD_RC=0, 03:00:09
+$ cd ~/t59 && QUALIA_SHM_NAME=/qualia_t59 QUALIA_LOG_DIR=$HOME/t59/window \
+      QUALIA_INIT_OWNER_ONLY=1 QUALIA_STACK_MANIFEST=$HOME/t59/manifest-t59.json \
+      nohup $HOME/t59/target/release/qualia-init > window/holder.log 2>&1 &
+[init] Creating shared memory '/qualia_t59'...
+[init] Shared memory created: 64 MB
+[init] Stats region created: '/qualia_t59_stats'
+[init] Binding control socket '/tmp/qualia_t59.sock'...
+[init] Owner-only mode: holding shared memory without spawning runners.
+
+[init] 0 runners launched.
+$ export QUALIA_SHM_NAME=/qualia_t59     # the only key either runner did not take from its defaults
+$ timeout 15 ./target/release/qualia-lidar; echo LIDAR_RC=$?
+qualia-lidar: opening serial port /dev/ttyACM0 @ 230400
+qualia-lidar: open failed: Device or resource busy
+LIDAR_RC=2
+$ timeout 15 ./target/release/qualia-drive; echo DRIVE_RC=$?
+qualia-drive: failed to open serial '/dev/ttyTHS1': Device or resource busy
+DRIVE_RC=2
+```
+
+The manifest is the shipped `config/stack-manifest.default.json` with only `shared_memory.name`,
+`stack_name` and `control.socket` renamed to the private region. The holder was killed at 03:02:39
+(`/dev/shm/qualia_t59` and `qualia_t59_stats` removed, the board back at load 0.58, `leash` pid 1299
+still holding its four fds) — nothing else on the board was created, opened or signalled.
+
 | Runner | Kind | Command → observed |
 | --- | --- | --- |
 | `qualia-leash-sensors` | **device** (leash MCP, HTTP) | `QUALIA_LEASH_BASE_URL=http://192.168.55.1:8000 ./qualia-leash-sensors` → `qualia-leash-sensors: subscribing to http://192.168.55.1:8000/mcp observe every 100ms; publishing range scans into /qualia_t59` / `leash surface imu=available(waveshare-ugv) odometry=present` / `scan 1 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=269 rate=10.000Hz range_mm=158..3395 age_ms=2220` … `scan 400` (real LD06, 10 Hz) |
 | `qualia-camera` | **device** (leash MJPEG, HTTP) | `QUALIA_CAMERA_STREAM_URL=http://192.168.55.1:8000/camera/stream.mjpg ./qualia-camera` → `qualia-camera: consuming live MJPEG stream …` / `frame_seq=2 src=640x480 thumb=64x48 luma_mean=0.469 luma_std=0.149 quality=usable` … `frame_seq=362` |
-| `qualia-lidar` | **device** (serial), blocked | default `QUALIA_LIDAR_PORT=/dev/ttyACM0` @ `230400` (`runners/lidar/src/lib.rs`); the direct open on Pinkie returns `errno=16 EBUSY` (above). Superseded on this robot: it cannot open the port the leash holds. Its `publish_scan` is the one scan encoder the bridge reuses |
-| `qualia-drive` | **device** (serial), blocked | default `QUALIA_DRIVE_PORT=/dev/ttyTHS1` @ `115200` (`QUALIA_DRIVE_TICK_MS=100`, disarmed unless `QUALIA_DRIVE_ARMED`); the direct open on Pinkie returns `errno=16 EBUSY`. The motion authority is the leash's; the agent reaches it over HTTP (`motion.navigate` → `POST /navigation/goals`) |
+| `qualia-lidar` | **device** (serial), refuses the leash's port | board, `99f56a5`, `QUALIA_SHM_NAME=/qualia_t59 ./qualia-lidar` with every other key at its default → `qualia-lidar: opening serial port /dev/ttyACM0 @ 230400` / `qualia-lidar: open failed: Device or resource busy` — exit code **2**, the documented "cannot open the port" (`LIDAR_RC=2`). The port is the leash's (`45uW`); superseded on this robot: it cannot open the port the leash holds. Its `publish_scan` is the one scan encoder the bridge reuses |
+| `qualia-drive` | **device** (serial), refuses the leash's port | board, `99f56a5`, `QUALIA_SHM_NAME=/qualia_t59 ./qualia-drive` with `QUALIA_DRIVE_ARMED` unset (disarmed, so no speed frame is sent either way) → `qualia-drive: failed to open serial '/dev/ttyTHS1': Device or resource busy` — exit code **2** (`DRIVE_RC=2`). Defaults `/dev/ttyTHS1` @ `115200`, `QUALIA_DRIVE_TICK_MS=100`; the port is the leash's (`44uW`). The motion authority is the leash's; the agent reaches it over HTTP (`motion.navigate` → `POST /navigation/goals`) |
 | `qualia-health` | no device (arena) | `QUALIA_SHM_NAME=/qualia_t59 ./qualia-health` → stdout is raw `HealthReport` frames at 10 Hz (32 B × `NUM_LAYERS` 8 = 256 B each, `#[repr(C)]`); a 6 s run'"'"'s captured output is 15 401 B — 15 360 B of frames (60 of them) plus the 41 B stderr line `qualia-health: opening shm '"'"'/qualia_t59'"'"'` |
 | `qualia-vision` | fixture-only unless a Gemini key | `… ./qualia-vision` with no key → `qualia-vision: WARNING: GEMINI_API_KEY not set` / `Running in offline mode — synthetic world model only` / `offline tick 360, 2 objects, brightness=0.00`. Online path (key present): `using arena camera preview seq=16 640x480 (53740B, age=67ms)` → `calling Gemini Vision API (71656B image)...` — the frame is real and current; the model call needs the network and a key |
 | `qualia-pose` | no device (arena) | `… ./qualia-pose` → `starting lidar pose graph from shm=/qualia_t59` / `initialized pose from first scan points=135` / `pose_seq=258 x_m=-0.004 z_m=-0.001 yaw_deg=-0.02 score=0.009 matches=133 keyframes=1` — ICP on the real scans the bridge published |
@@ -320,12 +399,14 @@ are named here rather than left to a diff:
 
 ## What could not be exercised, plainly
 
-1. **`qualia-lidar` and `qualia-drive` were not run as runners on the board.** The probes above are
-   the robot's own `open()` calls (errno 16), not the runners' exit lines: the board build that
-   would have produced those binaries was stopped under Main's order because it overlapped the
-   exclusive #235 lease (02:11–02:41). Their device contract is `exit 2, cannot open the port` and
-   their defaults are quoted from source; the runner-level board run is the one *device* gap in this
-   audit — items 2–4 record the three other unexercised classes.
+1. **The `qualia-lidar`/`qualia-drive` success path.** Both ran as runners on the board in this
+   ticket's second window (03:02 board-local, lease on [#240](https://github.com/superposition/qualia/issues/240),
+   `99f56a5`), and the lines and exit codes are in the table above — but what they measured is the
+   *refusal*: `Device or resource busy` → exit 2, which is the documented contract for a port the
+   leash owns. The scan-assembly path and the motor-write path behind a successful open are still
+   not exercised on the robot, and cannot be without taking a port from the leash, which D-025 rules
+   out. What the earlier version of this item recorded — that the runners had not been run on the
+   board at all — is the part now closed.
 2. **`qualia-vslam`, `qualia-cli`, `qualia-jepa-runtime` and l0–l6 were not built or run.** Three
    other cargo jobs held the host during this pass; each row names the input it needs instead.
 3. **`qualia-watch` and `qualia-console` were not launched**: they open a window, and D-023 forbids
