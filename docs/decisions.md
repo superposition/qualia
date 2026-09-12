@@ -94,10 +94,10 @@ gadget interfaces, VID 0955). `ssh -i ~/.ssh/qualia_jetson_ed25519 jetson@192.16
 account password is `jetson`.
 
 Development stays on the 4090 host; deployment is a cross-build (`docker/Dockerfile.cross-aarch64`,
-`Cross.toml`) or a native aarch64 build on the board itself (these facts are from 2026-09-02; by
-2026-09-11, when D-018 measured the host, the cross-image lane was already unusable — D-018 is
-amended with the rootless `cargo-zigbuild` cross lane that replaced it, PR #231, and D-022). Kernels
-are developed and verified on the 4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts were
+`Cross.toml`) or a native aarch64 build on the board itself (the cross-image lane was already
+unusable when D-018 measured the host on 2026-09-11; D-018 is amended with the rootless
+`cargo-zigbuild` cross lane that replaced it, PR #231, and D-022). Kernels are developed and verified
+on the 4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts were
 measured by the T29 smoke (issue #45) on 2026-09-02: the board has **no DNS** (ship a tarball;
 `git clone`/crates.io are unreachable), its clock
 is ~10 days behind the dev host (TLS to anything remote will complain), and a Windows-side clone writes
