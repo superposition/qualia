@@ -567,6 +567,35 @@ hostport`, the supervised process was restarted, and `http://ports.ubuntu.com/ub
 answers `200` while `apt-get -o Acquire::http::Proxy=… download libxcb-cursor0` stages the deb. The
 WiFi association remains the one physical limit, unchanged from the paragraph above
 (`CTRL-EVENT-ASSOC-REJECT status_code=1`).
+## D-023 — The operator's instrument is qualia's own console, and there is one agent instance
+
+Instance: 2026-09-12. The operator's console showed "agent unreachable: waiting for agent at
+`http://127.0.0.1:8080`" on every panel while a single `qualia-agent.exe` was listening on
+`0.0.0.0:18081` and serving TLS only (a plain `GET /braid` on it returns nothing; the agent is
+TLS-mandatory — a keypair that does not load is a start failure, `runners/agent/src/main.rs`) with a
+self-signed `CN=rcgen self signed cert` in `$HOME/.qualia_tls`. Neither side could see the other: the
+port is configuration on both ends (`QUALIA_WEB_PORT`, default `8080`; the console's
+`QUALIA_AGENT_URL`, default `http://127.0.0.1:8080`) and the scheme is TLS, which the console's
+validating client cannot accept without that certificate as a root.
+
+Consequences:
+
+- **One agent instance per host.** Two instances on different ports is not a deployment; it is a
+  console that cannot see the agent. The port and scheme the console is configured for are the ones
+  the agent runs on.
+- **The console is the operator's instrument.** Anything an operator should see — the connectome
+  firing, the sensor rates, mission state, the coach's decisions — ships as a view or panel in
+  `apps/qualia-console`. Rerun is a secondary path and is never the acceptance artefact.
+- **TLS between console and agent is explicit, not insecure.** The console trusts the agent by
+  reading the certificate (`$QUALIA_TLS_DIR/cert.pem`, default `$HOME/.qualia_tls`) as a root; there
+  is no insecure bypass.
+- **Credentials come from the desktop's vault at run time** (`omp token deepseek`), never from a
+  committed file; a run without one degrades with a named line rather than inventing a result.
+- **The operator's desktop is not a test surface.** No agent opens a window on it: evidence is rendered
+  headlessly (the console's `egui_kittest` snapshot path writes a PNG without a window). Two of our own
+  agents opened console windows beside the operator's at 01:26 on 2026-09-12 and both were killed; the
+  operator's own console is the only one that may exist.
+
 
 ## D-003 — Repository
 
