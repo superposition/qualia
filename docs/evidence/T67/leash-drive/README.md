@@ -30,7 +30,13 @@ QUALIA_LEASH_TRANSPORT_HEALTH_MS=500 \
 ./qualia-leash-transport.exe
 ```
 
-with one wheel command per line on stdin, in the frame `runners/drive` writes to the wire:
+`QUALIA_LEASH_OPERATOR_TOKEN_FILE` must exist **before** the transport starts (a missing or
+unreadable file is exit code 2, not a run that silently finds no token), and the host copy this audit
+used was deleted when the runs finished, so a later run re-fetches it first:
+`ssh pinkie 'cat ~/.config/leash/operator-auth.token' > <outside the tree>` — the bearer lives on the
+robot at the path `LEASH_OPERATOR_AUTH_TOKEN_FILE` names, mode 0600.
+
+One wheel command per line goes on stdin, in the frame `runners/drive` writes to the wire:
 
 ```bash
 printf '{"T":1,"L":0.0,"R":0.0}\n'
@@ -56,9 +62,9 @@ Pinkie), and neither was enabled, by the operator's instruction.
 | Wheel commands | One line per command on stdin, `{"T":<tick>,"L":<left>,"R":<right>}`, applied through the leash's `drive` under a pilot lease |
 | Authorize | `POST /pilot/authorize` with the bearer secret, `{token, ttl_secs, speed_mode}`, refreshed at half its TTL; the session token is minted here and is *not* the bearer (leash refuses that: "pilot session token must be distinct from the operator bearer token") |
 | Speed mode | `QUALIA_LEASH_SPEED_MODE`, default `low`, sent on `authorize` and on every `drive`, and in the log line with the leash's own `max_speed` |
-| Deadman | Every applied command carries the expiry `QUALIA_LEASH_TRANSPORT_DEADMAN_MS` (default 500); the transport waits only that long for the next one and sends zero speed on expiry, with the age of the last command in the log line |
+| Deadman | Every applied command carries the expiry `QUALIA_LEASH_TRANSPORT_DEADMAN_MS` (default 500), measured **from the frame's arrival**, not from the leash's answer, so the budget is the producer's cadence rather than the cadence plus a round trip; the transport waits only that long for the next one and sends zero speed on expiry, with the age of the last command in the log line |
 | Transport error | A refused or unreachable `drive` is followed by a zero-speed stop, and a stop the leash does not acknowledge sets a **hold**: no command is applied until a stop is acknowledged |
-| `estop` | Read from the leash's own `health`; while it reports `estop: true` the transport applies nothing and says so, and it resumes when the harness reports the reset |
+| `estop`, and only a live harness | Read from the leash's own `health`; **only a live, armed harness receives commands** — a latched `estop`, a `mode` other than `live`, or a deadman the harness is not satisfied with refuses the command locally, logs the harness's own mode/deadman/estop with the command it dropped, and keeps zero. A leash in `replay` can answer `valid: true, armed: false` about motion that did not happen, which is exactly the state where a command must not be sent |
 | The record | The published arena interval copies the leash's `left`/`right`/`ok`/flags (`ACTION_AUTHORITY_LEASH`); the authoritative record is leash's `GET /action-evidence` and `GET /evidence/action/applied`, quoted below |
 
 `QUALIA_LEASH_TRANSPORT_ROUTE=http|mcp` selects the envelope. `http` is the default because it is
@@ -71,14 +77,14 @@ Four runs, all against the real harness; the logs are committed verbatim next to
 
 | Log | Transport | Leash | What it shows |
 | --- | --- | --- | --- |
-| [`transport-http-live.log`](transport-http-live.log) | `http`, host | `192.168.55.1:8000`, live | a command applied and refused by the runtime, zero sent, then 261 acknowledged stop intervals at ~10 Hz |
+| [`transport-http-live.log`](transport-http-live.log) | `http`, host | `192.168.55.1:8000`, live | a command applied and refused by the runtime, zero sent, then 61 acknowledged stop intervals at ~10 Hz |
 | [`transport-run.log`](transport-run.log) | `http`, host, private arena | live, with a real link hiccup | the hold: a stop that is not acknowledged refuses commands; the hold releases when a stop is acknowledged; then a refused drive and an unreadable frame both send zero |
 | [`transport-unreachable.log`](transport-unreachable.log) | `http`, host, base URL on a closed port | none | every stop fails → `holding, no command will be applied`, and the command is refused without a `drive` being attempted |
 | [`transport-mcp.log`](transport-mcp.log) | `mcp`, host | live | the ticket's `tools/call` interface measured: `stop` carries, `drive` is refused in the harness's own words |
 
-`transport-mcp.log`, `transport-run.log` and `transport-unreachable.log` were captured at `3512198`;
-they differ from the head only in that their refusal lines do not yet carry the run's session label,
-which the last commit added. They are otherwise verbatim.
+`transport-mcp.log` and `transport-run.log` were captured at `3512198`; they differ from the head only
+in that their refusal lines do not yet carry the run's session label, which the last commit added.
+They are otherwise verbatim.
 
 The zero-speed demonstration, in the transport's own lines (this pair is
 [`transport-http-live.log`](transport-http-live.log), captured at the head this PR carries; the same
@@ -198,7 +204,8 @@ measured instead, with no estop latched. Note that this probe left one line in t
 dashboard event list, and that it is the truthful record of a refused reset.
 
 What *is* demonstrated for the stop path is the hold: a stop the leash does not acknowledge refuses
-commands (`transport-unreachable.log`, `estop=false hold=true; refused T=7 …`), and it releases when
+commands (`transport-unreachable.log`, `leash mode= deadman_ok=false estop=false hold=true; refused
+T=31 … (dropped=1)` — the gate and the hold together), and it releases when
 a stop is acknowledged (`transport-run.log`, `the stop is acknowledged again; holding released`).
 
 ## The token

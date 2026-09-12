@@ -33,17 +33,25 @@
 //! default 500). If the next command does not arrive inside it the transport
 //! sends zero speed — the leash's `stop` — and logs the expiry with the age of
 //! the last command, so "the stream stopped and the wheels stopped" is a line
-//! with a number in it. A transport error is a stop too: a failed call never
-//! leaves the last command standing.
+//! with a number in it. The clock runs from the frame's **arrival**, not from
+//! the leash's answer, so the budget is the producer's cadence rather than the
+//! cadence plus a round trip. A transport error is a stop too: a failed call
+//! never leaves the last command standing.
 //!
 //! # `stop` and `estop`
 //!
 //! The leash latches an `estop` until `estop_reset`, and this transport watches
-//! the leash's own `health` for it. While the harness reports `estop: true` the
-//! transport refuses every command locally — it calls no `drive`, logs the
-//! refusal with the command it dropped, and polls `health` until the harness
-//! reports the reset, at which point it says so and takes commands again. A
-//! non-latching operator `stop` is not observable by a client: leash's stop
+//! the leash's own `health` for it. **Only a live, armed harness receives
+//! commands.** While `health` reports a latched `estop`, a mode other than
+//! `live`, or a deadman it is not satisfied with, the transport refuses every
+//! command locally — it calls no `drive`, logs the refusal with the harness's
+//! own mode/deadman/estop and the command it dropped, and polls `health` until
+//! the harness is armed again, at which point it says so and takes commands
+//! again. A leash in `replay` can answer about motion that did not happen
+//! (`valid: true, armed: false`), which is exactly the state where a command
+//! must not be sent.
+//!
+//! A non-latching operator `stop` is not observable by a client: leash's stop
 //! receipts coalesce (measured `coalesced: 3865, through_request_sequence:
 //! 3866` on the deployed build), so nothing on the surface distinguishes the
 //! operator's zero from this transport's own. What the transport guarantees
@@ -652,17 +660,26 @@ struct Transport<'a> {
 
 impl Transport<'_> {
     /// One wheel command, applied or refused without ever leaving a gap in the
-    /// record.
-    fn command(&mut self, frame: WheelFrame) {
-        if self.health.estop || self.hold {
-            // Nothing of ours stands: the harness holds zero under its latch,
-            // and under a hold the last stop was not acknowledged.
+    /// record. `arrived_ns` is when the frame reached this process, which is
+    /// what the deadman's expiry is measured from.
+    fn command(&mut self, frame: WheelFrame, arrived_ns: u64) {
+        if !self.health.armed() || self.hold {
+            // Only a live, armed harness receives commands. Nothing of ours
+            // stands either way: a leash in `replay` can answer `valid: true,
+            // armed: false` about motion that did not happen, and under a hold
+            // the last stop was not acknowledged.
             self.last_command_ns = 0;
             self.counters.dropped = self.counters.dropped.saturating_add(1);
             if self.counters.dropped == 1 || self.counters.dropped % self.settings.log_every == 0 {
                 println!(
-                    "qualia-leash-transport: estop={} hold={}; refused T={} left={:.3} right={:.3} (dropped={})",
-                    self.health.estop, self.hold, frame.tick, frame.left, frame.right,
+                    "qualia-leash-transport: leash mode={} deadman_ok={} estop={} hold={}; refused T={} left={:.3} right={:.3} (dropped={})",
+                    self.health.mode,
+                    self.health.deadman_ok,
+                    self.health.estop,
+                    self.hold,
+                    frame.tick,
+                    frame.left,
+                    frame.right,
                     self.counters.dropped
                 );
             }
@@ -674,9 +691,11 @@ impl Transport<'_> {
                 self.counters.failures = 0;
                 self.counters.accepted = self.counters.accepted.saturating_add(1);
                 // Every applied command carries the deadman's expiry, zero
-                // commands included: what the leash accepted is what the
-                // expiry promises to take back down.
-                self.last_command_ns = now_ns();
+                // commands included: what the leash accepted is what the expiry
+                // promises to take back down. The clock starts at the frame's
+                // arrival, so the expiry is the producer's cadence, not this
+                // round trip plus the cadence.
+                self.last_command_ns = arrived_ns;
                 println!(
                     "qualia-leash-transport: applied T={} requested_left={:.3} requested_right={:.3} applied_left={:.3} applied_right={:.3} max_speed={:.3} speed_mode={} flags=0x{:x} ok={} session={}…",
                     frame.tick,
@@ -781,11 +800,6 @@ impl Transport<'_> {
                             "qualia-leash-transport: leash reports estop=false; accepting commands again"
                         );
                     }
-                } else if !health.estop && !health.mode.is_empty() && health.mode != "live" {
-                    eprintln!(
-                        "qualia-leash-transport: leash mode={} is not live; commands will be refused",
-                        health.mode
-                    );
                 }
                 self.health = health;
             }
@@ -819,7 +833,7 @@ impl Transport<'_> {
                     );
                     self.stop("an unreadable frame");
                 }
-                Ok((_, Ok(frame))) => self.command(frame),
+                Ok((arrived_ns, Ok(frame))) => self.command(frame, arrived_ns),
                 Err(mpsc::RecvTimeoutError::Timeout) if self.last_command_ns != 0 => {
                     let age_ms = now_ns().saturating_sub(self.last_command_ns) / 1_000_000;
                     println!(

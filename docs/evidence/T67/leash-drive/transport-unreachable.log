@@ -1,11 +1,8 @@
-qualia-leash-transport: carrying our wheel commands to http://192.168.55.1:9 over http; deadman=1500ms speed_mode=low lease_ttl=20s session=04e6bf40… token_file=C:/tmp/Impl262LeashDrive/operator.token authority=leash arena=/qualia_t67
+qualia-leash-transport: carrying our wheel commands to http://192.168.55.1:9 over http; deadman=1000ms speed_mode=low lease_ttl=20s session=c7c457e1… token_file=C:/tmp/Impl262LeashDrive/operator.token authority=leash arena=/qualia_t67
 qualia-leash-transport: leash health unavailable: GET http://192.168.55.1:9/health: http://192.168.55.1:9/health: Connection Failed: Connect error: connection timed out
+{"T":31,"L":0.0,"R":0.0}
 qualia-leash-transport: stop after the quiet stream unavailable (failure 1): POST http://192.168.55.1:9/motors/stop/verified: http://192.168.55.1:9/motors/stop/verified: Connection Failed: Connect error: connection timed out; holding, no command will be applied
 qualia-leash-transport: idle 1 stop intervals; estop=false accepted=0 refused=0 failures=1
 qualia-leash-transport: health unavailable: GET http://192.168.55.1:9/health: http://192.168.55.1:9/health: Connection Failed: Connect error: connection timed out
-qualia-leash-transport: health unavailable: GET http://192.168.55.1:9/health: http://192.168.55.1:9/health: Connection Failed: Connect error: connection timed out
-{"T":7,"L":0.0,"R":0.0}
-qualia-leash-transport: health unavailable: GET http://192.168.55.1:9/health: http://192.168.55.1:9/health: Connection Failed: Connect error: connection timed out
-qualia-leash-transport: estop=false hold=true; refused T=7 left=0.000 right=0.000 (dropped=1)
-qualia-leash-transport: health unavailable: GET http://192.168.55.1:9/health: http://192.168.55.1:9/health: Connection Failed: Connect error: connection timed out
+qualia-leash-transport: leash mode= deadman_ok=false estop=false hold=true; refused T=31 left=0.000 right=0.000 (dropped=1)
 qualia-leash-transport: health unavailable: GET http://192.168.55.1:9/health: http://192.168.55.1:9/health: Connection Failed: Connect error: connection timed out
