@@ -82,11 +82,20 @@ cns-loop: device NVIDIA GeForce RTX 4090
 cns-loop: 200 ticks in 1.775 s (112.7 ticks/s), 10048960 spikes, 196 non-hold commands
 ```
 
-On the board the same loop ran 300 ticks at **31.3 ticks/s** (camera-bound: the leash serves ~33
-snapshots/s, so the tick rate is the sensor rate, not the runner's) with 15,168,990 spikes and 296
-non-hold commands, and every section digest re-verified on the board before the run. **60 Hz needs
-16.7 ms/tick and the Orin does 11.840 ms/tick, so the imported artifact sustains 60 Hz with ~1.4x
-headroom** at 2,160.6 M synapse-updates/s.
+On the board the same loop ran 300 ticks at **31.3 ticks/s** with 15,168,990 spikes and 296 non-hold
+commands, one camera JPEG per tick from the leash over USB with `--device gpu`, and every section digest
+re-verified on the board before the run. That is **31.9 ms/tick end to end**, ~20 ms above the 11.840 ms
+bare step. **The 60 Hz figure is a property of the bench, not of the loop**: the free-running bench feeds
+no external current, nothing fires, and its 11.840 ms/tick sits 1.41x under the 16.7 ms a 60 Hz frame
+allows — so 60 Hz bounds the kernel's step over the 25,582,938 edges, while the closed loop as run was
+**~31 Hz end to end**. The host loop takes the same fetch path and ran 200 ticks in 1.775 s
+(**112.7 ticks/s**, 8.9 ms/tick) on the RTX 4090, so the leash endpoint served at least 112.7 snapshots/s
+that run; the board loop's extra ~20 ms/tick is not attributed to a snapshot rate here, because no such
+measurement is committed. What is claimed is the observed loop rate under the conditions above. Note
+that the host loop fetched the **same** leash endpoint, Pinkie's camera at
+`http://192.168.55.1:8000/camera/snapshot`, once per tick and completed 200 ticks in 1.775 s
+(**112.7 ticks/s**) on the RTX 4090, so that endpoint demonstrably served 112.7 snapshots/s then — which
+is why this README no longer calls the board's 31.3 ticks/s camera-bound.
 
 The trace (`host-loop-gpu-trace.csv`) is per tick: luminance, firing input count, both output rates,
 `command` and `throttle`. Over those 200 ticks the command was `-1` (steer left) 130 times, `+1`
