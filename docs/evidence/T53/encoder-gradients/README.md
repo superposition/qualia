@@ -1,7 +1,7 @@
 # T53 encoder-gradients — the encoder now receives the objective's gradient
 
 Step 1 of ticket [#228](https://github.com/superposition/qualia/issues/228) (T53), the repair
-`docs/decisions.md` D-021 named. T52 (#227) measured that no artifact this repository trains can
+`docs/decisions.md` D-021 named. T52 (#227, merged to `main`) measured that no artifact this repository trains can
 clear the promotion gates, and that the decisive fact is a defect rather than a data problem: across
 a one-epoch and a ten-epoch run of the same fixture and seed, all 20 `encoder.*` and all 20
 `target_encoder.*` tensors were byte-identical while the predictor moved, and `effective_rank` read
@@ -122,7 +122,7 @@ capture committed as its fixture, byte-for-byte and unmodified:
 Every number below is from a run's own training report. `slope` is `calibration_slope`, `msr`
 `mean_standardized_squared_residual`, `clamp` `clamp_fraction`, `rank` `effective_rank.effective_rank`;
 the validation split is shown, and the test split follows. "before" is T52's committed capture
-(`docs/evidence/T52/checkpoint-experiments/`, PR #227); "after" is this capture.
+(`docs/evidence/T52/checkpoint-experiments/`, merged to `main` as #227); "after" is this capture.
 
 | run | epochs | nll cnn / flat / const | rollout cnn / flat / const | slope | msr | cov50/90/95 | clamp | rank | trace |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -297,14 +297,55 @@ the same refusal #224 recorded for this package and the fault D-018 names. That 
 working exactly as recorded: no cross-build here, a native aarch64 build on Pinkie from a `git
 archive` of the head.
 
-**The remaining limb, named.** `qualia-jepa-parity --checkpoint <candidate-dir> --target cuda` has not
-run on the board: no candidate checkpoint exists in the tree (`assets/brain/prior` is a connectome
-prior, and `qualia-jepa-train` needs a dataset manifest the tree does not carry), so the fixture
-checkpoint the cross-lane job built is the missing piece and `ImplCrossAarch64` holds the board to run
-parity against it there. The board leg above is the package's own smoke path — build and probe — and
-the gradient measurement this ticket is about remains this capture's dev-host 4090 runs, because the
-ch4 fixture is a 0.4 GB scratch input that the board tree does not carry. The host-only statement is
-still useful for that half; the board half is now **measured**, not argued from an earlier note.
+**The gap named in the first board posting is closed too.** `qualia-jepa-parity --target cuda` ran on
+Pinkie against the fixture checkpoint the cross-lane job wrote there and passed:
+
+```text
+$ LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat:/usr/local/cuda-12.9/lib64 \
+  target/release/qualia-jepa-parity --checkpoint /home/jetson/cross-lane/ckpt/cross-lane-fixture \
+    --target cuda --output /home/jetson/t53-parity-cuda-report.json
+PARITY_CUDA_RC=0
+{
+  "schema_version": "qualia.jepa-parity-report.v1",
+  "checkpoint_id": "cross-lane-fixture",
+  "weights_sha256": "a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58",
+  "fixture_sha256": "69ed0c64c64abb68ebbbeba81d6b101fe14aaa9f960e29ffcee8793c4280a890",
+  "rollout_steps": 8,
+  "reference_backend": "cpu",
+  "target_backend": "cuda",
+  "thresholds": { "rmse_max": 0.0002, "max_abs_max": 0.002, "cosine_min": 0.99999 },
+  "single_step": {
+    "evidence":               { "rmse": 1.8237711061143843e-7, "passes": true },
+    "latent":                 { "rmse": 3.1872622062042643e-7, "passes": true },
+    "occupancy_logits":       { "rmse": 8.21986388803166e-7,  "passes": true },
+    "predicted_log_variance": { "rmse": 5.003447648493157e-7, "passes": true },
+    "predicted_mean":         { "rmse": 4.822661762935598e-7, "passes": true }
+  },
+  "eight_step": {
+    "occupancy_logits":       { "rmse": 7.96650285985708e-6,  "passes": true },
+    "predicted_log_variance": { "rmse": 3.4524695152975826e-6, "passes": true },
+    "predicted_mean":         { "rmse": 5.198153897574574e-6,  "passes": true }
+  },
+  "reference_latency": { "p50_us": 2044, "p95_us": 6996, "max_us": 6996 },
+  "target_latency":    { "p50_us": 854,  "p95_us": 104062, "max_us": 104062 },
+  "outputs_finite": true,
+  "passes": true
+}
+```
+
+Every head passes CPU-against-CUDA at `1.8e-7 … 8.0e-6` RMSE against the `2e-4` threshold at one and
+eight rollout steps, `target_backend: "cuda"`, `outputs_finite: true`, `passes: true`, exit 0; the
+report is kept on the board as `/home/jetson/t53-parity-cuda-report.json` (2 660 B, sha256
+`efa8b4531fd1eb10c944b31a707844eb95d0728a3cdefdf0dcfc118b48a9fe82`). Together with the two probes
+above, the board now has the package building (7m 19s), the CUDA feature building (5m 30s), the model
+step on CPU (p50 3168 µs) and on the Orin's GPU (p50 2039 µs), and CPU/CUDA parity passing — all from
+an aarch64-native `git archive` of the head.
+
+That closes the board limb's *execution* gap; it is **not** a promotion claim and it does not move
+T52's step 2. The checkpoint that parity ran against is the cross-lane fixture, not a trained,
+promotion-passing candidate — none exists (see "Are the promotion gates reachable?" above) — and the
+gradient measurement this ticket is about remains this capture's dev-host 4090 runs, because the ch4
+fixture is a 0.4 GB scratch input the board tree does not carry.
 
 ## Files
 
