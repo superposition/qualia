@@ -151,6 +151,11 @@ fn verify_command(positions: &PathBuf) -> Result<(), Box<dyn std::error::Error>>
     for (name, digest) in &report.section_sha256 {
         println!("section {name}: sha256={digest}");
     }
+    println!(
+        "sections checked against the manifest: {}/{}",
+        report.sections_checked,
+        report.section_sha256.len()
+    );
     if report.source_bodies != 0 {
         println!(
             "source table: {} bodies, {} positioned, {} type labels",

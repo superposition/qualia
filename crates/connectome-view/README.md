@@ -74,7 +74,7 @@ carrying an eleven-thousand-entry palette; the firing colour is brighter than an
 ## What the cloud shows
 
 One point per CSR node the annotations place: 139,662 somata of the 211,577 bodies in the annotation
-table, for a network of 166,700 neurons and ~1.07M neuron-level edges (see
+table, for a network of 166,700 neurons, 25,582,938 neuron-level edges and 124,177,617 synapses (see
 `crates/connectome-stream/README.md` for the counting basis). Unplaced nodes are not drawn.
 
 ## What this does not establish

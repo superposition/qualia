@@ -22,8 +22,8 @@ mod positions;
 mod spike;
 
 pub use manifest::{
-    read_manifest, verify_positions, write_manifest, ArtifactFile, PositionsManifest,
-    PositionsVerification, SectionManifest, SourceManifest, TypeTable,
+    read_manifest, read_manifest_document, verify_positions, write_manifest, ArtifactFile,
+    PositionsManifest, PositionsVerification, SectionManifest, SourceManifest, TypeTable,
 };
 pub use positions::{
     read_positions, read_positions_from, resolve_positions_paths, write_positions, Positions,

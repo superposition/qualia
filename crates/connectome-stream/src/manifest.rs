@@ -3,20 +3,25 @@
 //!
 //! The manifest is the only text file in either format, and it stays small: it
 //! carries the counts, the source table's digest and counts, and one entry per
-//! binary section with its byte range, digest and value range. Every field
-//! reads with a default, so the importer can carry more than this crate knows
-//! about and an older manifest still verifies.
+//! binary section with its byte range and digest. The artifact's writer
+//! (`crates/connectome-cns`) owns this file; this reader is deliberately
+//! tolerant, because the check matters more than the spelling:
+//!
+//! - every field of [`PositionsManifest`] reads with a default, so a manifest
+//!   carrying more (or less) than this crate knows about still reads;
+//! - [`verify_positions`] looks the counts and the section digests up under
+//!   either spelling — this crate's `sections[]`/`bin`/`types`, or the
+//!   importer's `positions_sections{}`/`types_sha256` — and reports only real
+//!   disagreements, counting how many sections it was able to check.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::positions::{read_positions, resolve_positions_paths, HEADER_BYTES};
-use crate::{
-    Result, StreamError, POSITIONS_BIN_FILE, POSITIONS_MANIFEST_FILE, POSITIONS_SCHEMA,
-    POSITIONS_TYPES_FILE,
-};
+use crate::{Result, StreamError, POSITIONS_MANIFEST_FILE};
 
 pub(crate) fn hex_digest(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -81,16 +86,20 @@ pub struct SourceManifest {
     pub type_labels: u64,
 }
 
-/// `manifest.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// `manifest.json` as this crate writes it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PositionsManifest {
+    #[serde(default)]
     pub schema: String,
     /// Rows in `positions.bin`: one per CSR node.
+    #[serde(default)]
     pub neuron_count: u64,
     /// Rows carrying a finite soma position.
     #[serde(default)]
     pub placed_count: u64,
+    #[serde(default)]
     pub bin: ArtifactFile,
+    #[serde(default)]
     pub types: TypeTable,
     #[serde(default)]
     pub sections: Vec<SectionManifest>,
@@ -103,6 +112,13 @@ pub struct PositionsManifest {
     pub notes: Vec<String>,
 }
 
+impl PositionsManifest {
+    /// Whether the manifest claims a schema at all.
+    pub fn has_schema(&self) -> bool {
+        !self.schema.is_empty()
+    }
+}
+
 /// Writes the manifest, pretty printed, with a final newline.
 pub fn write_manifest(path: &Path, manifest: &PositionsManifest) -> Result<()> {
     let mut text = serde_json::to_string_pretty(manifest)
@@ -113,8 +129,8 @@ pub fn write_manifest(path: &Path, manifest: &PositionsManifest) -> Result<()> {
     })
 }
 
-/// Reads a manifest. Unknown fields are ignored and absent ones default, so a
-/// manifest written by another crate still reads.
+/// Reads a manifest into this crate's shape. Unknown fields are ignored and
+/// absent ones default, so a manifest written by another crate still reads.
 pub fn read_manifest(path: &Path) -> Result<PositionsManifest> {
     let text = std::fs::read_to_string(path).map_err(|error| {
         StreamError::io(&format!("failed to read {}", path.display()), error)
@@ -123,10 +139,66 @@ pub fn read_manifest(path: &Path) -> Result<PositionsManifest> {
         .map_err(|error| StreamError::json(&format!("failed to parse {}", path.display()), error))
 }
 
+/// Reads the raw manifest document, for fields this crate does not model.
+pub fn read_manifest_document(path: &Path) -> Result<Value> {
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        StreamError::io(&format!("failed to read {}", path.display()), error)
+    })?;
+    serde_json::from_str(&text)
+        .map_err(|error| StreamError::json(&format!("failed to parse {}", path.display()), error))
+}
+
+fn json_u64(document: &Value, path: &[&str]) -> Option<u64> {
+    let mut cursor = document;
+    for key in path {
+        cursor = cursor.get(*key)?;
+    }
+    cursor.as_u64()
+}
+
+fn json_str(document: &Value, path: &[&str]) -> Option<String> {
+    let mut cursor = document;
+    for key in path {
+        cursor = cursor.get(*key)?;
+    }
+    cursor.as_str().map(str::to_string)
+}
+
+/// The per-section claims, under either spelling: `sections[{name,offset,bytes,
+/// sha256}]` or `positions_sections{name:{offset,len,sha256}}`.
+fn manifest_sections(document: &Value) -> Vec<(String, Option<u64>, Option<u64>, String)> {
+    let mut out = Vec::new();
+    if let Some(sections) = document.get("sections").and_then(Value::as_array) {
+        for section in sections {
+            let name = json_str(section, &["name"]).unwrap_or_default();
+            out.push((
+                name,
+                json_u64(section, &["offset"]),
+                json_u64(section, &["bytes"]).or_else(|| json_u64(section, &["len"])),
+                json_str(section, &["sha256"]).unwrap_or_default(),
+            ));
+        }
+        return out;
+    }
+    if let Some(sections) = document.get("positions_sections").and_then(Value::as_object) {
+        for (name, section) in sections {
+            out.push((
+                name.clone(),
+                json_u64(section, &["offset"]),
+                json_u64(section, &["bytes"]).or_else(|| json_u64(section, &["len"])),
+                json_str(section, &["sha256"]).unwrap_or_default(),
+            ));
+        }
+        out.sort_by(|left, right| left.1.cmp(&right.1));
+    }
+    out
+}
+
 /// What a verification pass found.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PositionsVerification {
     pub manifest_present: bool,
+    /// Whatever the manifest calls its schema.
     pub schema: String,
     pub neuron_count: usize,
     pub placed_count: usize,
@@ -138,6 +210,8 @@ pub struct PositionsVerification {
     pub types_sha256: String,
     /// Re-read section digests, in file order.
     pub section_sha256: Vec<(String, String)>,
+    /// How many of those the manifest also carried a digest for.
+    pub sections_checked: usize,
     /// Source-table counts recorded in the manifest, when it carries them.
     pub source_bodies: u64,
     pub source_positioned: u64,
@@ -156,9 +230,9 @@ impl PositionsVerification {
 /// Re-reads an artifact and checks it against the manifest beside it.
 ///
 /// Checks: the header count against the section sizes, every section digest and
-/// byte range against the manifest, the file digests, the placed count against
-/// the source table's positioned count, and the label count against the
-/// source's distinct-type count.
+/// byte range the manifest carries, the type table's digest and label count,
+/// the file digests it carries, and the placed count against the source table's
+/// positioned count.
 pub fn verify_positions(path: &Path) -> Result<PositionsVerification> {
     let (bin_path, types_path) = resolve_positions_paths(path)?;
     let positions = read_positions(&bin_path)?;
@@ -183,6 +257,7 @@ pub fn verify_positions(path: &Path) -> Result<PositionsVerification> {
     let mut manifest_present = false;
     let mut schema = String::new();
     let mut mismatches = Vec::new();
+    let mut sections_checked = 0usize;
     let mut source_bodies = 0;
     let mut source_positioned = 0;
     let mut source_type_labels = 0;
@@ -195,116 +270,112 @@ pub fn verify_positions(path: &Path) -> Result<PositionsVerification> {
     let manifest_path: PathBuf = directory.join(POSITIONS_MANIFEST_FILE);
     if manifest_path.exists() {
         manifest_present = true;
-        let manifest = read_manifest(&manifest_path)?;
-        schema = manifest.schema.clone();
-        if manifest.schema != POSITIONS_SCHEMA {
-            mismatches.push(format!(
-                "manifest schema is {} not {POSITIONS_SCHEMA}",
-                manifest.schema
-            ));
+        let document = read_manifest_document(&manifest_path)?;
+        schema = json_str(&document, &["schema"]).unwrap_or_default();
+        if schema.is_empty() {
+            mismatches.push("the manifest names no schema".to_string());
         }
-        if manifest.neuron_count as usize != count {
-            mismatches.push(format!(
-                "manifest neuron_count is {} but the file holds {count} rows",
-                manifest.neuron_count
-            ));
-        }
-        if manifest.placed_count != 0 && manifest.placed_count as usize != positions.placed_count() {
-            mismatches.push(format!(
-                "manifest placed_count is {} but {} rows are placed",
-                manifest.placed_count,
-                positions.placed_count()
-            ));
-        }
-        if manifest.bin.file != POSITIONS_BIN_FILE {
-            mismatches.push(format!(
-                "manifest bin file is {} not {POSITIONS_BIN_FILE}",
-                manifest.bin.file
-            ));
-        }
-        if !manifest.bin.sha256.is_empty() && manifest.bin.sha256 != bin_sha256 {
-            mismatches.push(format!(
-                "positions.bin sha256 is {bin_sha256}, the manifest says {}",
-                manifest.bin.sha256
-            ));
-        }
-        if manifest.bin.bytes != 0 && manifest.bin.bytes != bin_bytes {
-            mismatches.push(format!(
-                "positions.bin is {bin_bytes} bytes, the manifest says {}",
-                manifest.bin.bytes
-            ));
-        }
-        if manifest.types.file != POSITIONS_TYPES_FILE {
-            mismatches.push(format!(
-                "manifest type table is {} not {POSITIONS_TYPES_FILE}",
-                manifest.types.file
-            ));
-        }
-        if !manifest.types.sha256.is_empty() && manifest.types.sha256 != types_sha256 {
-            mismatches.push(format!(
-                "types.txt sha256 is {types_sha256}, the manifest says {}",
-                manifest.types.sha256
-            ));
-        }
-        if manifest.types.labels != 0 && manifest.types.labels as usize != positions.types.len() {
-            mismatches.push(format!(
-                "manifest labels is {} but types.txt holds {}",
-                manifest.types.labels,
-                positions.types.len()
-            ));
-        }
-        if !manifest.sections.is_empty() {
-            let expected_offsets: Vec<(String, u64, u64)> = section_sha256
-                .iter()
-                .enumerate()
-                .map(|(index, (name, _))| {
-                    let start = HEADER_BYTES + index as u64 * section_bytes;
-                    (name.clone(), start, section_bytes)
-                })
-                .collect();
-            if manifest.sections.len() != expected_offsets.len() {
+
+        if let Some(declared) = json_u64(&document, &["neuron_count"]) {
+            if declared as usize != count {
                 mismatches.push(format!(
-                    "manifest lists {} sections, the artifact has {}",
-                    manifest.sections.len(),
-                    expected_offsets.len()
+                    "manifest neuron_count is {declared} but the file holds {count} rows"
                 ));
             }
-            for (section, (name, start, len)) in
-                manifest.sections.iter().zip(expected_offsets.iter())
-            {
-                if section.name != *name || section.offset != *start || section.bytes != *len {
+        }
+        if let Some(declared) = json_u64(&document, &["positioned_count"])
+            .or_else(|| json_u64(&document, &["placed_count"]))
+        {
+            source_positioned = declared;
+            if declared as usize != positions.placed_count() {
+                mismatches.push(format!(
+                    "manifest positioned_count is {declared} but {} rows are placed",
+                    positions.placed_count()
+                ));
+            }
+        }
+        if let Some(declared) = json_u64(&document, &["type_count"])
+            .or_else(|| json_u64(&document, &["types", "labels"]))
+        {
+            source_type_labels = declared;
+            if declared as usize != positions.types.len() {
+                mismatches.push(format!(
+                    "manifest type_count is {declared} but types.txt holds {}",
+                    positions.types.len()
+                ));
+            }
+        }
+        if let Some(declared) = json_u64(&document, &["sources", "body_annotations", "rows"])
+            .or_else(|| json_u64(&document, &["source", "bodies"]))
+        {
+            source_bodies = declared;
+        }
+
+        let bin_digest = json_str(&document, &["bin", "sha256"])
+            .or_else(|| json_str(&document, &["positions_sha256"]));
+        if let Some(declared) = bin_digest {
+            if declared != bin_sha256 {
+                mismatches.push(format!(
+                    "positions.bin sha256 is {bin_sha256}, the manifest says {declared}"
+                ));
+            }
+        }
+        if let Some(declared) = json_u64(&document, &["bin", "bytes"]) {
+            if declared != bin_bytes {
+                mismatches.push(format!(
+                    "positions.bin is {bin_bytes} bytes, the manifest says {declared}"
+                ));
+            }
+        }
+
+        let types_digest = json_str(&document, &["types", "sha256"])
+            .or_else(|| json_str(&document, &["types_sha256"]));
+        if let Some(declared) = types_digest {
+            if declared != types_sha256 {
+                mismatches.push(format!(
+                    "types.txt sha256 is {types_sha256}, the manifest says {declared}"
+                ));
+            }
+        }
+
+        for (name, declared_offset, declared_bytes, declared_digest) in
+            manifest_sections(&document)
+        {
+            let computed = section_sha256
+                .iter()
+                .enumerate()
+                .find(|(_, (section_name, _))| *section_name == name)
+                .map(|(index, (_, digest))| {
+                    (HEADER_BYTES + index as u64 * section_bytes, digest.clone())
+                });
+            let Some((expected_offset, computed_digest)) = computed else {
+                mismatches.push(format!(
+                    "the manifest names a section {name} that the artifact does not have"
+                ));
+                continue;
+            };
+            if let Some(declared) = declared_offset {
+                if declared != expected_offset {
                     mismatches.push(format!(
-                        "section {name} sits at {start}+{len}, the manifest says {} at {}+{}",
-                        section.name, section.offset, section.bytes
-                    ));
-                }
-                let computed = section_sha256
-                    .iter()
-                    .find(|(section_name, _)| *section_name == section.name)
-                    .map(|(_, digest)| digest.clone())
-                    .unwrap_or_default();
-                if !section.sha256.is_empty() && section.sha256 != computed {
-                    mismatches.push(format!(
-                        "section {} sha256 is {computed}, the manifest says {}",
-                        section.name, section.sha256
+                        "section {name} starts at {expected_offset}, the manifest says {declared}"
                     ));
                 }
             }
-        }
-        source_bodies = manifest.source.bodies;
-        source_positioned = manifest.source.positioned;
-        source_type_labels = manifest.source.type_labels;
-        if source_positioned != 0 && source_positioned as usize != positions.placed_count() {
-            mismatches.push(format!(
-                "source table positions {source_positioned} bodies, the artifact places {}",
-                positions.placed_count()
-            ));
-        }
-        if source_type_labels != 0 && source_type_labels as usize != positions.types.len() {
-            mismatches.push(format!(
-                "source table holds {source_type_labels} type labels, the artifact's table holds {}",
-                positions.types.len()
-            ));
+            if let Some(declared) = declared_bytes {
+                if declared != section_bytes {
+                    mismatches.push(format!(
+                        "section {name} is {section_bytes} bytes, the manifest says {declared}"
+                    ));
+                }
+            }
+            if !declared_digest.is_empty() {
+                sections_checked += 1;
+                if declared_digest != computed_digest {
+                    mismatches.push(format!(
+                        "section {name} sha256 is {computed_digest}, the manifest says {declared_digest}"
+                    ));
+                }
+            }
         }
     } else {
         mismatches.push(format!("no {POSITIONS_MANIFEST_FILE} beside the artifact"));
@@ -322,6 +393,7 @@ pub fn verify_positions(path: &Path) -> Result<PositionsVerification> {
         types_bytes,
         types_sha256,
         section_sha256,
+        sections_checked,
         source_bodies,
         source_positioned,
         source_type_labels,

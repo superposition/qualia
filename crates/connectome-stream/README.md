@@ -62,11 +62,11 @@ shorter run. The same bytes go out over `TcpStream` and into a file.
 
 ## Positions: what the artifact holds
 
-The released male-CNS tables are segment-level: 151,856,684 weight rows over 88,384,522 synapse-bearing
-segments, of which **166,700 bodies carry a superclass** (the published neurons) and 164,446 carry a
-cell type. Restricted to neuron-level bodies on both ends, the graph is **1,067,572 edges /
-4,760,936 synapses by weight**, Σweight = 311,833,243, which matches Σpost in `body-stats` — the "125M
-synapses" figure counts at segment resolution and is not the neuron-level number.
+The released tables are segment-level: 151,856,684 weight rows over 88,384,522 synapse-bearing
+segments, Σweight = 311,833,243 — that larger figure is the segment-resolution total. Restricted to
+released neurons on both ends, the graph the runner walks is **166,700 neurons, 25,582,938
+neuron-level edges, 124,177,617 synapses** (Σ weight), split by inferred neurotransmitter into
++94,542,746 / −26,403,637 / 3,232,234 unknown, of which 164,446 bodies carry a cell type.
 
 Positions come from `somaLocation` in `body-annotations-male-cns-v1.0-minconf-0.5.feather`:
 **139,662 of 211,577** bodies carry one, so the artifact has one row per CSR node and a placed point
