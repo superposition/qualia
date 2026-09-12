@@ -48,7 +48,9 @@ The binaries:
 **Why not Pinkie.** The step is a CPU computation with no kernel in it — the kernel-less case
 `docs/evidence/README.md` names, and `T35/healing-ladder` is its precedent — so the board's `ncu`
 backend has no launch to record; the board's offline registry cache also carries no `candle-core` and
-it has no DNS to fetch one (T50's board report records that prerequisite). The capture therefore ran on
+it has no DNS to fetch one (T50's board report records that prerequisite). *(The kernel-less reason is
+the operative one and still holds; the `candle-core`/DNS clause is superseded — D-022 measures the
+board building and running the model package natively.)* The capture therefore ran on
 the dev host, exactly as T35's kernel-less capture did, and no board work was attempted.
 
 ## Shape

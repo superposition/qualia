@@ -24,7 +24,8 @@ directory holds eight files — those four, plus one export pair per run: `metri
 `base-capture.ncu-rep`, and `metrics-none.csv` with `none-capture.ncu-rep`.
 
 This capture is **manual**, under `docs/evidence/README.md`'s `## Manual capture` clause: mage is not
-available on Pinkie — it carries no `nsys`, has no DNS, and has no mage installed today — so the two
+available on Pinkie — it carries no `nsys`, and at the time of writing had no DNS of its own and no
+mage installed (a network/install state, not architecture; D-022) — so the two
 `ncu` runs were driven by hand. `capture.json` therefore keeps mage's manifest field names for the
 primary (`base`) run — `argv` (the profiled argv), `profiler_argv`, `returncode`, `status`,
 `kernel_count` — with the
@@ -141,8 +142,8 @@ Neither touches a display adapter, and no host profiler counter was attempted (D
 
 **1. Getting the target onto the board.** Docker is not available on the development workstation, so
 `Cross.toml` and `docker/Dockerfile.cross-aarch64` cannot be used; the board has cargo 1.94.0, rustc
-1.94.0 and gcc 11.4.0, so it builds natively from a source archive. The board has no DNS and its
-registry cache is stale in two ways, so:
+1.94.0 and gcc 11.4.0, so it builds natively from a source archive. At the time of this run the board
+had no DNS of its own and its registry cache was stale in two ways (D-022 supersedes the DNS half), so:
 
 ```bash
 # on the development host, from the checkout
@@ -340,21 +341,29 @@ committed; on the development host it sits at `C:/tmp/wp-ev/capture-basic.ncu-re
 
 ## What this does not establish
 
-- **The JEPA model steps are not measured, and there is no model to measure yet.** At the captured
-  commit — and still at this branch's base and at `origin/main` `afd9a75` — `crates/jepa-model/src/lib.rs`
-  is a one-line doc-comment stub, `runners/jepa-runtime/src/main.rs` is `fn main() {}`, no `.rs` file
-  in the tree mentions candle (it is a manifest dependency of a crate with no code, and no file
-  constructs a candle device), and the three executables #172 step 1 names — `qualia-jepa-train`,
-  `qualia-jepa-parity`, `qualia-jepa-plan-eval` — exist nowhere in the tree. Building candle's CUDA
-  backend on the board would profile candle's own kernels with no qualia code in the process, so it
-  was not attempted. The board's offline registry cache also lacks the CUDA-path crate set and the
-  matching index entries, so a candle build there needs a vendor upload as well — a separate step from
-  this capture.
-- **No timeline capture.** There is no `nsys` binary on the board and no network to install one, and
-  `mage` is not installed there either, so #64's `mage profile-exec --backend nsys` path cannot run on
-  Pinkie. This capture is `ncu` only, and kernel-level rather than step-level. That block is
-  target-side and is not a wheel or toolchain limit: per `docs/evidence/README.md`'s `## Manual
-  capture` clause, the board carries no `nsys`, has no DNS, and has no mage installed today.
+- **The JEPA model steps are not measured by *this* capture, and at its commit there was no model to
+  measure.** *(Historical: at the captured commit — then also the branch's base and `origin/main`
+  `afd9a75` — `crates/jepa-model/src/lib.rs` was a one-line doc-comment stub,
+  `runners/jepa-runtime/src/main.rs` was `fn main() {}`, no `.rs` file in the tree mentioned candle
+  (it was a manifest dependency of a crate with no code, and no file constructed a candle device),
+  and the three executables #172 step 1 names — `qualia-jepa-train`, `qualia-jepa-parity`,
+  `qualia-jepa-plan-eval` — existed nowhere in the tree. Building candle's CUDA backend on the board
+  would have profiled candle's own kernels with no qualia code in the process, so it was not
+  attempted then, and the board's offline registry cache lacked the CUDA-path crate set and matching
+  index entries, so a candle build there would have needed a vendor upload.)* That is superseded by
+  measurement: the three binaries now exist (`crates/jepa-model/src/bin/`) and are measured in
+  `docs/evidence/T50/model-eval/` and `docs/evidence/T52/planner-batch/`; the board builds and runs
+  the package natively — `RUSTFLAGS="-C target-feature=+fp16" cargo build --release -j 2 -p
+  qualia-jepa-model --bins` → `Finished in 7m 19s`, and `--features cuda` → `5m 30s` — with
+  `qualia-jepa-runtime-probe` reporting `synchronized_latency_p50_us` 3168 (cpu) / 2039 (cuda) and
+  `outputs_finite: true` on both, and `cargo fetch` downloading nothing because the board's registry
+  cache is complete for that head (the board job's comments on #225/#228; D-022).
+- **No timeline capture.** There is no `nsys` binary on the board and, at the time of writing, no
+  network to install one, and `mage` is not installed there either, so #64's `mage profile-exec
+  --backend nsys` path cannot run on Pinkie. This capture is `ncu` only, and kernel-level rather than
+  step-level. That block is target-side and is not a wheel or toolchain limit: per
+  `docs/evidence/README.md`'s `## Manual capture` clause, the board carries no `nsys`, and at the
+  time of writing had no DNS of its own and no mage installed (D-022).
 - **No DRAM verdict.** See the `n/a` above.
 - **Duration is a profiler duration.** Both runs report the duration of an isolated, replayed launch,
   not a throughput measurement of the pipeline. Compare launch count and shape first, then cycles,

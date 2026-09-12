@@ -17,7 +17,10 @@ steps**), so the two rows are comparable.
   time, each bounded by `--iterations 30`.
 * **Why not Pinkie:** the model step needs `candle-core/cuda`, and the board's offline registry
   cache carries no `candle-core` with no DNS to fetch it — #172's own board report records that
-  prerequisite. Row C is a dev-host 4090 capture, so the before/after pair is too.
+  prerequisite. *(Superseded: D-022 measures the board building and running the model package
+  natively — `7m 19s`, and `5m 30s` with `--features cuda`, probe `outputs_finite: true` on both;
+  the board job's comments on #225/#228.)* Row C is a dev-host 4090 capture, so the before/after
+  pair is too.
 
 ## The numbers (milliseconds)
 

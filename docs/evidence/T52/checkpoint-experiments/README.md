@@ -243,15 +243,24 @@ produces that — #228's test is where that gap closes.
 Step 4's bar is recorded on its stated reason rather than attempted, because both limbs were already
 measured by #224 and D-018 and neither changed here:
 
-- **No aarch64 artifact of these binaries can be built on this host.** The dev-host WSL toolchain
+*(Both limbs are superseded by measurement on 2026-09-11: PR #194 shipped a host-cross-built aarch64
+binary and ran it on Pinkie twice, and the board builds and runs the three `qualia-jepa-*` binaries
+natively — `7m 19s`, and `5m 30s` with `--features cuda`, probe `outputs_finite: true` on both; the
+board job's comments on #225/#228; D-018 amended, D-022. The two bullets below stand as the record of
+what this capture did not attempt.)*
+
+- **No aarch64 artifact of these binaries can be built on this host.** (Provisional, not a host
+  property: PR #194 cross-built a crate here and D-018 is amended; see the note above.) The dev-host
+  WSL toolchain
   has no `aarch64-unknown-linux-gnu` target, no `aarch64-linux-gnu-gcc` and no `cross`, so the
   build dies at `rc 101` with `error[E0463]: can't find crate for 'core'` — #224's
   `docs/evidence/T50/model-eval/` records that build line, and D-018 records the same fault. No
   cross-build is claimed here; none was attempted.
-- **None could run on Pinkie anyway.** The board's offline registry cache carries no `candle-core`
-  and the board has no DNS to fetch one, so `qualia-jepa-train`, `qualia-jepa-parity` and
-  `qualia-jepa-plan-eval` cannot be built or run there (D-016, D-018; T50's model-eval records the
-  same prerequisite for its two binaries).
+- **None could run on Pinkie anyway.** As recorded then (superseded, see the note above): the board's
+  offline registry cache carried no `candle-core` and the board had no DNS to fetch one, so
+  `qualia-jepa-train`, `qualia-jepa-parity` and
+  `qualia-jepa-plan-eval` could not be built or run there (D-016, D-018; T50's
+  model-eval records the same prerequisite for its two binaries).
 
 The ticket's DoD states the limb exactly this way — "record the aarch64 build as the board evidence
 and state why execution on Pinkie is impossible" — and the whole capture is a dev-host 4090 capture

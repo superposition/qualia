@@ -94,12 +94,16 @@ gadget interfaces, VID 0955). `ssh -i ~/.ssh/qualia_jetson_ed25519 jetson@192.16
 account password is `jetson`.
 
 Development stays on the 4090 host; deployment is a cross-build (`docker/Dockerfile.cross-aarch64`,
-`Cross.toml`) or a native aarch64 build on the board itself. Kernels are developed and verified on the
-4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts measured by the T29 smoke
-(issue #45): the board has **no DNS** (ship a tarball; `git clone`/crates.io are unreachable), its clock
+`Cross.toml`) or a native aarch64 build on the board itself (the cross-image lane was already
+unusable when D-018 measured the host on 2026-09-11; D-018 is amended with the rootless
+`cargo-zigbuild` cross lane that replaced it, PR #231, and D-022). Kernels are developed and verified
+on the 4090 (sm_89) and ship for sm_87 (`Makefile CUDAARCHS`). Three board facts were
+measured by the T29 smoke (issue #45) on 2026-09-02: the board has **no DNS** (ship a tarball;
+`git clone`/crates.io are unreachable), its clock
 is ~10 days behind the dev host (TLS to anything remote will complain), and a Windows-side clone writes
 CRLF into the working tree, which breaks shell scripts and the cross-build Dockerfile on Linux — ship
-`git archive` output, not a working copy.
+`git archive` output, not a working copy. The DNS fact is a network state of that day, not an
+architecture: D-022 records the board reaching crates.io through the host's gadget proxy.
 
 ## D-011 — GPU work is serial because the host's stability risk is the display driver
 
@@ -137,7 +141,12 @@ Consequences:
 - `ERR_NVGPUCTRPERM` on the dev host is not a project requirement. The profiling target is Pinkie —
   the Waveshare-carried Jetson Orin NX at `jetson@192.168.55.1` (L4T R36.4.7, sm_87, 6 cores,
   3.6 GiB RAM, 161 GiB free, account password `jetson`, `ncu` at `/usr/local/cuda/bin/ncu`, no
-  `nsys`, no `nvcc`). Profiling evidence is captured there and ships with the ticket. The host's
+  `nsys`). The toolkit there is CUDA 12.9 (`V12.9.41`) and `nvcc` **is** present at
+  `/usr/local/cuda/bin/nvcc` — this entry originally said "no `nvcc`", which was wrong. T18's
+  `sm_87` fatbins were built on the board with `CUDAARCHS=87-real NVCC=/usr/local/cuda/bin/nvcc`
+  (`docs/evidence/T18/fatbin-sm-87/capture.json`), and T50's board facts record `nvcc` 12.9.41
+  present with only `nsys` absent (`docs/evidence/T50/pinkie-kernels/README.md` §"Board").
+  Profiling evidence is captured there and ships with the ticket. The host's
   `RmProfilingAdminOnly=0` was set by the same attempt; it is left as-is, is not required by anything,
   and must never be forced to take effect by a device restart.
 - D-011's serial-GPU rule stands (one GPU job at a time, bounded runs). Its attribution is amended:
@@ -216,9 +225,11 @@ issues #75/#76/#108/#38/#102); every future board build inherits these:
   inline asm is rejected by the default `neon`-only aarch64 target ("instruction requires: fullfp16");
   the Orin's A78AE has the feature. Invisible on x86_64, absent from `Cross.toml`, and not needed by
   non-candle packages.
-- **The board's crate cache is not the dev host's.** It had no `turso` at all; the 0.7.2 closure
-  (103 `.crate` files plus index entries) was shipped to `~/.cargo` by hand. Offline board builds of
-  any new dependency set must ship its closure the same way.
+- **The board's crate cache is not the dev host's.** *Historical, as measured:* it had no `turso` at
+  all; the 0.7.2 closure (103 `.crate` files plus index entries) was shipped to `~/.cargo` by hand.
+  Offline board builds of any new dependency set must ship its closure the same way — the board can
+  also fetch now through the host's gadget proxy (D-022), but an `--offline` build still needs the
+  closure present.
 - **Merge order matters for board trees.** C10/C42 could not build at their own heads (they call the
   C09 crate); their legs were cut as head + `crates/jepa-model` at `7b30678f`. After `ea823dd`
   (#169), `ad30020` (#165) and `d7ab633` (#180) landed, that overlay is no longer needed.
@@ -468,7 +479,59 @@ decision half of step 1 is discharged by this entry. The parity and plan-eval st
 are already measured against a loadable candidate (`docs/evidence/T50/model-eval/`); what is missing
 is only the promoted checkpoint's provenance. Step 4's board limb is recorded on its stated reason
 in the capture: no aarch64 artifact can be built here (#224's `rc 101`, `error[E0463]`, D-018) and
-none can run on Pinkie (no `candle-core` in the offline cache, no DNS; D-016).
+none can run on Pinkie (no `candle-core` in the offline cache, no DNS; D-016). *(Superseded
+2026-09-11 by measurement: the board builds and runs this package natively — `7m 19s` feature-off,
+`5m 30s` with `--features cuda`, probe `outputs_finite: true` on both backends; see D-022 and the
+#225/#228 board comments.)*
+
+## D-022 — The board is provisioned and measured; "cannot run X" now needs a measurement
+
+**The board is not the limitation D-010, D-016 and D-018 recorded it as.** Those entries read as if
+Pinkie were offline, cache-less and unable to build the JEPA model. On 2026-09-11 the board was
+provisioned and measured, and those limits do not hold. What was measured — the board job's comments
+on [#225](https://github.com/superposition/qualia/issues/225) and
+[#228](https://github.com/superposition/qualia/issues/228) (posted 2026-09-12T02:26Z / 02:31Z), head
+`18313c5`, tree from a `git archive` (sha256 `5c5feaa1…`):
+
+- **Access.** `ssh pinkie` works: `~/.ssh/config` carries `Host pinkie` → `HostName 192.168.55.1`,
+  `User jetson`, `IdentityFile C:/Users/ericm/.ssh/qualia_jetson_ed25519`,
+  `StrictHostKeyChecking accept-new` — the same key D-010 documents, behind an alias.
+- **Network.** The board's own WiFi associates are rejected by the AP
+  (`CTRL-EVENT-ASSOC-REJECT status_code=1` on both bands, also with the host's credentials and MAC),
+  so the working route is the USB gadget link with a userspace CONNECT proxy on the host:
+  `C:/tmp/board3/gadget_proxy.py`, supervised as `gadget-proxy` (`hub ps`), bound to
+  `192.168.55.100:8085`, with the board setting `HTTPS_PROXY=http://192.168.55.100:8085`. The board
+  resolves nothing itself; the host dials for it. Proof from the board:
+  `curl -x http://192.168.55.100:8085 https://index.crates.io/config.json` returns the sparse index,
+  and `cargo search candle-core` returns crates.
+- **Crate cache.** Complete for this head: `cargo fetch` → `FETCH_RC=0` with nothing to download —
+  every entry in the head's lock was already in the board's registry cache (1.7 GB). The gap D-016
+  records was closed by shipping the closure; a head whose lock moves still needs its own closure or
+  the proxy.
+- **The candle closure builds natively.** `RUSTFLAGS="-C target-feature=+fp16" cargo build --release
+  -j 2 -p qualia-jepa-model --bins` → `Finished` in **7m 19s** (`BUILD_RC=0`, candle-core and
+  candle-nn 0.9.1), and the same with `--features cuda` → **5m 30s** (`BUILD_CUDA_RC=0`,
+  candle-kernels 0.9.2 built with `nvcc` for sm_87; the board's toolkit is 12.9.41 — the correction
+  to D-012). The binaries are aarch64: `qualia-jepa-train` 4 501 616 B, `qualia-jepa-parity`
+  2 390 656 B, `qualia-jepa-plan-eval` 2 391 088 B, `qualia-jepa-runtime-probe` 2 018 664 B
+  feature-off / 10 375 096 B with cuda.
+- **The model step runs on both backends.** `qualia-jepa-runtime-probe --backend cpu --iterations 30
+  --warmup 3` (fixture seed 12648430): `synchronized_latency_p50_us` **3168**, p95 3406, max 3429,
+  `outputs_finite: true`, `output_dimensions [256, 256, 256, 1024, 4096]`. The same binary with the
+  CUDA backend: p50 **2039**, p95 2221, max 2235, `outputs_finite: true`, `CUDA_PROBE_RC=0` — no
+  `skipping` line in either output, so the device was used, not skipped (1.55× faster on this
+  fixture).
+
+**Consequence for the record.** "The board cannot run X" is a claim that now requires a measurement
+*after provisioning*, not an inference from a cache listing or a network state; a run recorded as
+impossible before provisioning is provisional, not architecture. Companion records: D-018 is amended
+in place by PR [#231](https://github.com/superposition/qualia/pull/231) (merged as `56d8170`, head
+`a1a0656`), which adds the rootless `cargo-zigbuild` cross lane and its board run at
+`docs/evidence/board/cross-lane/README.md`; D-018's original paragraph stays as history under that
+amendment. What this entry does not overturn:
+the board carries no `nsys` and no `mage` as measured, so a step-level `nsys` timeline still has no
+board path; whether either is installable is the readiness workstream's item
+([#230](https://github.com/superposition/qualia/issues/230)).
 
 ## D-003 — Repository
 
