@@ -220,6 +220,11 @@ impl Drop for StatsRegion {
 /// the region cannot be mapped, and a runner that gets `None` simply publishes
 /// no frame — the console names that runner as a gap instead of the runner
 /// dying for a telemetry problem.
+///
+/// The writer stamps the frame's `started_at_ns` with its attach instant, so a
+/// panel can show the runner's uptime, and clearing the publishing flag when it
+/// is dropped, so a reader sees a runner that stopped rather than the last
+/// state it was in.
 pub struct StatsWriter {
     region: StatsRegion,
     index: usize,
@@ -247,10 +252,15 @@ impl StatsWriter {
     fn from_region(region: StatsRegion, runner: &str) -> Self {
         let index = region.claim();
         let now = crate::now_ns();
+        // The runner's start is the instant it attached: the frame carries it so
+        // an operator's panel can show the uptime, and a restart reads as a new
+        // start rather than the counters continuing.
+        let mut frame = RunnerStatsSnapshot::new(runner);
+        frame.started_at_ns = now;
         Self {
             region,
             index,
-            frame: RunnerStatsSnapshot::new(runner),
+            frame,
             window_start_ns: now,
             window_ticks: 0,
             window_bytes: 0,
@@ -346,6 +356,26 @@ impl StatsWriter {
         self.window_start_ns = now;
         self.window_ticks = self.frame.ticks;
         self.window_bytes = self.frame.bytes;
+    }
+}
+
+impl Drop for StatsWriter {
+    /// A runner that stops publishing says so: dropping the writer clears
+    /// [`RUNNER_STATS_FLAG_PUBLISHING`] in its slot and stamps the frame, so a
+    /// reader shows `stopped` rather than the last frame's live state.
+    ///
+    /// A runner that is killed cannot run this, and a writer that never
+    /// published leaves its slot empty: that frame ages out to `stale` on the
+    /// reader's own clock, which is the other half of the flag's contract.
+    fn drop(&mut self) {
+        if self.last_publish_ns == 0 {
+            return;
+        }
+        self.frame.flags &= !RUNNER_STATS_FLAG_PUBLISHING;
+        self.frame.published_at_ns = crate::now_ns();
+        if let Some(slot) = self.region.slot_mut(self.index) {
+            let _ = slot.publish(&self.frame);
+        }
     }
 }
 

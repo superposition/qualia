@@ -1042,7 +1042,7 @@ fn run_offline_loop(shm: &ShmRegion, shm_name: &str) {
             telemetry.set_value(0, "objects", objects as f32);
             telemetry.set_value(1, "brightness", stats.brightness);
             telemetry.set_value(2, "frames", shm.world_model().vision_frame_count as f32);
-            telemetry.set_value(3, "scene objects", response.objects.len() as f32);
+            telemetry.set_value(3, "scene objs", response.objects.len() as f32);
         }
 
         if tick % OFFLINE_STDERR_INTERVAL == 0 {

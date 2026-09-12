@@ -43,6 +43,12 @@ pub const RUNNER_NAME_BYTES: usize = 32;
 pub const RUNNER_VALUE_COUNT: usize = 4;
 
 /// Bytes of one value's label in the frame, NUL-padded.
+///
+/// The width is ABI ([`RUNNER_STATS_VERSION`]), so a producer chooses a label
+/// that fits rather than the frame growing: a longer one is truncated on a
+/// UTF-8 boundary, which is how `l0 compression` reaches a panel as
+/// `l0 compressi`. Every producer in this tree now names its values inside the
+/// field; keep it that way when adding one.
 pub const RUNNER_VALUE_LABEL_BYTES: usize = 12;
 
 /// The producer has published at least once and its last update is within the

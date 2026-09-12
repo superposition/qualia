@@ -94,7 +94,7 @@ pub fn stream(shm: &ShmRegion, out: &mut impl Write) {
             let belief = *LayerReader::new(slot).read();
             stats.set_value(0, "layers", NUM_LAYERS as f32);
             stats.set_value(1, "l0 vfe", belief.vfe);
-            stats.set_value(2, "l0 compression", belief.compression as f32);
+            stats.set_value(2, "l0 comp", belief.compression as f32);
             stats.set_value(3, "l0 cycle us", belief.cycle_us as f32);
         }
         let elapsed = start.elapsed();

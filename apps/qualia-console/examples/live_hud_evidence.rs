@@ -21,17 +21,18 @@
 use egui_kittest::{Harness, SnapshotOptions};
 use qualia_console::client::{agent_url, HttpSource};
 use qualia_console::views::evidence::EvidenceView;
-use qualia_console::{shm_sample, stack, Connection, ConsoleState, Sample};
+use qualia_console::{shm_sample, stack, theme, Connection, ConsoleState, Sample};
 
 /// The figure's viewport: wide enough for the six-view grid plus a column of
-/// HUD panels on the right.
-const VIEWPORT: [f32; 2] = [1600.0, 1000.0];
+/// HUD panels on the right, and tall enough for three panels whose rows all
+/// fit — the numbers, the bar and sparkline, and the four labelled values.
+const VIEWPORT: [f32; 2] = [1600.0, 1200.0];
 
 /// Where the HUD panels are placed for the figure: a column in the right
 /// margin, so nothing covers the six views. In the window these are the rects
 /// the operator drags; here they are seeded through the same `record_rect` the
 /// window uses, so the layout that is drawn is a layout the console can keep.
-const PANEL_COLUMN: [f32; 4] = [1300.0, 44.0, 290.0, 300.0];
+const PANEL_COLUMN: [f32; 4] = [1300.0, 44.0, 290.0, 360.0];
 
 fn main() {
     let region = shm_sample::region_name();
@@ -89,16 +90,30 @@ fn main() {
         state.hud_layout.record_rect(&row.runner, rect);
     }
     println!(
-        "live_hud_evidence: region {region}, {} live runner panel(s): {}",
-        state.hud.rows.len(),
-        state
-            .hud
-            .rows
-            .iter()
-            .map(|row| format!("{} {:.2} Hz", row.runner, row.rate_hz))
-            .collect::<Vec<_>>()
-            .join(", ")
+        "live_hud_evidence: region {region}, {} live runner panel(s)",
+        state.hud.rows.len()
     );
+    for row in &state.hud.rows {
+        let values = row
+            .values
+            .iter()
+            .map(|(label, value)| format!("{label} {value:.3}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "  {} | {:.2} Hz | {} | updated {} | uptime {} | {}",
+            row.runner,
+            row.rate_hz,
+            if row.publishing {
+                "publishing"
+            } else {
+                "stopped"
+            },
+            theme::age(observed_at_ns, row.published_at_ns),
+            theme::uptime(observed_at_ns, row.started_at_ns),
+            values
+        );
+    }
     if !state.hud.gaps.is_empty() {
         println!("live_hud_evidence: no producer: {}", state.hud.gaps.join(", "));
     }
