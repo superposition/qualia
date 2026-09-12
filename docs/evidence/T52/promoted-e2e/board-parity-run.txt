@@ -1,0 +1,138 @@
+# T52 step 4 — a live run on Pinkie (aarch64), the parity binary with --target cuda
+# host: Pinkie (Jetson Orin NX, sm_87), CUDA toolkit 12.9.41, exec via LD_LIBRARY_PATH=/usr/local/cuda-12.9/compat
+# binary: /home/jetson/qualia-t53/target/release/qualia-jepa-parity
+-rwxrwxr-x 2 jetson jetson 10762424 Sep  2 09:47 /home/jetson/qualia-t53/target/release/qualia-jepa-parity
+# build: native aarch64, the board's own; D-022 measured `--features cuda` at 5m 30s (candle-kernels 0.9.2, nvcc sm_87)
+# checkpoint: fresh fixture copied from the dev host; --checkpoint /home/jetson/t52-board-ck/t52-e2e-fixture
+a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58  /home/jetson/t52-board-ck/t52-e2e-fixture/weights.safetensors
+# command:
+#   /home/jetson/qualia-t53/target/release/qualia-jepa-parity --checkpoint /home/jetson/t52-board-ck/t52-e2e-fixture --target cuda --output /home/jetson/t52-board-parity.json
+
+{
+  "schema_version": "qualia.jepa-parity-report.v1",
+  "architecture_id": "qualia.jepa.grounded-tiny-cnn.v1",
+  "runtime_id": "qualia.jepa.coherent-tiled-runtime.v1",
+  "checkpoint_id": "t52-e2e-fixture",
+  "weights_sha256": "a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58",
+  "fixture_schema": "qualia.jepa-parity-fixture.v1",
+  "fixture_sha256": "69ed0c64c64abb68ebbbeba81d6b101fe14aaa9f960e29ffcee8793c4280a890",
+  "rollout_steps": 8,
+  "reference_backend": "cpu",
+  "target_backend": "cuda",
+  "thresholds": {
+    "rmse_max": 0.0002,
+    "max_abs_max": 0.002,
+    "cosine_min": 0.99999
+  },
+  "single_step": {
+    "evidence": {
+      "values": 1024,
+      "rmse": 1.8237711061143843e-7,
+      "max_abs": 6.556510925292969e-7,
+      "cosine": 0.9999999999999308,
+      "passes": true
+    },
+    "latent": {
+      "values": 256,
+      "rmse": 3.1872622062042643e-7,
+      "max_abs": 1.430511474609375e-6,
+      "cosine": 0.9999999999999499,
+      "passes": true
+    },
+    "occupancy_logits": {
+      "values": 4096,
+      "rmse": 8.21986388803166e-7,
+      "max_abs": 3.5762786865234375e-6,
+      "cosine": 0.9999999999998899,
+      "passes": true
+    },
+    "predicted_log_variance": {
+      "values": 256,
+      "rmse": 5.003447648493157e-7,
+      "max_abs": 1.5497207641601562e-6,
+      "cosine": 0.9999999999999234,
+      "passes": true
+    },
+    "predicted_mean": {
+      "values": 256,
+      "rmse": 4.822661762935598e-7,
+      "max_abs": 1.430511474609375e-6,
+      "cosine": 0.9999999999999358,
+      "passes": true
+    }
+  },
+  "eight_step": {
+    "occupancy_logits": {
+      "values": 32768,
+      "rmse": 7.96650285985708e-6,
+      "max_abs": 0.0000762939453125,
+      "cosine": 0.9999999999998401,
+      "passes": true
+    },
+    "predicted_log_variance": {
+      "values": 2048,
+      "rmse": 3.4524695152975826e-6,
+      "max_abs": 0.00002765655517578125,
+      "cosine": 0.9999999999997163,
+      "passes": true
+    },
+    "predicted_mean": {
+      "values": 2048,
+      "rmse": 5.198153897574574e-6,
+      "max_abs": 0.000026702880859375,
+      "cosine": 0.9999999999998835,
+      "passes": true
+    }
+  },
+  "reference_latency": {
+    "synchronized_samples_us": [
+      2033,
+      2035,
+      2037,
+      2043,
+      2043,
+      2044,
+      2045,
+      2055,
+      6873
+    ],
+    "p50_us": 2043,
+    "p95_us": 6873,
+    "max_us": 6873
+  },
+  "target_latency": {
+    "synchronized_samples_us": [
+      838,
+      844,
+      846,
+      846,
+      865,
+      878,
+      900,
+      938,
+      99921
+    ],
+    "p50_us": 865,
+    "p95_us": 99921,
+    "max_us": 99921
+  },
+  "outputs_finite": true,
+  "passes": true
+}
+BOARD_PARITY_RC=0 WALL_MS=900
+schema_version qualia.jepa-parity-report.v1
+checkpoint_id t52-e2e-fixture
+weights_sha256 a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58
+reference_backend cpu target_backend cuda
+thresholds {'rmse_max': 0.0002, 'max_abs_max': 0.002, 'cosine_min': 0.99999}
+single_step.evidence rmse=1.824e-07 max_abs=6.557e-07 cosine=0.9999999999999308 passes=True
+single_step.latent rmse=3.187e-07 max_abs=1.431e-06 cosine=0.9999999999999499 passes=True
+single_step.occupancy_logits rmse=8.220e-07 max_abs=3.576e-06 cosine=0.9999999999998899 passes=True
+single_step.predicted_log_variance rmse=5.003e-07 max_abs=1.550e-06 cosine=0.9999999999999234 passes=True
+single_step.predicted_mean rmse=4.823e-07 max_abs=1.431e-06 cosine=0.9999999999999358 passes=True
+eight_step.occupancy_logits rmse=7.967e-06 max_abs=7.629e-05 cosine=0.9999999999998401 passes=True
+eight_step.predicted_log_variance rmse=3.452e-06 max_abs=2.766e-05 cosine=0.9999999999997163 passes=True
+eight_step.predicted_mean rmse=5.198e-06 max_abs=2.670e-05 cosine=0.9999999999998835 passes=True
+reference_latency p50_us 2043
+target_latency p50_us 865
+outputs_finite True passes True

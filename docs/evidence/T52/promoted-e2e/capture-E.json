@@ -1,0 +1,34 @@
+{
+  "backend": "nsys",
+  "argv": [
+    "/home/superposition/t52target/release/qualia-jepa-parity",
+    "--checkpoint",
+    "/home/superposition/t52e2e/cand/t52-e2e-fixture",
+    "--target",
+    "cuda",
+    "--output",
+    "/home/superposition/t52e2e/runs/parity-nsys.json"
+  ],
+  "profiler_argv": [
+    "/usr/local/cuda/bin/nsys",
+    "profile",
+    "--trace=cuda,nvtx",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--stats=false",
+    "--export=sqlite",
+    "--output=/home/superposition/t52e2e/nsys-parity/mage-nsys-v8hajc61/capture",
+    "/home/superposition/t52target/release/qualia-jepa-parity",
+    "--checkpoint",
+    "/home/superposition/t52e2e/cand/t52-e2e-fixture",
+    "--target",
+    "cuda",
+    "--output",
+    "/home/superposition/t52e2e/runs/parity-nsys.json"
+  ],
+  "command": "/home/superposition/t52target/release/qualia-jepa-parity --checkpoint /home/superposition/t52e2e/cand/t52-e2e-fixture --target cuda --output /home/superposition/t52e2e/runs/parity-nsys.json",
+  "capture_range": "all",
+  "status": "complete",
+  "returncode": 0,
+  "kernel_count": 202
+}

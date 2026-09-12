@@ -1,0 +1,21 @@
+# the ticket's own plan-eval binary, before its step: provenance refuses the fixture
+# host: WSL2 Ubuntu-22.04, RTX 4090, lane cuda
+# checkpoint: t52-e2e-fixture (weights sha256 a390d36db7284ca0249386f50aaa3c4da09e73b6e4dd0bae42363d43cfceff58)
+# build: cargo +1.98.1 build --release -j 2 -p qualia-jepa-model --features cuda \
+#          --bin qualia-jepa-train --bin qualia-jepa-parity --bin qualia-jepa-plan-eval   -> rc 0
+
+$ qualia-jepa-plan-eval propose --checkpoint …/t52-e2e-fixture --request …/propose-request.json \
+    --output plan-eval-propose.json --enable-proposals --backend cuda
+Error: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+PLAN_EVAL_PROPOSE_RC=1
+
+$ qualia-jepa-plan-eval compare --input …/comparison-input.json --dataset …/t65-manifest.json \
+    --checkpoint …/t52-e2e-fixture --existing-planner-config …/comparison-input.json \
+    --output plan-eval-compare.json
+Error: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+PLAN_EVAL_COMPARE_RC=1
+
+# The ENOENT is the candidate manifest's training_report_path: a fixture published by
+# write_candidate_checkpoint has no training report, and the binary's provenance step reads it before
+# its step (T50's capture records the same refusal). That is why F1 and F2 are measured through
+# t52-e2e-probe, which calls the same two public functions the binary calls.

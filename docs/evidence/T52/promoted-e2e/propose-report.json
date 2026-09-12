@@ -1,0 +1,1 @@
+{"backend":"cuda","candidates":64,"checkpoint_id":"t52-e2e-fixture","direct_planner_write":false,"load_ms":79.194861,"mode":"propose","predict_calls":1024,"selected_candidate_id":null,"step_ms":359.278828,"steps_per_candidate":16}
