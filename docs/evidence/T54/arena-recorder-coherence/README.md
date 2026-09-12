@@ -176,3 +176,19 @@ test result: ok. 2 passed ... (the other reader of write_idx: it compares the va
 $ python scripts/provenance_check.py
 provenance: OK
 ```
+
+## Residues folded after the merge (Main, `affb5c6` → this commit)
+
+Three things the post-merge verification could not reconcile, kept here rather than left for a reader to trip on:
+
+- **The committed logs predate the harness.** `run_repeats.sh` in the tree before this commit wrote per-log
+  `# board-local start … load1 …` headers and `start=/end=` summaries; none of the committed
+  `runs/board-fixed/*.log` or its `summary.txt` carries either, so that version could not have produced this
+  evidence. The script here is now the revision that did (`b63f571`'s form, restored). If the header harness is
+  wanted, it should be re-cut against a fresh lease pass, not presented as the source of these runs.
+- **No committed board log carries a timestamp.** `runs/board-timeline.txt` derives its windows from `stat` on
+  the board and says so; the window/quiet-set claim is therefore re-derivable from durations and order, not from
+  bytes inside the logs.
+- **`runs/board-identity.txt` was captured after the lease exited** (02:33:55 against a 02:22:04 handover) and
+  records no load at the start of a run. It identifies the machine; it does not date the runs. The PR body also
+  says `t54_fixed` where these logs and this README say `t54c_fixed`.
