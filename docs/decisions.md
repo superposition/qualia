@@ -635,7 +635,10 @@ enumerating the hardware the ticket asked to capture:
   `LEASH_PROFILE=waveshare-ugv`. An `open()` of `/dev/ttyACM0` from any other process returns
   `EBUSY`; the ports are single-owner.
 - The leash republishes what it owns. Its MCP `observe` tool returns `sensors.range_scan`
-  (`source: waveshare-ugv-ld06`, `scan_rate_hz: 9.9958`, 360 ranges + 360 intensities),
+  (`source: waveshare-ugv-ld06`, `scan_rate_hz: 9.9958`, 360 ranges + 360 intensities — the
+  enumeration's own call; the capture-time call committed as
+  `docs/evidence/T58/real-sessions/leash-observe.json` reads `9.99918699186992` with 263 of the 360
+  ranges non-null),
   `sensors.imu` (angular velocity + linear acceleration, 9-DOF with magnetometer in
   `raw_frame.payload`), `sensors.odometry`, `sensors.battery`, and `sensors.camera` advertising
   `snapshot_url: /camera/snapshot` and `stream_url: /camera/stream.mjpg`. That stream answered

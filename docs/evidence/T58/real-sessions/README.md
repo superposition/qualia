@@ -84,31 +84,39 @@ board**, and none on IIO. The robot's inertial data is the leash's.
 
 | Sensor | State | Where it is readable |
 | --- | --- | --- |
-| Camera (UVC MJPG 1920×1080@30, `0bda:5842`) | live | `/dev/video0` **owner: leash** (`LEASH_CAMERA_DEVICE`) → `http://127.0.0.1:8000/camera/stream.mjpg` |
-| LD06 LiDAR (`1a86:55d3`, `/dev/ttyACM0`) | live | leash's `sensors.range_scan`, `source: waveshare-ugv-ld06`, 9.9958 Hz, 360 ranges + intensities |
+| Camera (UVC `0bda:5842`, MJPG; the leash's stream decodes at 640×480 — every `camera.log` line reads `src=640x480`) | live | `/dev/video0` **owner: leash** (`LEASH_CAMERA_DEVICE`) → `http://127.0.0.1:8000/camera/stream.mjpg` |
+| LD06 LiDAR (`1a86:55d3`, `/dev/ttyACM0`) | live | leash's `sensors.range_scan`, `source: waveshare-ugv-ld06`, 360 ranges + intensities; the leash itself measures `scan_rate_hz` 9.9958 (enumeration) and 9.99918699186992 (capture, `leash-observe.json`) |
 | IMU (9-DOF incl. magnetometer) | live | leash's `sensors.imu` + `sensors.raw_frame.payload.{ax,ay,az,gx,gy,gz,mx,my,mz}` |
-| Wheel odometry + battery | live | leash's `sensors.odometry`, `sensors.battery` (83.6 %, 12.01 V) |
+| Wheel odometry + battery | live | leash's `sensors.odometry`, `sensors.battery` — 83.6 %, 12.01 V at the enumeration; 82.8 %, 11.98 V at the capture (`leash-observe.json`) |
 | Drive serial `/dev/ttyTHS1` | live | **owner: leash** (`LEASH_SERIAL_PORT`) |
 | Localization | **absent** | leash `localization.health.status: "unavailable"`, `pose: null`, provider `initializing` |
 | Intel Movidius MyriadX (`03e7:2485`) | enumerated, no driver | no `/dev/video*` node, nothing bound |
 | Second camera node `/dev/video1` | same UVC device | second node of the one camera; `/dev/media0` (Tegra VI) has no node of its own |
 
-The leash's own sensor surface, quoted from a live `observe` call (`leash-observe.json` in this
-directory):
+The leash's own sensor surface. Quoted from the **committed file** `leash-observe.json` in this
+directory — that is the `observe` call taken at the capture's start (`ts_ms` 1789191471905 =
+2026-09-12T05:37:51Z), so these are the capture-time values and not the enumeration's; the
+enumeration's own numbers are the ones D-025 and the table above quote, and they differ
+(`scan_rate_hz` 9.9958 vs 9.99918699186992; battery 83.6 %/12.01 V vs 82.8 %/11.98 V):
 
 ```json
-"sensors": {
-  "camera": {"health": "healthy", "snapshot_url": "/camera/snapshot", "stream_url": "/camera/stream.mjpg", "status": "available"},
-  "imu": {"last_ms": 1789189308233, "sample": {"angular_velocity_radps": {"x": -0.00286, "y": 0.00429, "z": 0.00143},
-           "linear_acceleration_mps2": {"x": -0.141, "y": 0.0263, "z": 9.792}, "frame_id": "base_link"},
+"result": {"structuredContent": {"sensors": {
+  "battery": {"level_pct": 82.8, "status": "available", "voltage_v": 11.98},
+  "camera": {"health": "healthy", "snapshot_url": "/camera/snapshot", "status": "available", "stream_url": "/camera/stream.mjpg"},
+  "imu": {"last_ms": 1789191471861, "sample": {"angular_velocity_radps": {"x": -0.0028623399732707003,
+           "y": 0.0042935099599060505, "z": 0.0014311699866353502}, "frame_id": "base_link",
+           "linear_acceleration_mps2": {"x": -0.14125789794921875, "y": 0.02633621826171875, "z": 9.792284790039062}},
           "source": "waveshare-ugv", "status": "available"},
-  "range_scan": {"last_ms": 1789189308297, "sample": {"angle_increment_rad": 0.017453292519943295,
-                 "angle_max_rad": 3.12413936106985, "angle_min_rad": -3.141592653589793,
-                 "frame_id": "base_scan", "intensities": [159.0, 152.0, ...], "ranges_m": [1.711, 1.722, ...],
-                 "scan_rate_hz": 9.99583333333334, "ts_ms": 1789189308297},
+  "odometry": {"left_m": 0.0, "right_m": -0.01, "status": "available"},
+  "range_scan": {"last_ms": 1789191471905, "sample": {"ranges_m": [360 entries, 263 non-null],
+                 "scan_rate_hz": 9.99918699186992, "ts_ms": 1789191471905},
                  "source": "waveshare-ugv-ld06", "status": "available"}
-}
+}}}
 ```
+
+The enumeration's `observe` (00:56–01:05) reported the same *shape* with its own values —
+`scan_rate_hz` 9.99583333333334, `last_ms` 1789189308297, an `intensities` array — and those are the
+numbers D-025 records; the capture-time file above is what the capture itself read.
 
 ## 2. How the capture reads it
 
@@ -117,7 +125,8 @@ Neither device is opened. The camera is read by `qualia-camera`'s existing MJPEG
 `observe` tool and publishes the rotation through `qualia-lidar`'s own `publish_scan` (so the polar
 scan and the occupancy grid keep one implementation, `runners/lidar/src/lib.rs:314`).
 `qualia-arena-recorder` then writes the arena into MCAP exactly as it always did. The decision and its
-measurements are recorded as D-023 in `docs/decisions.md`.
+measurements are recorded as **D-025** in `docs/decisions.md` (drafted as D-023; renumbered when the
+wave landed D-023 and D-024 first).
 
 Measured on the MJPEG stream from the board and from this workstation:
 
@@ -180,7 +189,7 @@ this directory; `capture-01.log` and `dataset-01.log` are their unelided output.
 | Session | Sensors taken | Window (board-local) | MCAP | Size | sha256 |
 | --- | --- | --- | --- | --- | --- |
 | `t58-real-smoke` | camera + LD06 lidar | 01:36:28 → 01:37:28 (60 s) | `t58-real-smoke.mcap` | 5 559 657 B | `10a228f60923644adae784f12215bb9a15f1038f45e28bde305966e133665e96` |
-| `t58-real-01` | camera + LD06 lidar | 01:37:51 → 01:52:51 (900 s) | `t58-real-01.mcap` | **83 299 459 B** | `97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334` |
+| `t58-real-01` | camera + LD06 lidar | 01:37:51 → 01:52:51 (900 s bound, 909 s start→end) | `t58-real-01.mcap` | **83 299 459 B** | `97612acb339716e2e94e03157b29c5419a706c42f3c37d52b880ba3d20c13334` |
 
 Both files stay on the board at `~/t58-capture/<session>/mcap/` — they are evidence, not repository
 content; the sizes and digests above are what a later agent checks them by.
@@ -192,13 +201,54 @@ INSPECT_RC=0
 /qualia/lidar            pinkie   messages=  8775 span_ns=  899988080288 payload_bytes=4846499653
 ```
 
-4 502 camera records over 900.08 s (5.0 Hz, the leash's configured framerate) and 8 775 LiDAR records
-over 899.99 s (9.75 Hz, the LD06's own rotation rate). Every record is the robot's: the camera
-thumbnails decode at 640×480 with `luma_mean` 0.464–0.468 and `stddev` 0.150 (`quality=usable`) the
-whole way through, and each LiDAR record carries 360 points of which 265–269 carry a return
-(`qualia-leash-sensors: scan 8800 … points=360 valid=268 rate=9.996Hz`). `/qualia/pose`,
-`/qualia/action/*`, `/qualia/belief` and `/qualia/health` are silent channels: nothing publishes
-them on this robot (section 3).
+4 502 camera records over a 900.076 s span (**5.00 Hz** of stored records) and 8 775 LiDAR records
+over 899.988 s (**9.75 Hz** stored — 8 775 / 899.988 s, a *recorded* rate and not a device rate). The
+rate the leash reports for the LD06 is `scan_rate_hz` 9.99918699186992 (`leash-observe.json`), i.e.
+~10 Hz, and the camera source is the leash's MJPEG stream, which arrived at 3.8 fps and 5.2 fps in the
+two `curl` measurements of section 2 and which the camera runner paces to one publish per 100 ms
+(`QUALIA_CAMERA_POLL_MS=100`, `t58-capture.sh:57`); the recorder's 50 ms poll (`DEFAULT_POLL_MS`,
+`runners/arena-recorder/src/main.rs:36`) stores every publish it sees.
+
+Every record is the robot's. The camera runner's 303 summaries — `camera.log`, one line per 30
+published frames, `frame_seq` 2 … 9062 — span:
+
+```text
+14:qualia-camera: frame_seq=362 src=640x480 thumb=64x48 luma_mean=0.437 luma_std=0.144 quality=usable
+ 6:qualia-camera: frame_seq=122 src=640x480 thumb=64x48 luma_mean=0.471 luma_std=0.147 quality=usable
+13:qualia-camera: frame_seq=332 src=640x480 thumb=64x48 luma_mean=0.438 luma_std=0.143 quality=usable
+ 9:qualia-camera: frame_seq=212 src=640x480 thumb=64x48 luma_mean=0.460 luma_std=0.155 quality=usable
+```
+
+so `luma_mean` spans **0.437–0.471** and `luma_std` spans **0.143–0.155** across those 303 summaries
+(the `luma_mean` column's mean is 0.464), every one `quality=usable`; the four lines above are the
+extremes (min luma, max luma, min std, max std, in that order). `frame_seq` is the SHM seqlock
+sequence — even, and **+2 per publish** (`CameraFrame::publish`,
+`crates/types/src/lib.rs:413-436`) — so `9062` is 4 531 published frames, of which the recorder
+stored 4 502 (99.4 %). Each LiDAR record carries 360 points, of which **263–269** carry a return:
+
+```text
+ 7:qualia-leash-sensors: scan 200 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=263 rate=10.000Hz range_mm=157..3332 age_ms=68
+ 5:qualia-leash-sensors: scan 100 source=waveshare-ugv-ld06 frame=base_scan points=360 valid=269 rate=9.994Hz range_mm=157..3327 age_ms=14
+```
+
+(`leash-sensors.log`, 177 summaries, `scan 1` … `scan 8800`; the ~93 rays with no return are the
+device's own no-return readings, kept in place rather than dropped, which is why the recorded
+`valid_fraction` is a measurement and not 1.0). `/qualia/pose`, `/qualia/action/*`, `/qualia/belief`
+and `/qualia/health` are silent channels: nothing publishes them on this robot (section 3).
+
+**`payload_bytes` is the pre-compression record payload, not a size on disk.** The MCAP is written
+with zstd level 1 (`crates/mcap-log/src/lib.rs:133-136`), and `qualia-mcap-inspect` sums each
+record's already-decompressed `message.data.len()`
+(`crates/mcap-log/src/bin/qualia-mcap-inspect.rs:179`, summed at `:195`). So `/qualia/lidar`'s
+4 846 499 653 B is 58× the 83 299 459 B file and must not be read as one — and that factor has a
+mechanical source: each `/qualia/lidar` record serializes the 256×256 occupancy grid **twice**, as
+`cells` and as `observed` (65 536 entries each, `crates/types/src/lib.rs:95-97`;
+`runners/arena-recorder/src/main.rs:437-445`, `observed` projected at `:418`).
+
+Known issues, one line each:
+
+- The duplicated occupancy grid in every `/qualia/lidar` record is the 58× factor between the raw
+  `payload_bytes` and the compressed file — a serialization cost, not a capture property.
 
 ### The dataset built from it
 
