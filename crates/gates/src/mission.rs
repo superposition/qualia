@@ -696,6 +696,18 @@ fn read_missions(base_url: &str, token: Option<&str>) -> Result<Vec<Value>, Requ
 // The live run
 // --------------------------------------------------------------------------
 
+/// Python's `%s` on a decoded JSON value: a string prints bare, and `None` is
+/// how Python renders a missing key, not JSON's `null`.
+fn py_value(value: &Value) -> String {
+    match value {
+        Value::Null => "None".to_string(),
+        Value::Bool(flag) => if *flag { "True" } else { "False" }.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -887,7 +899,9 @@ fn execute(args: &MissionArgs) -> i32 {
     let session = before_view.get("session_id").cloned().unwrap_or(Value::Null);
     let generation = before_view.get("generation").cloned().unwrap_or(Value::Null);
     println!(
-        "mission-check: agent {base_url} answered; braid before: open_missions={before} session={session} generation={generation}"
+        "mission-check: agent {base_url} answered; braid before: open_missions={before} session={} generation={}",
+        py_value(&session),
+        py_value(&generation)
     );
 
     let Some(token) = token else {
@@ -959,7 +973,7 @@ fn execute(args: &MissionArgs) -> i32 {
         Ok((status, ack)) => {
             println!(
                 "mission-check: mission {mission_id} accepted (HTTP {status}, idempotent_replay={})",
-                ack.get("idempotent_replay").cloned().unwrap_or(Value::Null)
+                py_value(&ack.get("idempotent_replay").cloned().unwrap_or(Value::Null))
             );
         }
     }
@@ -992,16 +1006,16 @@ fn execute(args: &MissionArgs) -> i32 {
                     verdict = "FAIL".to_string();
                     detail = format!(
                         "mission {mission_id} is not terminal: status={} stage={}",
-                        record.get("status").cloned().unwrap_or(Value::Null),
-                        record.get("stage").cloned().unwrap_or(Value::Null)
+                        py_value(&record.get("status").cloned().unwrap_or(Value::Null)),
+                        py_value(&record.get("stage").cloned().unwrap_or(Value::Null))
                     );
                 } else {
                     println!(
                         "mission-check: mission record terminal: status={} stage={} code={} detail={}",
-                        record.get("status").cloned().unwrap_or(Value::Null),
-                        record.get("stage").cloned().unwrap_or(Value::Null),
-                        record.get("last_code").cloned().unwrap_or(Value::Null),
-                        record.get("last_detail").cloned().unwrap_or(Value::Null)
+                        py_value(&record.get("status").cloned().unwrap_or(Value::Null)),
+                        py_value(&record.get("stage").cloned().unwrap_or(Value::Null)),
+                        py_value(&record.get("last_code").cloned().unwrap_or(Value::Null)),
+                        py_value(&record.get("last_detail").cloned().unwrap_or(Value::Null))
                     );
                 }
             }
@@ -1042,7 +1056,11 @@ fn execute(args: &MissionArgs) -> i32 {
     });
 
     if verdict == "OK" {
-        println!("mission-check: braid-terminal OK ({detail}; session={session} generation={generation})");
+        println!(
+            "mission-check: braid-terminal OK ({detail}; session={} generation={})",
+            py_value(&session),
+            py_value(&generation)
+        );
     } else {
         eprintln!("mission-check: braid-terminal {verdict} ({detail})");
     }

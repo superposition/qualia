@@ -14,7 +14,7 @@ Two files run it, and a third is the ticket's own smoke path:
 | --- | --- | --- |
 | `ship-mission.sh` | dev host | Stages the head as a `git archive` and scp's it to the board. |
 | `run-mission.sh` | board | Preflight, rebuild, run the zero-motion stack, drive the mission, assert, stop. |
-| `scripts/mission_check.py` | both | Step 29's two assertions; `--self-test` runs its fixtures on the host, `--memory-source` pins the memory sampler. |
+| `crates/gates` (`qualia-gates mission`) | both | Step 29's two assertions; `--self-test` runs its fixtures on the host, `--memory-source` pins the memory sampler. |
 
 ## Running it
 
@@ -49,8 +49,9 @@ ends with `mission: PASS` and exits 0.
 
 ## The two assertions
 
-`scripts/mission_check.py` is the ticket's smoke path. It delivers one bounded exploration mission to
-the agent's broker — `POST /mission-control/envelopes`, `start` then `cancel`, `MissionBroker` bearer
+`qualia-gates mission` (`crates/gates`) is the ticket's smoke path. `run-mission.sh` builds the binary
+with the rest of the stack and calls it as `$BIN_DIR/qualia-gates mission`. It delivers one bounded
+exploration mission to the agent's broker — `POST /mission-control/envelopes`, `start` then `cancel`, `MissionBroker` bearer
 from `QUALIA_MISSION_BROKER_TOKEN` — and judges:
 
 - **braid-terminal** — `GET /braid`'s `open_missions` rises by one and returns to where it started,
@@ -76,7 +77,7 @@ mission: OK
 ```
 
 The checker's own fixtures run anywhere, with no board and no stack:
-`python3 scripts/mission_check.py --self-test` prints `mission-check: self-test OK (40 cases)` and
+`cargo run --quiet -p qualia-gates -- mission --self-test` prints `mission-check: self-test OK (40 cases)` and
 covers the transition's boundaries, the 8192 MiB bound, both memory parsers, the mission-record shapes
 the agent answers with (through the real lookup, so a revert to the flat-only match fails), and the
 envelope bounds the broker validates.

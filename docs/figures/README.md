@@ -2,12 +2,12 @@
 
 Every journal entry's pictures live here, one directory per entry, so the entries cannot drift apart
 in layout, colour or provenance. This file is the convention step 38 fixes;
-[`scripts/figures_check.py`](../../scripts/figures_check.py) is its machine check:
+`crates/gates` (the `qualia-gates figures` subcommand, #238) is its machine check:
 
 ```console
-$ python scripts/figures_check.py              # the figures of the worktree you run it in
-$ python scripts/figures_check.py --root DIR   # a named tree, e.g. another worktree
-$ python scripts/figures_check.py --self-test  # the checker's own fixtures, no repository needed
+$ cargo run --quiet -p qualia-gates -- figures              # the figures of the worktree you run it in
+$ cargo run --quiet -p qualia-gates -- figures --root DIR   # a named tree, e.g. another worktree
+$ cargo run --quiet -p qualia-gates -- figures --self-test  # the checker's own fixtures, no repository needed
 figures: OK (10 entries, 49 figures, 400 KiB budget)
 ```
 
@@ -44,7 +44,7 @@ ticket rather than to a published entry takes a short slug for that set — `fly
 4. **Absolute URLs.** The entry references each figure by absolute URL
    (`https://raw.githubusercontent.com/superposition/qualia/main/docs/figures/<entry-slug>/<name>.<ext>`),
    never a relative path. The
-   publish gate ([`scripts/journal_gate.py`](../../scripts/journal_gate.py), step 37b) refuses a
+   publish gate (`crates/gates`, the `qualia-gates journal` subcommand, step 37b) refuses a
    relative reference; this check makes the same rule true from this side by matching the journal URL
    a directory README quotes to the directory's own slug.
 5. **Generated, not pasted.** Each directory carries the generator that drew its figures, and the
@@ -83,7 +83,7 @@ it, and how to regenerate the figures. Quote the run, not a recollection of it.
 $ mkdir docs/figures/<entry-slug>
 $ # write make_figures.py, `from _house import ...`
 $ python docs/figures/<entry-slug>/make_figures.py
-$ python scripts/figures_check.py
+$ cargo run --quiet -p qualia-gates -- figures
 ```
 
 No formatter, no build step: the figures are committed output, and the check is the gate.
@@ -93,7 +93,7 @@ No formatter, no build step: the figures are committed output, and the check is 
 The check is offline and deterministic. It does not fetch the live entries or the figure URLs, so it
 cannot say a figure returns 200; that leg is the publish gate's, which resolves the live entry and
 every absolute figure URL
-(`python scripts/journal_gate.py --pr <n> --repo superposition/superposition.github.io --url <url>`).
+(`cargo run --quiet -p qualia-gates -- journal --pr <n> --repo superposition/superposition.github.io --url <url>`).
 It also does not judge the figures: whether the chart says the true thing is the accuracy editor's job,
 and whether it teaches is the teaching editor's, both from
 [`journal-review.md`](../journal-review.md).

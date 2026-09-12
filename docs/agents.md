@@ -57,7 +57,8 @@ notes: <count>
 - **correctness** — the diff does what the ticket's steps say; error paths and boundaries covered;
   the tests assert observable behaviour rather than wiring; the package's build and tests pass, and
   the evidence in the PR is evidence you reproduced yourself.
-- **clean-room** — `python scripts/provenance_check.py` prints `OK`; no comment or doc prose is shared
+- **clean-room** — the Rust gate `cargo run --quiet -p qualia-gates -- provenance` (`crates/gates`)
+  prints `provenance: OK`; no comment or doc prose is shared
   with the reference, and any long identical code run is a declaration the contract forces (constant
   table, enum variant, field list, manifest key), not copied logic. Line endings are a checkout
   setting, not authored content: the reference tree is a Windows checkout of LF blobs
@@ -119,7 +120,7 @@ Recovery reads GitHub, never a dead session's memory.
 1. `gh issue list --label ticket --state open` and take the ticket whose last block is stale.
 2. Read the issue's last `braid` block. `git fetch` the branch it names and compare `commit:` with
    `git log` in its worktree; work past that commit is the step that was in flight.
-3. Run the ticket's own commands and `python scripts/provenance_check.py`; keep what passes, redo the
+3. Run the ticket's own commands and `cargo run --quiet -p qualia-gates -- provenance`; keep what passes, redo the
    rest.
 4. Post your own block with `state: working` and the recovered `commit:`, then continue from `next:`.
 

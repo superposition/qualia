@@ -88,19 +88,19 @@ The author agent merges the entry PR only when all three verdicts are `approve`,
 The gate is machine-checked:
 
 ```bash
-python scripts/journal_gate.py --pr <n> --repo superposition/superposition.github.io --url <live-url>
-python scripts/journal_gate.py --pr <n> --repo OWNER/NAME --comments comments.json --diff entry.diff
-python scripts/journal_gate.py --entry _posts/2026-09-11-the-public-record.md
+cargo run --quiet -p qualia-gates -- journal --pr <n> --repo superposition/superposition.github.io --url <live-url>
+cargo run --quiet -p qualia-gates -- journal --pr <n> --repo OWNER/NAME --comments comments.json --diff entry.diff
+cargo run --quiet -p qualia-gates -- journal --entry _posts/2026-09-11-the-public-record.md
 ```
 
-The script counts the `braid-review` blocks — the last one per role — checks the three distinct
+The gate counts the `braid-review` blocks — the last one per role — checks the three distinct
 checklists, and prints `journal-gate: OK` with exit 0 **only when both the roles leg and the entry leg
 were actually evaluated**: the checklists hold, the roles hold, no `<!-- ASK: -->` survives in the
 entry, the gate is open, and, under `--url`, the live entry and every figure URL return 200. It exits
 non-zero whenever it cannot open the gate. Three run modes check less than the publish rule asks and
 never print `journal-gate: OK`:
 
-- a **bare run** (`python scripts/journal_gate.py`, or any run with neither `--pr` nor `--entry` —
+- a **bare run** (`cargo run --quiet -p qualia-gates -- journal`, or any run with neither `--pr` nor `--entry` —
   `--diff` alone is read by nothing) checks the checklists only: it prints
   `journal-gate: checklists OK (roles not checked: pass --pr <n>)` and exits 1;
 - an **`--entry`-only run** checks the entry's style form and its `<!-- ASK: -->` questions as well,

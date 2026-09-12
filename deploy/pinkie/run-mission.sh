@@ -17,7 +17,7 @@
 # runners default to the macOS `metal` backend, so a board build must ask for
 # `cuda` explicitly, and each belief layer's prior coupling is opt-in.
 #
-# The two assertions are `scripts/mission_check.py`'s (Step 29's two): the
+# The two assertions are `crates/gates`' (`qualia-gates mission`, Step 29's two): the
 # `GET /braid` open -> close transition with a terminal mission record, and the
 # peak memory under 8 GB. What cannot be judged (no readable memory counter, no
 # broker token) is reported as such and exits 2 — an unjudged run is not a pass.
@@ -267,6 +267,7 @@ plan() {
   while IFS= read -r line; do
     [ -n "$line" ] && say "  2. $line"
   done < <(feature_groups)
+  say "  3. cargo build --release --offline -j 2 -p qualia-gates   (Step 29's assertions)"
   say ""
   say "run:"
   say "  # the manifest's env block wins over the shell except for env_passthrough keys,"
@@ -282,7 +283,7 @@ plan() {
   say "  $BIN_DIR/qualia run --manifest $MANIFEST"
   say ""
   say "assert (Step 29's two):"
-  say "  $PYTHON scripts/mission_check.py --agent-url $AGENT_URL --token <generated> \\"
+  say "  $BIN_DIR/qualia-gates mission --agent-url $AGENT_URL --token <generated> \\"
   say "    --mission-id $MISSION_ID --deadline-s $DEADLINE_S --budget-mib $BUDGET_MIB \\"
   say "    --json $RUN_DIR/mission.json"
   say ""
@@ -326,6 +327,14 @@ build_stack() {
     record "cargo build ${line#cargo build --release --offline -j 2 }" "$status"
     show_build_tail "$status"
   done <<<"$groups"
+
+  # The Step 29 assertions are the Rust gate; it is not one of the manifest's
+  # runners, so it is built by name rather than by the plan above.
+  say "\$ cargo build --release --offline -j 2 -p qualia-gates"
+  status=0
+  cargo build --release --offline -j 2 -p qualia-gates >>"$RUN_DIR/build.log" 2>&1 || status=1
+  record "cargo build -p qualia-gates (Step 29's assertions)" "$status"
+  show_build_tail "$status"
 
   say ""
   if [ "$HARD_FAILURES" -gt 0 ]; then
@@ -400,7 +409,7 @@ start_stack() {
 assert_mission() {
   head2 "assert (Step 29's two)"
   local status=0
-  "$PYTHON" "$REPO/scripts/mission_check.py" \
+  "$BIN_DIR/qualia-gates" mission \
     --agent-url "$AGENT_URL" --token "$TOKEN" --mission-id "$MISSION_ID" \
     --deadline-s "$DEADLINE_S" --budget-mib "$BUDGET_MIB" \
     --json "$RUN_DIR/mission.json" || status=$?
@@ -409,7 +418,7 @@ assert_mission() {
     0) say "assert: ok" ;;
     1) say "assert: an assertion failed" ;;
     2) say "assert: a leg could not be judged" ;;
-    *) say "assert: mission_check exited $status" ;;
+    *) say "assert: qualia-gates mission exited $status" ;;
   esac
 }
 

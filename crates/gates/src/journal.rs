@@ -470,7 +470,7 @@ pub fn finish(
             writeln!(err, "journal-gate: {problem}").ok();
         }
         writeln!(
-            err,
+            out,
             "journal-gate: FAIL - {} problem(s); the gate is not open",
             problems.len()
         )
