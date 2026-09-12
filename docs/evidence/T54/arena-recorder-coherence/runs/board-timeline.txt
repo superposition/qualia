@@ -5,9 +5,13 @@ Quiet-set lease pass, per leg, from the mtimes of the committed logs (`stat` on 
 02:20:19  board-build.log  (build leg, 27.94 s per the log's own Finished line)
 02:20:46  board-suite.log  (suite leg, ~27 s wall: 0.23 + 2.47 + 0.23 in-test plus link/run)
 02:20:48  board-fixed/01.log
-02:21:07  board-fixed/20.log  (20 repeats, ~19.3 s wall, 0.14..0.29 s each in-test)
+02:21:07  board-fixed/20.log  (20 repeats, ~19.3 s wall, 0.16..0.30 s each in-test)
 02:21:44  board-prefix/01.log  (prefix-guard revert + rebuild, ~37 s wall)
 02:21:49  board-prefix/05.log  (5 revert runs, ~4.6 s wall, 0.08..0.09 s each in-test)
 02:22:04  four overlaid files restored to the archive's bytes, md5 verified; pgrep cargo empty
 
 Pass window: 02:19:52..02:21:49 board-local; the lease itself 02:11..02:22:04.
+Note: these windows come from `stat` on the board, not from bytes inside the committed logs, so a
+reader of the repo alone can check the per-run durations and the legs' order but not re-derive
+these timestamps; the discarded under-load sets are at 02:16:26..02:16:48 (repeats) and
+02:17:28..02:17:33 (revert runs).

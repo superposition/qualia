@@ -90,10 +90,12 @@ Pinkie, Jetson Orin NX, `aarch64`, 6 cores, kernel `5.15.148-tegra`, rustc 1.94.
 target-feature=+fp16" --offline -j 2`. **The numbers below are the quiet set**, run 02:19:52..02:21:49 board-local (the lease itself
 02:11..02:22:04; per-leg windows and the log mtimes are in `board-timeline.txt`) after T59's
 `cargo build --release -p qualia-lidar -p qualia-drive` (started 02:17 inside this lease) was killed:
-no `cargo`/`rustc` anywhere, `uptime` load 1.26 falling from that build. The lease was taken at 02:11
+no `cargo`/`rustc` in the 02:19:41 look (taken before this pass's own commands; the build it started then
+is the pass itself), `uptime` load 1.26 falling from T59's build. The lease was taken at 02:11
 with the board idle (load 0.25, no `cargo`/`rustc`, `/dev/shm` 4%); the sets I ran after 02:15 were
-under that build (load ~2.4) and were discarded — their `20/20` and `1849..1912 torn` are superseded by
-the quiet set quoted here. The four changed files were overlaid from this head and every path was
+under that build (load ~2.4; the log mtimes put the 20 repeats at 02:16:26..02:16:48 and the revert runs
+at 02:17:28..02:17:33) and were discarded — their `20/20` and `1849..1912 torn` are superseded by the
+quiet set quoted here. The four changed files were overlaid from this head and every path was
 restored to the archive's own bytes afterwards md5-verified
 (`crates/types/src/lib.rs` `282f59d0`, `crates/shm/src/lib.rs` `e227ece4`, `crates/shm/tests/shm.rs`
 `5b590253`, `runners/arena-recorder/src/main.rs` `a4abcf9c`).
@@ -118,7 +120,7 @@ test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
                                                                               (exit 0)
 
 $ sh run_repeats.sh t54c_fixed 20
-t54c_fixed summary: pass=20 fail=0    (0.14..0.29s each; runs/board-fixed/01..20.log + summary.txt)
+t54c_fixed summary: pass=20 fail=0    (0.16..0.30s each; runs/board-fixed/01..20.log + summary.txt)
 ```
 
 ## Falsification
