@@ -1,0 +1,122 @@
+# pose.log trimmed for size: first 60 and last 60 of 3347 lines, board-local 2026-09-12 02:46:12..02:51:31.
+qualia-pose: starting lidar pose graph from shm=/qualia_body
+qualia-pose: initialized pose from first scan points=132
+qualia-pose: pose_seq=4 x_m=-0.001 z_m=-0.001 yaw_deg=0.13 score=0.012 matches=134 keyframes=1 edges=0 odom_edges=0 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 2009 ms
+qualia-pose: belief pace: stale, publishing pose at 2029 ms
+qualia-pose: belief pace: stale, publishing pose at 2089 ms
+qualia-pose: belief pace: stale, publishing pose at 2190 ms
+qualia-pose: belief pace: stale, publishing pose at 2291 ms
+qualia-pose: belief pace: stale, publishing pose at 2391 ms
+qualia-pose: belief pace: stale, publishing pose at 2492 ms
+qualia-pose: belief pace: stale, publishing pose at 2593 ms
+qualia-pose: pose_seq=52 x_m=-0.009 z_m=-0.002 yaw_deg=0.20 score=0.005 matches=134 keyframes=1 edges=0 odom_edges=0 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 2693 ms
+qualia-pose: belief pace: stale, publishing pose at 2794 ms
+qualia-pose: belief pace: stale, publishing pose at 2895 ms
+qualia-pose: belief pace: stale, publishing pose at 3015 ms
+qualia-pose: belief pace: stale, publishing pose at 3116 ms
+qualia-pose: belief pace: stale, publishing pose at 3217 ms
+qualia-pose: belief pace: stale, publishing pose at 3317 ms
+qualia-pose: belief pace: stale, publishing pose at 3418 ms
+qualia-pose: belief pace: stale, publishing pose at 3539 ms
+qualia-pose: belief pace: stale, publishing pose at 3640 ms
+qualia-pose: pose_seq=72 x_m=-0.016 z_m=-0.011 yaw_deg=0.37 score=0.011 matches=134 keyframes=1 edges=0 odom_edges=0 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 3740 ms
+qualia-pose: belief pace: stale, publishing pose at 3841 ms
+qualia-pose: belief pace: stale, publishing pose at 3942 ms
+qualia-pose: belief pace: stale, publishing pose at 4042 ms
+qualia-pose: belief pace: stale, publishing pose at 4143 ms
+qualia-pose: belief pace: stale, publishing pose at 4244 ms
+qualia-pose: belief pace: stale, publishing pose at 4345 ms
+qualia-pose: belief pace: stale, publishing pose at 4445 ms
+qualia-pose: belief pace: stale, publishing pose at 4546 ms
+qualia-pose: belief pace: stale, publishing pose at 4647 ms
+qualia-pose: pose_seq=92 x_m=-0.029 z_m=-0.017 yaw_deg=0.43 score=0.010 matches=132 keyframes=1 edges=0 odom_edges=0 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 4747 ms
+qualia-pose: belief pace: stale, publishing pose at 4848 ms
+qualia-pose: belief pace: stale, publishing pose at 4969 ms
+qualia-pose: belief pace: stale, publishing pose at 5069 ms
+qualia-pose: belief pace: stale, publishing pose at 5170 ms
+qualia-pose: belief pace: stale, publishing pose at 5271 ms
+qualia-pose: belief pace: stale, publishing pose at 5371 ms
+qualia-pose: belief pace: stale, publishing pose at 5492 ms
+qualia-pose: belief pace: stale, publishing pose at 5593 ms
+qualia-pose: belief pace: stale, publishing pose at 5693 ms
+qualia-pose: pose_seq=112 x_m=-0.035 z_m=-0.023 yaw_deg=0.36 score=0.007 matches=134 keyframes=1 edges=0 odom_edges=0 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 5794 ms
+qualia-pose: belief pace: stale, publishing pose at 5894 ms
+qualia-pose: belief pace: stale, publishing pose at 5995 ms
+qualia-pose: belief pace: stale, publishing pose at 6096 ms
+qualia-pose: belief pace: stale, publishing pose at 6196 ms
+qualia-pose: belief pace: stale, publishing pose at 6297 ms
+qualia-pose: belief pace: stale, publishing pose at 6398 ms
+qualia-pose: belief pace: stale, publishing pose at 6498 ms
+qualia-pose: belief pace: stale, publishing pose at 6599 ms
+qualia-pose: belief pace: stale, publishing pose at 6700 ms
+qualia-pose: pose_seq=132 x_m=-0.038 z_m=-0.027 yaw_deg=0.21 score=0.011 matches=132 keyframes=1 edges=0 odom_edges=0 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 6820 ms
+qualia-pose: belief pace: stale, publishing pose at 6921 ms
+qualia-pose: belief pace: stale, publishing pose at 7022 ms
+qualia-pose: belief pace: stale, publishing pose at 7123 ms
+# ... (3237 lines elided) ...
+qualia-pose: belief pace: stale, publishing pose at 309103 ms
+qualia-pose: belief pace: stale, publishing pose at 309204 ms
+qualia-pose: pose_seq=6012 x_m=-1.354 z_m=-1.793 yaw_deg=17.79 score=0.007 matches=134 keyframes=12 edges=11 odom_edges=11 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 309304 ms
+qualia-pose: belief pace: stale, publishing pose at 309405 ms
+qualia-pose: belief pace: stale, publishing pose at 309506 ms
+qualia-pose: belief pace: stale, publishing pose at 309606 ms
+qualia-pose: belief pace: stale, publishing pose at 309707 ms
+qualia-pose: belief pace: stale, publishing pose at 309808 ms
+qualia-pose: belief pace: stale, publishing pose at 309909 ms
+qualia-pose: belief pace: stale, publishing pose at 310009 ms
+qualia-pose: belief pace: stale, publishing pose at 310110 ms
+qualia-pose: belief pace: stale, publishing pose at 310231 ms
+qualia-pose: pose_seq=6032 x_m=-1.363 z_m=-1.802 yaw_deg=18.08 score=0.012 matches=134 keyframes=12 edges=11 odom_edges=11 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 310332 ms
+qualia-pose: belief pace: stale, publishing pose at 310433 ms
+qualia-pose: belief pace: stale, publishing pose at 310534 ms
+qualia-pose: belief pace: stale, publishing pose at 310634 ms
+qualia-pose: belief pace: stale, publishing pose at 310735 ms
+qualia-pose: belief pace: stale, publishing pose at 310836 ms
+qualia-pose: belief pace: stale, publishing pose at 310937 ms
+qualia-pose: belief pace: stale, publishing pose at 311037 ms
+qualia-pose: belief pace: stale, publishing pose at 311138 ms
+qualia-pose: belief pace: stale, publishing pose at 311239 ms
+qualia-pose: pose_seq=6052 x_m=-1.366 z_m=-1.810 yaw_deg=18.08 score=0.008 matches=134 keyframes=12 edges=11 odom_edges=11 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 311339 ms
+qualia-pose: belief pace: stale, publishing pose at 311460 ms
+qualia-pose: belief pace: stale, publishing pose at 311561 ms
+qualia-pose: belief pace: stale, publishing pose at 311662 ms
+qualia-pose: belief pace: stale, publishing pose at 311763 ms
+qualia-pose: belief pace: stale, publishing pose at 311863 ms
+qualia-pose: belief pace: stale, publishing pose at 311964 ms
+qualia-pose: belief pace: stale, publishing pose at 312085 ms
+qualia-pose: belief pace: stale, publishing pose at 312186 ms
+qualia-pose: belief pace: stale, publishing pose at 312286 ms
+qualia-pose: pose_seq=6072 x_m=-1.367 z_m=-1.815 yaw_deg=18.13 score=0.013 matches=134 keyframes=12 edges=11 odom_edges=11 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 312387 ms
+qualia-pose: belief pace: stale, publishing pose at 312488 ms
+qualia-pose: belief pace: stale, publishing pose at 312589 ms
+qualia-pose: belief pace: stale, publishing pose at 312689 ms
+qualia-pose: belief pace: stale, publishing pose at 312790 ms
+qualia-pose: belief pace: stale, publishing pose at 312891 ms
+qualia-pose: belief pace: stale, publishing pose at 312992 ms
+qualia-pose: belief pace: stale, publishing pose at 313092 ms
+qualia-pose: belief pace: stale, publishing pose at 313193 ms
+qualia-pose: belief pace: stale, publishing pose at 313294 ms
+qualia-pose: pose_seq=6092 x_m=-1.370 z_m=-1.817 yaw_deg=18.11 score=0.006 matches=132 keyframes=12 edges=11 odom_edges=11 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 313415 ms
+qualia-pose: belief pace: stale, publishing pose at 313515 ms
+qualia-pose: belief pace: stale, publishing pose at 313616 ms
+qualia-pose: belief pace: stale, publishing pose at 313717 ms
+qualia-pose: belief pace: stale, publishing pose at 313817 ms
+qualia-pose: belief pace: stale, publishing pose at 313918 ms
+qualia-pose: belief pace: stale, publishing pose at 314019 ms
+qualia-pose: belief pace: stale, publishing pose at 314119 ms
+qualia-pose: belief pace: stale, publishing pose at 314220 ms
+qualia-pose: belief pace: stale, publishing pose at 314321 ms
+qualia-pose: pose_seq=6112 x_m=-1.375 z_m=-1.822 yaw_deg=18.22 score=0.008 matches=132 keyframes=12 edges=11 odom_edges=11 loop_edges=0
+qualia-pose: belief pace: stale, publishing pose at 314421 ms
+qualia-pose: belief pace: stale, publishing pose at 314522 ms

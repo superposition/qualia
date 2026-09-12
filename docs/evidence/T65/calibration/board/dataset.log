@@ -1,0 +1,3 @@
+/home/jetson/t65-capture/t65-real-01/dataset/jepa-dataset-6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d.json
+valid=1499 candidates=1500 sessions=1 environments=1 conditions=1
+qualia-jepa-dataset: dataset does not meet the 50k/12-session/3-condition/3-environment gate

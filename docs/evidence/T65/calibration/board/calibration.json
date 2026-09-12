@@ -1,0 +1,66 @@
+{
+  "schema_version": "qualia.calibration.v1",
+  "calibration_id": "cac618af21db53843124b949d06e78c41c7b55d91a6cfdf2862813a61760f6e2",
+  "entity": "pinkie",
+  "measured_at_ns": 1789195577494457568,
+  "observation": {
+    "window_ms": 8000,
+    "leash_polls": 78,
+    "leash_failures": 0,
+    "camera_frames": 40,
+    "lidar_scans": 78
+  },
+  "sensors": {
+    "camera": {
+      "surface": "/camera/stream.mjpg",
+      "source_width": 640,
+      "source_height": 480,
+      "thumb_width": 64,
+      "thumb_height": 48,
+      "frames_observed": 40,
+      "measured_rate_hz": 5.0026536,
+      "luminance_mean_min": 0.38134062,
+      "luminance_mean_max": 0.3839512,
+      "intrinsics": {
+        "status": "unmeasured",
+        "why": "no target or known correspondence is observed, so no focal length or principal point is measurable here"
+      },
+      "extrinsics": {
+        "status": "unmeasured",
+        "why": "no camera/lidar correspondence is observed, so the transform between them is not measurable here"
+      }
+    },
+    "lidar": {
+      "source": "waveshare-ugv-ld06",
+      "frame_id": "base_scan",
+      "beams": 360,
+      "angle_min_rad": -3.1415927,
+      "angle_increment_rad": 0.017453292,
+      "scans_observed": 78,
+      "measured_rate_hz": 9.724553,
+      "owner_rate_hz": 10.000793,
+      "extrinsics": {
+        "status": "unmeasured",
+        "why": "the device's mounting transform is not observable from its own rotation alone"
+      }
+    }
+  },
+  "identity": {
+    "identity_schema": "qualia.calibration-identity.v1",
+    "entity": "pinkie",
+    "camera": {
+      "surface": "/camera/stream.mjpg",
+      "source_width": 640,
+      "source_height": 480,
+      "thumb_width": 64,
+      "thumb_height": 48
+    },
+    "lidar": {
+      "source": "waveshare-ugv-ld06",
+      "frame_id": "base_scan",
+      "beams": 360,
+      "angle_min_rad": -3.1415927,
+      "angle_increment_rad": 0.017453292
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schema_version": "qualia.jepa-dataset.v3",
+  "digest": "6f98b125196ce48501410726309fa6c8b10b21ab4f1b67e0f61297851836b58d",
+  "sources": [
+    {
+      "session_id": "t65-real-01",
+      "environment_id": "pinkie-bench",
+      "condition": "bench-static",
+      "primary_entity": "pinkie",
+      "path": "/home/jetson/t65-capture/t65-real-01/mcap/t65-real-01.mcap",
+      "sha256": "03ae6b0f4d2e44970d4e47e155c50cd46c74e73b9ba847f6d4e8508b35287110"
+    }
+  ],
+  "audit": {
+    "candidate_transitions": 1500,
+    "valid_transitions": 1499,
+    "rejected": {
+      "action_coverage": 1
+    },
+    "sessions": 1,
+    "environments": 1,
+    "conditions": {
+      "bench-static": 1499
+    },
+    "split_samples": {
+      "train": 1499
+    },
+    "mean_sensor_skew_ns": 29192462.559039358,
+    "p95_sensor_skew_ns": 49796576,
+    "mean_action_coverage": 1.0,
+    "overexposed_candidate_fraction": 0.0
+  }
+}

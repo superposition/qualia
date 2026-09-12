@@ -1,0 +1,2 @@
+qualia-arena-recorder: recording session=t65-real-01 sources=pinkie:/qualia_body(primary) root=/home/jetson/t65-capture/t65-real-01/mcap
+qualia-arena-recorder: completed /home/jetson/t65-capture/t65-real-01/mcap/t65-real-01.mcap sha256=03ae6b0f4d2e44970d4e47e155c50cd46c74e73b9ba847f6d4e8508b35287110 channels=12
