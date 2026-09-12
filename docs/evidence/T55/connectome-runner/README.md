@@ -24,6 +24,13 @@ Logs in this directory:
 * `host-verify.log` — `verify`, which re-loads the artifact and checks every section digest.
 * `host-bench-cpu.log` — the CPU reference and the 4090, same artifact.
 * `host-loop-gpu.log`, `host-loop-gpu-trace.csv` — the closed loop against the robot's own camera.
+* `board-bench.log` — the Orin build, verify, both benches and the loop transcript.
+* `board-loop-trace.csv` — the board loop's per-tick trace.
+
+The board run's 57.9 MB `spikes.bin` recording is deliberately **not** committed (it is a recording,
+not source, and it is over GitHub's 50 MB recommendation). It is reproducible on the board with the
+`loop` command above, and T56 consumed the byte-identical host-side stream
+(`sha256 a0a27acbe61e0a9a5f013f77a9741ce466221b872bba711f7a07409f68593b28`) for its viewer.
 
 ## The artifact
 
