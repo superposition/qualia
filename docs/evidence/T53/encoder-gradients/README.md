@@ -83,18 +83,23 @@ largest parameter change is positive and smaller than the online encoder's (the 
 the decay defines), the predictor's own update continues, and the emitted latent of a fixed probe
 observation moves by more than `1.0e-3`.
 
-Pre-fix (on `origin/main` + this test only), quoted from the run:
+Pre-fix — this test's final text against `main`'s encoder: a scratch worktree at `2314112` with
+`git checkout 2314112^ -- crates/jepa-model/src/lib.rs`, so the only difference from the fix commit is
+the defect line. `cargo test -p qualia-jepa-model -j 2 the_encoder_moves_when_the_objective_steps` →
+**rc 101**; quoted from that run:
 
 ```text
-thread 'train::tests::the_encoder_moves_when_the_objective_steps' panicked at crates\jepa-model\src\train.rs:877:9:
+thread 'train::tests::the_encoder_moves_when_the_objective_steps' (34496) panicked at crates\jepa-model\src\train.rs:920:9:
 assertion `left != right` failed: the prediction objective must move the online encoder's parameters
   left: "27a27724372551ccb147619e1ac561bd8aa0c0617d608f43c36035899eba6c51"
  right: "27a27724372551ccb147619e1ac561bd8aa0c0617d608f43c36035899eba6c51"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out
+error: test failed, to rerun pass `-p qualia-jepa-model --lib`
 ```
 
-Post-fix, quoted from the run:
+Post-fix, quoted from the full-suite run (`cargo test -p qualia-jepa-model -j 2` → **rc 0**):
 
 ```text
 test train::tests::the_encoder_moves_when_the_objective_steps ... ok
