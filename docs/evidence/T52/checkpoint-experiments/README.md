@@ -30,18 +30,18 @@ driver or `pnputil` call was made (D-012). Builds: `qualia-jepa-dataset` and `qu
 
 From the crate itself, so the numbers below are the numbers the code asks for:
 
-- **Predictive** (`crates/jepa-model/src/lib.rs:790-802`, `split_predictive_gate_passes`): for each
+- **Predictive** (`crates/jepa-model/src/lib.rs:794-802`, `split_predictive_gate_passes`): for each
   held-out split, `tiny_cnn.transition_nll < constant.transition_nll` **and**
   `< flat_mlp.transition_nll`, and `tiny_cnn.rollout_error < constant.rollout_error` **and**
   `< flat_mlp.rollout_error`.
-- **Calibration** (`crates/jepa-model/src/evaluation.rs:104-116`, `metrics_pass`):
+- **Calibration** (`crates/jepa-model/src/evaluation.rs:102-116`, `metrics_pass`):
   `mean_standardized_squared_residual ∈ [0.9, 1.1]`, `calibration_slope ∈ [0.9, 1.1]`,
   `coverage_50/90/95` each within **±0.05** of `0.5/0.9/0.95` (`centered_on`,
-  `evaluation.rs:258-261`), `clamp_fraction ≤ 0.01` (`CALIBRATION_CLAMP_FRACTION_MAX`,
+  `evaluation.rs:259-261`), `clamp_fraction ≤ 0.01` (`CALIBRATION_CLAMP_FRACTION_MAX`,
   `evaluation.rs:20`), `nonfinite_values == 0`.
-- **Effective rank** (`crates/jepa-model/src/evaluation.rs:39-53`): ≥ 4096 samples, 256 dimensions,
+- **Effective rank** (`crates/jepa-model/src/evaluation.rs:18,47-57`): ≥ 4096 samples, 256 dimensions,
   `effective_rank ≥ 64` (`EFFECTIVE_RANK_MINIMUM`), finite positive trace, converged.
-- **Occupancy** (`evaluation.rs:224-231`): `IoU > trivial_iou` and `pr_auc > trivial_pr_auc`.
+- **Occupancy** (`evaluation.rs:217-222`): `IoU > trivial_iou` and `pr_auc > trivial_pr_auc`.
 - **Publication** (`crates/jepa-model/src/lib.rs:1051-1100`): a training report or manifest carrying
   any non-finite metric is **refused by name** rather than written, because JSON would write `null`
   and the reader rejects it. A refused run leaves no report and no checkpoint; a run whose metrics
@@ -129,7 +129,7 @@ qualia-jepa-train: candidate failed held-out predictive, grounding, or calibrati
 
 `ch4-e1`'s `manifest.json` shows `baseline_gate.passes() == true` for both splits; the trainer's
 `all_gates_passed` is false only because `effective_rank` is not part of the baseline gate but is
-required by `TrainingReport::validate_for_promotion` (`crates/jepa-model/src/lib.rs:780-784`,
+required by `TrainingReport::validate_for_promotion` (`crates/jepa-model/src/lib.rs:766-769`,
 `summary_flags_hold`).
 
 ## What the runs establish
@@ -254,7 +254,7 @@ finite-metric guard refused it.
 
 | artifact | bytes | why it is not committed |
 | --- | --- | --- |
-| the five published `weights.safetensors` | 15 425 120 each | regenerable and 15 MB each; their SHA-256 are below, and `encoder-freeze-diff.txt` is the comparison they support |
+| the five published `weights.safetensors` | 15 432 280 each | regenerable and 15 MB each; their SHA-256 are below, and `encoder-freeze-diff.txt` is the comparison they support |
 | the four fixture trees (sessions, catalogs) | ~0.4 GB | scratch inputs; every shape and digest is in the table above |
 
 Weights digests: `ch4-e1` `9132e253fc81fabce572bc08b8d208a8316a2be4f74088530aefd4ad83825d67`,
