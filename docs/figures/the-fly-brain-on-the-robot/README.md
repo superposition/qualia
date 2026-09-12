@@ -380,10 +380,10 @@ connectome produced left/right/hold commands from the robot's own camera at the 
 * **The driver in front of the dataset is ours, and two of its defects were real.** The manifest
   failed its own digest because `serde_json`'s best-effort float reader read the audit's
   `mean_sensor_skew_ns` literal `29192462.559039358` one ulp low and the digest is taken over the
-  re-serialized struct; `serde_json/float_roundtrip` fixed it (D-027, PR #257). The trainer run quoted
-  above was taken before that fix and its refusal message is the post-fix one; the recorded sequence is
-  in `docs/evidence/T65/calibration/README.md` §7: the refusal quoted in "What we tried" is the
-  post-fix run T52/promoted-e2e records, and the T65 transcript before the fix carries the digest error.
+  re-serialized struct; `serde_json/float_roundtrip` fixed it (D-027, PR #257). The trainer command
+  quoted in "What we tried" is the post-fix refusal T52/promoted-e2e records, run on the dev host (WSL2
+  Ubuntu-22.04, RTX 4090); the T65 transcript before the fix carries the digest error instead
+  (`docs/evidence/T65/calibration/README.md` §7, `docs/evidence/T52/promoted-e2e/`).
 * **Session 1's zero is a missing producer, not a bad robot.** `calibration_missing` rejected all 4,501
   candidates because no runner in the tree wrote a `calibration_id`; that is a finding about our
   software, and it is why session 2, with the producer, reached 1,499.
