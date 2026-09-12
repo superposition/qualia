@@ -1,0 +1,5 @@
+cns-loop: session recorded-jpeg-local-check; input live JPEG camera at http://127.0.0.1:53812/camera/snapshot
+cns-loop: encoder drives 95494 visual-stage cells (ol_intrinsic + R1-R6/R7/R8) over 8 columns, gain 0.5
+cns-loop: decoder reads 2012 descending/motor neurons (1011 L, 1001 R)
+cns-loop: 12 ticks in 4.579 s (2.6 ticks/s), 425194 spikes, 8 non-hold commands
+cns-loop: C:\tmp\qualia-driving\cpu-stream.bin -> C:\Users\ericm\qualia-driving\docs\evidence\T67\fly-frames\cpu-stream.csv

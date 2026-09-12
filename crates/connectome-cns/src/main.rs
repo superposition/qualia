@@ -17,7 +17,7 @@
 //! and the frames come from a camera.
 
 use std::fs;
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -105,6 +105,12 @@ enum Command {
         /// Per-tick trace to write.
         #[arg(long)]
         trace: PathBuf,
+        /// Emit one wheel frame per tick; `-` streams JSON lines to stdout.
+        #[arg(long)]
+        frames_out: Option<PathBuf>,
+        /// Wheel-command magnitude at full throttle (0..=1); leash still applies its speed mode.
+        #[arg(long, default_value_t = 0.04)]
+        max_wheel_speed: f32,
         /// `cpu` or `gpu`.
         #[arg(long, default_value = "gpu")]
         device: String,
@@ -182,7 +188,11 @@ fn run(command: &Command) -> Result<(), CnsError> {
                 "cns-import: positioned {} types {}",
                 manifest.positioned_count, manifest.type_count
             );
-            println!("cns-import: -> {} in {:?}", out.display(), started.elapsed());
+            println!(
+                "cns-import: -> {} in {:?}",
+                out.display(),
+                started.elapsed()
+            );
             Ok(())
         }
         Command::Verify { artifact } => {
@@ -223,6 +233,8 @@ fn run(command: &Command) -> Result<(), CnsError> {
             ticks,
             spikes,
             trace,
+            frames_out,
+            max_wheel_speed,
             device,
             session,
         } => close_loop(
@@ -234,6 +246,8 @@ fn run(command: &Command) -> Result<(), CnsError> {
             *ticks,
             spikes,
             trace,
+            frames_out.as_deref(),
+            *max_wheel_speed,
             device,
             session,
         ),
@@ -291,8 +305,8 @@ fn bench(artifact: &Path, ticks: u64, warmup: u64, device: &str) -> Result<(), C
         "gpu" => {
             #[cfg(feature = "cuda")]
             {
-                let mut lif =
-                    qualia_connectome_cns::gpu::LifDevice::new(&incoming).map_err(CnsError::Artifact)?;
+                let mut lif = qualia_connectome_cns::gpu::LifDevice::new(&incoming)
+                    .map_err(CnsError::Artifact)?;
                 for _ in 0..warmup {
                     lif.step(&params).map_err(CnsError::Artifact)?;
                 }
@@ -327,7 +341,10 @@ fn report(ticks: u64, edges: u64, elapsed: f64, device: &str, spikes: u64) {
     println!("cns-bench: {ticks} ticks in {elapsed:.3} s on {device}");
     println!("cns-bench: {:.3} ms/tick", per_tick * 1e3);
     println!("cns-bench: {:.1} ticks/s", 1.0 / per_tick);
-    println!("cns-bench: {:.1} M synapses/s", edges as f64 / per_tick / 1e6);
+    println!(
+        "cns-bench: {:.1} M synapses/s",
+        edges as f64 / per_tick / 1e6
+    );
     println!("cns-bench: {spikes} spikes on the last tick");
 }
 
@@ -476,7 +493,10 @@ impl FrameSource {
 /// population, by index. Its current is that column's mean luminance times
 /// [`SENSORY_GAIN`]. The axis, the grid and the gain are fixed here and stated
 /// in the README; nothing is fitted.
-fn encoder(nodes: &[NodeMeta], neurons: &[qualia_connectome_cns::Neuron]) -> (Vec<u32>, Vec<usize>) {
+fn encoder(
+    nodes: &[NodeMeta],
+    neurons: &[qualia_connectome_cns::Neuron],
+) -> (Vec<u32>, Vec<usize>) {
     let mut targets: Vec<(u32, Option<f32>)> = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
         let is_photoreceptor = node.type_name == "R1-R6"
@@ -548,9 +568,16 @@ fn close_loop(
     ticks: u64,
     spikes: &Path,
     trace: &Path,
+    frames_out: Option<&Path>,
+    max_wheel_speed: f32,
     device: &str,
     session: &str,
 ) -> Result<(), CnsError> {
+    if !max_wheel_speed.is_finite() || !(0.0..=1.0).contains(&max_wheel_speed) {
+        return Err(CnsError::Artifact(
+            "--max-wheel-speed must be finite and in 0..=1".into(),
+        ));
+    }
     let loaded = Artifact::load(artifact)?;
     let incoming = loaded.incoming();
     let params = LifParams::default();
@@ -567,41 +594,136 @@ fn close_loop(
     let (left_index, right_index) = decoder(&loaded.nodes);
     let left_count = left_index.iter().filter(|flag| **flag).count();
     let right_count = right_index.iter().filter(|flag| **flag).count();
-    println!("cns-loop: session {session}; input {}", source.describe());
-    println!(
+    eprintln!("cns-loop: session {session}; input {}", source.describe());
+    eprintln!(
         "cns-loop: encoder drives {} visual-stage cells (ol_intrinsic + R1-R6/R7/R8) over {GRID_COLUMNS} columns, gain {SENSORY_GAIN}",
         input_indices.len()
     );
-    println!(
+    eprintln!(
         "cns-loop: decoder reads {} descending/motor neurons ({left_count} L, {right_count} R)",
         left_count + right_count
     );
 
     let started = Instant::now();
-    let mut frames = Vec::with_capacity(ticks as usize);
-    let mut luminance = Vec::with_capacity(ticks as usize);
     let mut external = vec![0f32; incoming.neuron_count()];
     let mut width = width;
     let mut height = height;
+    let mut writer = SpikeWriter::create(spikes)?;
+    let mut trace_writer = fs::File::create(trace).map_err(|error| read_error(trace, error))?;
+    // Open after the evidence files: create_new also refuses aliases of either
+    // file, so a frame destination cannot truncate its own evidence.
+    let mut wheel_writer: Option<Box<dyn std::io::Write>> = match frames_out {
+        Some(path) if path == Path::new("-") => Some(Box::new(std::io::stdout())),
+        Some(path) => Some(Box::new(
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .map_err(|error| read_error(path, error))?,
+        )),
+        None => None,
+    };
+    let mut total_spikes = 0u64;
+    let mut commands = 0u64;
+    let mut input_set = vec![false; loaded.nodes.len()];
+    for index in &input_indices {
+        input_set[*index as usize] = true;
+    }
+    let source_description = source.describe();
+    let mut record = |frame: SpikeFrame, luminance: f32, width: usize, height: usize| {
+        let fired_left = frame
+            .ids
+            .iter()
+            .filter(|id| left_index[**id as usize])
+            .count();
+        let fired_right = frame
+            .ids
+            .iter()
+            .filter(|id| right_index[**id as usize])
+            .count();
+        let fired_input = frame
+            .ids
+            .iter()
+            .filter(|id| input_set[**id as usize])
+            .count();
+        let rate_l = fired_left as f32 / left_count.max(1) as f32;
+        let rate_r = fired_right as f32 / right_count.max(1) as f32;
+        let command = if (rate_r - rate_l).abs() < DECISION_MARGIN {
+            0
+        } else if rate_r > rate_l {
+            1
+        } else {
+            -1
+        };
+        let throttle = (rate_l + rate_r).min(1.0);
+        writer.write_frame(&frame)?;
+        if frame.tick == 0 {
+            write!(
+                trace_writer,
+                "# session {session}; frames {width}x{height}; input {source_description}\ntick,luminance,fired_input,rate_l,rate_r,command,throttle\n"
+            )
+            .map_err(|error| read_error(trace, error))?;
+        }
+        writeln!(
+            trace_writer,
+            "{},{luminance:.4},{fired_input},{rate_l:.5},{rate_r:.5},{command},{throttle:.5}",
+            frame.tick,
+        )
+        .and_then(|()| trace_writer.flush())
+        .map_err(|error| read_error(trace, error))?;
+        if let Some(output) = wheel_writer.as_mut() {
+            // The trace contains neural rates, not wheel speeds. Translate
+            // its decision into a pivot: -1 left, +1 right, 0 a real zero.
+            let turn = command as f32 * throttle * max_wheel_speed;
+            let (left, right) = if command == 0 {
+                (0.0, 0.0)
+            } else {
+                (turn, -turn)
+            };
+            serde_json::to_writer(
+                &mut *output,
+                &serde_json::json!({"T": frame.tick, "L": left, "R": right}),
+            )
+            .map_err(|error| CnsError::Artifact(format!("wheel frame: {error}")))?;
+            output
+                .write_all(b"\n")
+                .and_then(|()| output.flush())
+                .map_err(|error| CnsError::Artifact(format!("wheel frame: {error}")))?;
+        }
+        if command != 0 {
+            commands += 1;
+        }
+        total_spikes += frame.ids.len() as u64;
+        Ok::<(), CnsError>(())
+    };
 
     match device {
         "cpu" => {
             let mut state = LifState::new(incoming.neuron_count());
             for tick in 0..ticks {
                 let frame = source.frame(tick)?;
-                if let FrameSource::Camera { width: w, height: h, .. } = &source {
+                if let FrameSource::Camera {
+                    width: w,
+                    height: h,
+                    ..
+                } = &source
+                {
                     width = *w;
                     height = *h;
                 }
                 let columns = column_luminance(&frame, width, height);
                 drive(&mut external, &input_indices, &input_columns, &columns);
                 step_cpu(&incoming, &params, &mut state, &external);
-                frames.push(SpikeFrame {
-                    tick,
-                    t_ns: started.elapsed().as_nanos() as u64,
-                    ids: state.fired.clone(),
-                });
-                luminance.push(columns.iter().sum::<f32>() / GRID_COLUMNS as f32);
+                record(
+                    SpikeFrame {
+                        tick,
+                        t_ns: started.elapsed().as_nanos() as u64,
+                        ids: state.fired.clone(),
+                    },
+                    columns.iter().sum::<f32>() / GRID_COLUMNS as f32,
+                    width,
+                    height,
+                )?;
             }
         }
         "gpu" => {
@@ -609,10 +731,15 @@ fn close_loop(
             {
                 let mut lif = qualia_connectome_cns::gpu::LifDevice::new(&incoming)
                     .map_err(CnsError::Artifact)?;
-                println!("cns-loop: device {}", lif.device_name());
+                eprintln!("cns-loop: device {}", lif.device_name());
                 for tick in 0..ticks {
                     let frame = source.frame(tick)?;
-                    if let FrameSource::Camera { width: w, height: h, .. } = &source {
+                    if let FrameSource::Camera {
+                        width: w,
+                        height: h,
+                        ..
+                    } = &source
+                    {
                         width = *w;
                         height = *h;
                     }
@@ -621,12 +748,16 @@ fn close_loop(
                     lif.set_external(&external).map_err(CnsError::Artifact)?;
                     lif.step(&params).map_err(CnsError::Artifact)?;
                     let fired = lif.fired().map_err(CnsError::Artifact)?;
-                    frames.push(SpikeFrame {
-                        tick,
-                        t_ns: started.elapsed().as_nanos() as u64,
-                        ids: fired,
-                    });
-                    luminance.push(columns.iter().sum::<f32>() / GRID_COLUMNS as f32);
+                    record(
+                        SpikeFrame {
+                            tick,
+                            t_ns: started.elapsed().as_nanos() as u64,
+                            ids: fired,
+                        },
+                        columns.iter().sum::<f32>() / GRID_COLUMNS as f32,
+                        width,
+                        height,
+                    )?;
                 }
                 lif.synchronize().map_err(CnsError::Artifact)?;
             }
@@ -646,50 +777,20 @@ fn close_loop(
     }
     let elapsed = started.elapsed().as_secs_f64();
 
-    let mut writer = SpikeWriter::create(spikes)?;
-    let mut trace_text = format!(
-        "# session {session}; frames {width}x{height}; input {}\n",
-        source.describe()
-    );
-    trace_text.push_str("tick,luminance,fired_input,rate_l,rate_r,command,throttle\n");
-    let mut total_spikes = 0u64;
-    let mut commands = 0u64;
-    let mut input_set = vec![false; loaded.nodes.len()];
-    for index in &input_indices {
-        input_set[*index as usize] = true;
-    }
-    for frame in &frames {
-        let fired_left = frame.ids.iter().filter(|id| left_index[**id as usize]).count();
-        let fired_right = frame.ids.iter().filter(|id| right_index[**id as usize]).count();
-        let fired_input = frame.ids.iter().filter(|id| input_set[**id as usize]).count();
-        let rate_l = fired_left as f32 / left_count.max(1) as f32;
-        let rate_r = fired_right as f32 / right_count.max(1) as f32;
-        let command = if (rate_r - rate_l).abs() < DECISION_MARGIN {
-            0
-        } else if rate_r > rate_l {
-            1
-        } else {
-            -1
-        };
-        let throttle = (rate_l + rate_r).min(1.0);
-        if command != 0 {
-            commands += 1;
-        }
-        total_spikes += frame.ids.len() as u64;
-        trace_text.push_str(&format!(
-            "{},{:.4},{fired_input},{rate_l:.5},{rate_r:.5},{command},{throttle:.5}\n",
-            frame.tick, luminance[frame.tick as usize],
-        ));
-        writer.write_frame(frame)?;
+    if ticks == 0 {
+        write!(
+            trace_writer,
+            "# session {session}; frames {width}x{height}; input {source_description}\ntick,luminance,fired_input,rate_l,rate_r,command,throttle\n"
+        )
+        .map_err(|error| read_error(trace, error))?;
     }
     writer.finish()?;
-    fs::write(trace, trace_text).map_err(|error| qualia_connectome_cns::read_error(trace, error))?;
 
-    println!(
+    eprintln!(
         "cns-loop: {ticks} ticks in {elapsed:.3} s ({:.1} ticks/s), {total_spikes} spikes, {commands} non-hold commands",
         ticks as f64 / elapsed
     );
-    println!("cns-loop: {} -> {}", spikes.display(), trace.display());
+    eprintln!("cns-loop: {} -> {}", spikes.display(), trace.display());
     Ok(())
 }
 

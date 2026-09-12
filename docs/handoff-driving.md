@@ -47,11 +47,17 @@ report the line; if it is accepted, the window is open.
 
 ### The one missing shim
 
-The transport wants `{"T":…,"L":…,"R":…}` lines; the loop writes a trace CSV with a `command` column (left /
-right / hold) and wheel rates. **Write the small bridge** — either a `--frames-out` on the loop, or a tiny
-filter that reads the trace and emits frames — so the fly's own output is what the transport consumes. Keep
-it honest: the frame's `T` should be the loop's tick, and a `hold` must become a zero, not a skipped line
-(the deadman then does the right thing on a gap).
+Implemented by `loop --frames-out -`: one flushed JSON frame per tick, with that tick in `T` and an
+explicit zero for every hold. The same decoder values write the CSV. The loop now decodes during
+acquisition rather than after the full run, so a camera gap reaches the transport as a gap. Status goes
+to stderr. `--max-wheel-speed` defaults to `0.04`; a frame-file destination must be new.
+
+The CSV rates are **neural firing fractions**, not wheel speeds. The bridge maps `command` and
+`throttle` into bounded pivots; the mapping and live pipe recipe are in
+[`crates/connectome-cns/README.md`](../crates/connectome-cns/README.md#wheel-frames-for-the-leash-transport).
+[`docs/evidence/T67/fly-frames/`](evidence/T67/fly-frames/) records the local CPU/GPU checks. No robot
+request or fresh acknowledgement probe accompanied them: both the zero probe and motion still wait
+for the operator's word to retry. The three demonstrations remain owed.
 
 ## Running the transport
 
