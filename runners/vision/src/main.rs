@@ -3,7 +3,8 @@
 //! The process attaches to the arena named by `QUALIA_SHM_NAME` and is the only
 //! writer of the [`WorldModel`] and the room-scale [`WorldVoxels`] grid. Each
 //! pass over the loop either builds a synthetic scene from the sensed belief
-//! (offline) or sends one camera frame to Gemini for scene understanding plus a
+//! (offline) or sends one frame from the arena's camera slot — the camera
+//! runner's copy of the live stream — to Gemini for scene understanding plus a
 //! semantic embedding (online). Detected objects are projected into the voxel
 //! lattice, pending layer questions are answered into the lore ring, and the
 //! scene embedding is republished into the senses layer.
@@ -31,9 +32,15 @@ const DEFAULT_LLM_INTERVAL_SECS: u64 = 30;
 /// Model calls per session when `QUALIA_LLM_MAX_CALLS` is unset or malformed.
 const DEFAULT_LLM_MAX_CALLS: u64 = 50;
 
-/// Frame size requested from the capture device.
-const CAPTURE_WIDTH: u32 = 640;
-const CAPTURE_HEIGHT: u32 = 480;
+/// The arena camera preview's format code for a JPEG frame: the encoding
+/// `qualia_types::CameraPreview` documents as format 1.
+const ARENA_PREVIEW_JPEG: u8 = 1;
+/// Reads of the seqlocked preview before a torn read is reported.
+const PREVIEW_ATTEMPTS: usize = 8;
+/// A preview older than this is not the live scene: the camera runner has
+/// stopped publishing and a model call on the last frame would describe the
+/// past.
+const MAX_PREVIEW_AGE_MS: u64 = 2_000;
 
 /// Gemini model used for scene understanding.
 const VISION_MODEL: &str = "gemini-2.5-flash";
@@ -916,76 +923,49 @@ fn offline_sensor_thought(
     None
 }
 
-/// Captures one JPEG frame from the best source the platform offers.
+/// Takes one JPEG frame from the arena's camera slot.
 ///
-/// On Linux the camera is owned by the agent process, so a snapshot file is
-/// read instead of opening the device a second time. Elsewhere `ffmpeg` grabs
-/// one frame from the default capture device.
-fn capture_frame() -> Result<Vec<u8>, String> {
-    #[cfg(target_os = "linux")]
-    {
-        for snapshot in &["/tmp/qualia_orin_snap.jpg", "/tmp/qualia_snapshot.jpg"] {
-            if let Ok(data) = std::fs::read(snapshot) {
-                if !data.is_empty() {
-                    eprintln!("qualia-vision: using snapshot {snapshot} ({}B)", data.len());
-                    return Ok(data);
-                }
-            }
-        }
-        Err("no snapshot available — qualia-agent must be running to capture /dev/video0, \
-             or post a JPEG to /snapshot from camera.html"
-            .to_string())
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("qualia-vision: calling ffmpeg...");
-        let video_size = format!("{CAPTURE_WIDTH}x{CAPTURE_HEIGHT}");
-        let output = std::process::Command::new("ffmpeg")
-            .args(["-y", "-hide_banner", "-loglevel", "error"])
-            .args([
-                "-f",
-                "avfoundation",
-                "-framerate",
-                "30",
-                "-video_size",
-                video_size.as_str(),
-                "-i",
-                "0",
-            ])
-            .args([
-                "-frames:v",
-                "1",
-                "-f",
-                "image2",
-                "-c:v",
-                "mjpeg",
-                "-q:v",
-                "5",
-                "pipe:1",
-            ])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|error| format!("ffmpeg: {error}"))?;
-
-        eprintln!(
-            "qualia-vision: ffmpeg returned, status={}, stdout={}B",
-            output.status,
-            output.stdout.len()
+/// The camera runner is the stack's one camera reader — it subscribes to the
+/// published stream (on Pinkie the leash's MJPEG surface) and writes the
+/// encoded frame into the shared arena. Reading that slot is how vision sees
+/// the real camera: no second opener of the device, and no snapshot file that
+/// only the reference's agent process ever wrote. A frame that stopped
+/// arriving is an error, not a scene to describe.
+fn capture_frame(shm: &ShmRegion) -> Result<Vec<u8>, String> {
+    let preview = shm
+        .camera_preview()
+        .snapshot(PREVIEW_ATTEMPTS)
+        .map_err(|error| format!("read arena camera preview: {error}"))?;
+    if preview.bytes.is_empty() {
+        return Err(
+            "the arena camera preview is empty — start the camera runner \
+             (QUALIA_CAMERA_STREAM_URL) so it publishes the frame vision sends"
+                .to_string(),
         );
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("qualia-vision: ffmpeg stderr: {}", stderr);
-            return Err(format!("ffmpeg failed: {stderr}"));
-        }
-        if output.stdout.is_empty() {
-            return Err("ffmpeg produced no output".to_string());
-        }
-        Ok(output.stdout)
     }
+    if preview.format != ARENA_PREVIEW_JPEG {
+        return Err(format!(
+            "the arena camera preview carries format {}; vision sends JPEG only",
+            preview.format
+        ));
+    }
+    let age_ms = now_ns().saturating_sub(preview.timestamp_ns) / 1_000_000;
+    if preview.timestamp_ns == 0 || age_ms > MAX_PREVIEW_AGE_MS {
+        return Err(format!(
+            "the arena camera preview is not current (timestamp_ns={}, age={age_ms}ms, \
+             limit {MAX_PREVIEW_AGE_MS}ms) — the camera runner must be publishing",
+            preview.timestamp_ns
+        ));
+    }
+    eprintln!(
+        "qualia-vision: using arena camera preview seq={} {}x{} ({}B, age={}ms)",
+        preview.seq,
+        preview.width,
+        preview.height,
+        preview.bytes.len(),
+        age_ms
+    );
+    Ok(preview.bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,7 +1064,7 @@ fn run_vision_loop(shm: &ShmRegion, transport: &impl Transport, config: &Config)
             eprintln!("qualia-vision: triggering capture ({}s since last)", elapsed);
             last_call = Instant::now();
             let call_number = calls + 1;
-            match capture_frame() {
+            match capture_frame(shm) {
                 Ok(jpeg) => {
                     match run_vision_tick(shm, transport, &config.api_key, &jpeg, call_number) {
                         Ok(()) => {

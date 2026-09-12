@@ -7,11 +7,15 @@
 //! The rows are the ABI's own sensing slots ([`SensingRunner`]), not a runner
 //! list beside the stack: every slot the console's read path covers gets a row,
 //! and a slot whose publisher has published nothing keeps its row saying so
-//! instead of shrinking the table or inventing a frame. A stack named by
-//! `QUALIA_STACK_MANIFEST` narrows the rows to the sensing runners it declares
-//! ([`crate::stack::SensingSet`]); it is not what makes the console able to
-//! show a frame, which is why the product's default stack (it declares no
-//! sensing runner) is not the default row set.
+//! instead of shrinking the table or inventing a frame. A stack the operator
+//! names with `QUALIA_STACK_MANIFEST` narrows the rows to the sensing runners it
+//! declares ([`crate::stack::SensingSet`]) — by design, an empty table when it
+//! declares none. With no manifest named the rows are the ABI's slots, not the
+//! compiled-in default stack's: a table derived from the default would hide the
+//! lidar and vslam rows while the region the console is attached to holds frames
+//! (the shipped default declares `qualia-camera` but not `qualia-lidar`, and
+//! `qualia-leash-sensors`, which it does declare, is not a sensing runner
+//! although it publishes range scans).
 
 use std::sync::atomic::Ordering;
 

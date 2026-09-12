@@ -7,11 +7,18 @@
 //! are the telemetry table's rows in the manifest's own order.
 //!
 //! The console's own row set does not wait on a stack that can name a sensing
-//! runner. `config/stack-manifest.default.json` is the *product's* default stack
-//! and declares none, so with no `QUALIA_STACK_MANIFEST` the rows are the ABI's
-//! sensing slots ([`SensingRunner`]): deriving them from the compiled-in default
-//! would blank the table while the region the console is attached to holds
-//! frames.
+//! runner. With no `QUALIA_STACK_MANIFEST` the rows are the ABI's sensing slots
+//! ([`SensingRunner`]) rather than the compiled-in default stack's sensing
+//! runners: using the default would *hide a slot whose frames are in the
+//! region*. `config/stack-manifest.default.json` declares `qualia-camera` and
+//! `qualia-leash-sensors`, only the first of which is a [`SensingRunner`], and
+//! `qualia-leash-sensors` publishes range scans without being one — so a table
+//! derived from the default would show a camera row, drop the lidar row and
+//! never add the vslam row while the region the console is attached to holds
+//! frames. The default row set does not depend on the compiled-in default's
+//! contents at a given commit. A manifest the operator names is read instead:
+//! its sensing runners are the rows, and one that declares none narrows the
+//! table to nothing by design.
 
 use qualia_types::parse_stack_manifest;
 
@@ -21,7 +28,10 @@ use crate::views::telemetry::SensingRunner;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SensingSet {
     /// No `QUALIA_STACK_MANIFEST` names a stack: every sensing slot the
-    /// console's ABI read path covers.
+    /// console's ABI read path covers, whatever the compiled-in default stack
+    /// declares — a table derived from that default can hide the lidar and
+    /// vslam rows while the region holds frames, so its contents must not decide
+    /// the table.
     EverySlot,
     /// The stack a manifest names: exactly its sensing runners, in its own
     /// order. Empty when the stack declares none, and then the table is
@@ -49,9 +59,13 @@ pub fn sensing_runner_names(manifest: &str) -> Result<Vec<String>, String> {
 /// The sensing rows the stack the console is pointed at declares.
 ///
 /// `QUALIA_STACK_MANIFEST` names a deployment's manifest; with none named the
-/// rows are the ABI's sensing slots, because the product's default stack
-/// declares no sensing runner and deriving the table from it would empty the
-/// panel while the region holds frames.
+/// rows are the ABI's sensing slots — not the compiled-in default stack's
+/// sensing runners — because a table derived from that default can hide the
+/// lidar and vslam rows while the region the console is attached to holds
+/// frames: it declares `qualia-camera` and `qualia-leash-sensors`, and
+/// `qualia-leash-sensors` is not a [`SensingRunner`] although it publishes range
+/// scans. A manifest the operator names is read instead, and one that declares
+/// no sensing runner narrows the table to nothing by design.
 pub fn load_sensing_set() -> Result<SensingSet, String> {
     match std::env::var_os("QUALIA_STACK_MANIFEST").filter(|path| !path.is_empty()) {
         Some(path) => {

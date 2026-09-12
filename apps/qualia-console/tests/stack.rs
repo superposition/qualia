@@ -7,8 +7,14 @@
 //! be made to depend on a stack declaration.
 //!
 //! The product's default stack (`config/stack-manifest.default.json`) is not
-//! the console's row set and does not name a sensing runner, so no test here
-//! asserts a runner set the shipped default does not declare.
+//! the console's row set: it declares `qualia-camera` and
+//! `qualia-leash-sensors`, and only the first is a `SensingRunner` — the second
+//! publishes range scans without being one — so a row set derived from it would
+//! hide the lidar and vslam rows while the region holds frames. With no
+//! `QUALIA_STACK_MANIFEST` the rows are the ABI's sensing slots; no test here
+//! derives a row set from the shipped default. A manifest the operator names is
+//! the in-scope route above, and one that declares no sensing runner narrows the
+//! table to nothing by design.
 
 use qualia_console::stack::{self, SensingSet};
 
@@ -48,15 +54,18 @@ fn a_stack_that_names_no_sensing_runner_gets_none() {
 }
 
 /// The shipped default: with no `QUALIA_STACK_MANIFEST` named, the console does
-/// not wait for a stack that can name a sensing runner. The product's default
-/// stack declares none, so the rows are the ABI's own sensing slots — which is
-/// what keeps the panel populated in the configuration the repo ships.
+/// not wait on a stack that can name a sensing runner. The rows are the ABI's
+/// own sensing slots whatever the compiled-in default declares — the default's
+/// contents must not decide the table, since using it would hide the lidar and
+/// vslam rows while the region holds frames (`qualia-leash-sensors` publishes
+/// range scans without being a sensing runner) — which keeps the panel populated
+/// in the configuration the repo ships.
 #[test]
 fn with_no_manifest_named_the_rows_are_the_abi_sensing_slots() {
     std::env::remove_var("QUALIA_STACK_MANIFEST");
     assert_eq!(
         stack::load_sensing_set().expect("the default row set needs no manifest"),
         SensingSet::EverySlot,
-        "the shipped default must not derive its rows from a stack that names none"
+        "the console's rows must not be narrowed by the compiled-in default stack"
     );
 }
