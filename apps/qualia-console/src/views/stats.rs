@@ -21,8 +21,9 @@ use qualia_types::RunnerStatsSnapshot;
 
 use crate::stack;
 
-/// Rate samples kept per runner for the sparkline. At the console's 4 Hz poll
-/// this is the last half-minute.
+/// Rate samples kept per runner for the sparkline: this many samples at
+/// [`crate::poller::POLL_INTERVAL`] (250 ms) is the last half-minute, and it is
+/// the window the README's HUD section names. Moving one moves the other.
 pub const HISTORY_LEN: usize = 120;
 
 /// One runner's telemetry frame, as the console reads it.
@@ -38,8 +39,14 @@ pub struct StatsRow {
     pub errors: u64,
     /// The frame's own update time, for the age the panel shows.
     pub published_at_ns: u64,
+    /// When the runner attached, for the uptime the panel shows; zero on a
+    /// frame written before the writer stamped it.
+    pub started_at_ns: u64,
     /// The values the producer last emitted, labelled, with unset ones dropped.
     pub values: Vec<(String, f32)>,
+    /// The writer's own publishing flag. A writer that stopped clears it as it
+    /// leaves (the panel reads `stopped`); a runner that was killed cannot, and
+    /// its frame is read as `stale` by its age instead.
     pub publishing: bool,
 }
 
@@ -63,6 +70,7 @@ impl StatsRow {
             ticks: frame.ticks,
             errors: frame.errors,
             published_at_ns: frame.published_at_ns,
+            started_at_ns: frame.started_at_ns,
             values,
             publishing: frame.is_publishing(),
         }

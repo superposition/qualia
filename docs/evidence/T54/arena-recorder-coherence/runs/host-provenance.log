@@ -1,0 +1,38 @@
+EOL-IDENTICAL: .cargo/config.toml
+EOL-IDENTICAL: Cross.toml
+EOL-IDENTICAL: crates/ipc/Cargo.toml
+EOL-IDENTICAL: crates/jepa-model/Cargo.toml
+EOL-IDENTICAL: crates/jepa-registry/Cargo.toml
+EOL-IDENTICAL: crates/mcap-log/Cargo.toml
+EOL-IDENTICAL: crates/rerun-bridge/Cargo.toml
+EOL-IDENTICAL: crates/shm/Cargo.toml
+EOL-IDENTICAL: crates/sync-types/Cargo.toml
+EOL-IDENTICAL: crates/types/Cargo.toml
+EOL-IDENTICAL: runners/abstraction/Cargo.toml
+EOL-IDENTICAL: runners/cuda-bench/Cargo.toml
+EOL-IDENTICAL: runners/cuda-service/Cargo.toml
+EOL-IDENTICAL: runners/cuda-smoke/Cargo.toml
+EOL-IDENTICAL: runners/drive/Cargo.toml
+EOL-IDENTICAL: runners/floor/Cargo.toml
+EOL-IDENTICAL: runners/health/Cargo.toml
+EOL-IDENTICAL: runners/init/Cargo.toml
+EOL-IDENTICAL: runners/l4-behavior/Cargo.toml
+EOL-IDENTICAL: runners/l5-behavior/Cargo.toml
+EOL-IDENTICAL: runners/l6-semantic/Cargo.toml
+EOL-IDENTICAL: runners/lidar/Cargo.toml
+EOL-IDENTICAL: runners/map/Cargo.toml
+EOL-IDENTICAL: runners/pose/Cargo.toml
+EOL-IDENTICAL: runners/session/Cargo.toml
+EOL-IDENTICAL: runners/vision/Cargo.toml
+EOL-IDENTICAL: runners/vslam/Cargo.toml
+EOL-IDENTICAL: studio/rust/Cargo.toml
+provenance: compared 152 authored file(s) (1 generated skipped); 0 identical, 28 EOL-identical, 7 code runs over 20, 0 prose runs over 2
+provenance: highest identical-code-line share 1.000 (.cargo/config.toml)
+CODE RUN 40: crates/types/src/lib.rs
+CODE RUN 36: runners/arena-recorder/src/main.rs
+CODE RUN 30: crates/sync-types/src/lib.rs
+CODE RUN 30: kernels/evidence_layout.cu
+CODE RUN 23: crates/jepa-dataset/src/lib.rs
+CODE RUN 21: crates/jepa-model/src/lib.rs
+CODE RUN 21: crates/sync-types/src/spatial.rs
+provenance: OK

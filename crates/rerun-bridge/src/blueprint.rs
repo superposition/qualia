@@ -1,7 +1,11 @@
 //! The default Thought Theater layout.
 
-use rerun::blueprint::{Blueprint, Horizontal, Spatial2DView, Tabs, TextDocumentView, Vertical};
+use rerun::blueprint::{
+    Blueprint, Horizontal, Spatial2DView, Spatial3DView, Tabs, TextDocumentView, TimeSeriesView,
+    Vertical,
+};
 
+use crate::connectome::ConnectomeEntityTaxonomy;
 use crate::taxonomy::{ReplayEntityTaxonomy, WorldModelEntityTaxonomy};
 
 /// Default viewer layout: proposal graph, accepted views, and the operational
@@ -65,4 +69,30 @@ pub fn default_thought_theater_blueprint() -> Blueprint {
 /// Alias kept for callers that name the layout after the graph view.
 pub fn default_graph_blueprint() -> Blueprint {
     default_thought_theater_blueprint()
+}
+
+/// The Brain layout: the point cloud in a 3D view beside the cloud's counts,
+/// the current tick and the firing-count curve.
+pub fn default_connectome_blueprint() -> Blueprint {
+    let brain = Spatial3DView::new("Connectome")
+        .with_origin(ConnectomeEntityTaxonomy::brain_root());
+    let cloud = TextDocumentView::new("Cloud")
+        .with_origin(ConnectomeEntityTaxonomy::cloud_summary())
+        .with_contents(["$origin"]);
+    let stream = TextDocumentView::new("Spike Stream")
+        .with_origin(ConnectomeEntityTaxonomy::stream_summary())
+        .with_contents(["$origin"]);
+    let activity = TimeSeriesView::new("Firing per Tick")
+        .with_origin(ConnectomeEntityTaxonomy::firing_count());
+
+    let right = Vertical::new([cloud.into(), stream.into(), activity.into()])
+        .with_name("connectome_stream")
+        .with_row_shares([0.2, 0.2, 0.6]);
+    Blueprint::new(
+        Horizontal::new([brain.into(), right.into()])
+            .with_name("floating_brain")
+            .with_column_shares([0.74, 0.26]),
+    )
+    .with_auto_layout(false)
+    .with_auto_views(false)
 }

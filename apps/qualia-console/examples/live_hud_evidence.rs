@@ -8,8 +8,9 @@
 //! does). Nothing here is a fixture: if the agent or a producer is down, the
 //! frame shows the degraded reading it would show in the window.
 //!
-//! The figure is written where `egui_kittest` keeps this crate's snapshots;
-//! copy it into `docs/evidence/` after the run.
+//! The figure is written where `egui_kittest` keeps this crate's snapshots
+//! (`<workspace>/tests/snapshots/`, scratch and not committed); copy it into
+//! `docs/evidence/` after the run.
 //!
 //! Run from the workspace root, with the stack up:
 //!
@@ -21,17 +22,24 @@
 use egui_kittest::{Harness, SnapshotOptions};
 use qualia_console::client::{agent_url, HttpSource};
 use qualia_console::views::evidence::EvidenceView;
-use qualia_console::{shm_sample, stack, Connection, ConsoleState, Sample};
+use qualia_console::{shm_sample, stack, theme, Connection, ConsoleState, Sample};
 
-/// The figure's viewport: wide enough for the six-view grid plus a column of
-/// HUD panels on the right.
-const VIEWPORT: [f32; 2] = [1600.0, 1000.0];
+/// The figure's viewport: the six-view grid, plus a two-column margin on the
+/// right wide and tall enough for every live panel's rows — the numbers, the
+/// rate bar, and the four labelled values. A single tall column would need a
+/// 1500 px page for the three producers this stack runs, which reads worse
+/// than two columns the operator could keep.
+const VIEWPORT: [f32; 2] = [1900.0, 1060.0];
 
-/// Where the HUD panels are placed for the figure: a column in the right
+/// Where the HUD panels are placed for the figure: two columns in the right
 /// margin, so nothing covers the six views. In the window these are the rects
 /// the operator drags; here they are seeded through the same `record_rect` the
 /// window uses, so the layout that is drawn is a layout the console can keep.
-const PANEL_COLUMN: [f32; 4] = [1300.0, 44.0, 290.0, 300.0];
+/// A panel auto-sizes to its own content, so the height here is the starting
+/// size and what the next row is offset by.
+const PANEL_COLUMNS: [[f32; 2]; 2] = [[1300.0, 44.0], [1610.0, 44.0]];
+const PANEL_ROWS: usize = 2;
+const PANEL_SIZE: [f32; 2] = [290.0, 480.0];
 
 fn main() {
     let region = shm_sample::region_name();
@@ -76,29 +84,47 @@ fn main() {
     };
 
     let mut state = ConsoleState::from_sample(sample, url);
-    // Place a panel per live runner down the right margin, through the same
-    // recorded-rect path the window's drag uses.
+    // Place a panel per live runner in the right margin, through the same
+    // recorded-rect path the window's drag uses: down the first column, then
+    // the second.
     for (index, row) in state.hud.rows.iter().enumerate() {
+        let column = (index / PANEL_ROWS).min(PANEL_COLUMNS.len() - 1);
+        let row_index = index % PANEL_ROWS;
+        let origin = PANEL_COLUMNS[column];
         let rect = egui::Rect::from_min_size(
             egui::pos2(
-                PANEL_COLUMN[0],
-                PANEL_COLUMN[1] + index as f32 * (PANEL_COLUMN[3] + 24.0),
+                origin[0],
+                origin[1] + row_index as f32 * (PANEL_SIZE[1] + 24.0),
             ),
-            egui::vec2(PANEL_COLUMN[2], PANEL_COLUMN[3]),
+            egui::vec2(PANEL_SIZE[0], PANEL_SIZE[1]),
         );
         state.hud_layout.record_rect(&row.runner, rect);
     }
     println!(
-        "live_hud_evidence: region {region}, {} live runner panel(s): {}",
-        state.hud.rows.len(),
-        state
-            .hud
-            .rows
-            .iter()
-            .map(|row| format!("{} {:.2} Hz", row.runner, row.rate_hz))
-            .collect::<Vec<_>>()
-            .join(", ")
+        "live_hud_evidence: region {region}, {} live runner panel(s)",
+        state.hud.rows.len()
     );
+    for row in &state.hud.rows {
+        let values = row
+            .values
+            .iter()
+            .map(|(label, value)| format!("{label} {value:.3}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!(
+            "  {} | {:.2} Hz | {} | updated {} | uptime {} | {}",
+            row.runner,
+            row.rate_hz,
+            if row.publishing {
+                "publishing"
+            } else {
+                "stopped"
+            },
+            theme::age(observed_at_ns, row.published_at_ns),
+            theme::uptime(observed_at_ns, row.started_at_ns),
+            values
+        );
+    }
     if !state.hud.gaps.is_empty() {
         println!("live_hud_evidence: no producer: {}", state.hud.gaps.join(", "));
     }

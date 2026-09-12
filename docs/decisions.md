@@ -62,7 +62,7 @@ the contract pass checks them line for line against the reference, and operators
 them. They stay byte-identical to the reference even where a label (`tx`, `weight`, `keyframes`) uses
 vocabulary the re-authored internals no longer share.
 
-`scripts/provenance_check.py` is the arbiter of copied text — it measures code runs and prose runs,
+`crates/gates` — the `qualia-gates provenance` subcommand (#238) — is the arbiter of copied text: it measures code runs and prose runs,
 and a single-line format string is below its thresholds. Ticket #91 does not list the log lines among
 the things its rewrite changes, and the lidar scrub (#137) treated the same question the same way.
 C25's clean-room request to re-author the two `qualia-pose:` format strings is declined on this basis;
@@ -662,6 +662,26 @@ second opener of an owned device is a second owner.
 read it; on this robot the owner is `leash` and the interface is its HTTP surface. "The lidar is
 missing" and "the lidar is present but owned" are different findings, and only the second is true
 here.
+
+## D-026 — Committed snapshot images are re-rendered, never sided
+
+Instance: 2026-09-12. In one hour two PRs hit binary conflicts on the console's committed
+`apps/qualia-console/tests/snapshots/*.png`. Every console change re-blesses those images, and `main`
+had moved under both branches: PR #243 (the brain view) conflicted against main's theme change, and PR
+#252 (the HUD fixes) conflicted against main's T56 re-renders. Resolving either by taking a side would
+have silently reverted the other ticket's rendering — the images differ by tens of thousands of pixels,
+and the test suite is green either way because the images *are* the expectation.
+
+Consequences:
+
+- **A branch rebased past a change to the console's rendering re-renders the images on the rebased
+  tree**, headlessly (D-023). Never `--ours`/`--theirs` on a snapshot PNG.
+- **Name the movement**: the commit and the braid say which images moved and why, in pixels and in
+  cause (e.g. "152 px in one 23×11 box at (218,16) — the HUD menu button `cc9eb6e` added"), so a
+  reviewer can attribute it to a known change instead of to the rebase.
+- **Review both directions**: that the branch's own change is visible in the pixels, and that no other
+  ticket's render disappeared.
+- A merge that reverts a committed render is a correctness failure even when every test passes.
 
 ## D-003 — Repository
 

@@ -1192,6 +1192,10 @@ pub struct LayerSlot {
     pub weights: [f32; WEIGHT_COUNT],
     /// Generative bias vector.
     pub bias: [f32; STATE_DIM],
+    /// Publication counter: each publish advances it by one, and its low bit is
+    /// the front buffer readers select. A reader's pair of loads over it is a
+    /// version check — any publish inside a copy changes the value, so the copy
+    /// is rejected rather than returned half-written.
     pub write_idx: AtomicUsize,
     pub challenge_flag: AtomicBool,
     pub confirm_flag: AtomicBool,

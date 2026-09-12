@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running unittests src/main.rs (target/debug/deps/qualia_arena_recorder-6481b189f9c7058a)
+
+running 1 test
+test tests::a_coherent_read_of_the_recorded_belief_is_never_torn ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.27s
+
+     Running tests/recorder.rs (target/debug/deps/recorder-87fc8592bce4126c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+

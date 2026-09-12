@@ -19,13 +19,22 @@
 mod blueprint;
 mod bridge;
 mod config;
+mod connectome;
 mod records;
 mod render;
 mod taxonomy;
 
-pub use blueprint::{default_graph_blueprint, default_thought_theater_blueprint};
+pub use blueprint::{
+    default_connectome_blueprint, default_graph_blueprint, default_thought_theater_blueprint,
+};
 pub use bridge::QualiaRerunBridge;
 pub use config::{BridgeError, RerunBridgeConfig, RerunSinkConfig};
+pub use connectome::{
+    cell_type_color, collect_connectome_cloud_records, collect_connectome_tick_records,
+    firing_color, ConnectomeCloud, ConnectomeEntityTaxonomy, ConnectomeNeuron,
+    ConnectomeProjection, ConnectomeProjectionContent, ConnectomeProjectionRecord,
+    CLOUD_POINT_RADIUS, FIRING_POINT_RADIUS,
+};
 pub use records::{
     collect_sync_projection_records, collect_world_model_projection_records, SessionReplayFrame,
     SyncProjection, WorldModelProjection, WorldModelProjectionContent, WorldModelProjectionRecord,

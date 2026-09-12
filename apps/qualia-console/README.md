@@ -82,15 +82,22 @@ plus `_stats` (`/qualia_body_stats`), or `QUALIA_STATS_SHM_NAME` when a deployme
 framing is the house one: a magic and a version, then fixed-width little-endian fields, no JSON, and
 a seqlock so a reader never sees a half-written frame. A frame carries what an operator needs at a
 glance — ticks/s or frames/s (`rate_milli_hz`), bytes/s, backlog, the last values the runner emitted
-and their labels, the error count, and the time of the last update. `qualia-init` creates the region
+and their labels, the error count, the time of the last update, and the time the runner attached
+(the panel's uptime). `qualia-init` creates the region
 with the arena; a producer started by hand creates it itself; a console that finds none says so
 rather than drawing zeroes.
 
 The HUD is one floating window per runner that has published a frame: movable, resizable,
 collapsible, and remembered between runs. Each panel shows the producer's own measured rate (its
 last one-second window, so a 4 Hz console still shows a 30 Hz camera as 30 Hz), a rate bar and a
-sparkline of the last two minutes, then backlog, ticks, errors, the age of the last update, and the
-runner's last values by label. `Ctrl+H` shows or hides the whole HUD from anywhere in the window;
+sparkline of the **last half-minute** — 120 samples at the console's 4 Hz poll, the window
+`views::stats::HISTORY_LEN` names; move one and the other moves with it — then backlog, ticks,
+errors, the age of the last update, the uptime the frame's own start time gives, and the runner's
+last values by label. A value's label is a fixed 12-byte field of the frame, so a producer names a
+value in 12 bytes or fewer; a longer name is truncated on a UTF-8 boundary rather than the frame
+growing. A runner that stops is named too: a clean exit clears the publishing flag in its frame and
+the panel reads `stopped`, while a runner that was killed keeps the flag set and ages out to `stale`
+1.5 s later. `Ctrl+H` shows or hides the whole HUD from anywhere in the window;
 the `HUD` menu does that, toggles one panel at a time, and lists the runners the stack declares that
 have published no frame as `— no producer`, so a missing producer is named rather than drawn as an
 empty panel.

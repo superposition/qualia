@@ -1,0 +1,94 @@
+{
+  "schema": "qualia.connectome-cns.v1",
+  "neuron_count": 166700,
+  "edge_count": 25582938,
+  "synapse_count": 124177617,
+  "excitatory_synapses": 94542746,
+  "inhibitory_synapses": 26402637,
+  "unknown_synapses": 3232234,
+  "source_rows": 151856684,
+  "source_synapses": 311833243,
+  "dropped_rows": 126273746,
+  "folded_rows": 0,
+  "presynaptic_neurons": 165480,
+  "positioned_count": 139662,
+  "type_count": 11752,
+  "weights_sections": {
+    "cols": {
+      "offset": 1333632,
+      "len": 102331752,
+      "sha256": "a782a694f8aae9009f8d1334e93d4744a17efc85aff2c2221f1611c91d534102"
+    },
+    "rowptr": {
+      "offset": 24,
+      "len": 1333608,
+      "sha256": "a29aa0296125a5daa972c12d17711360d01a1209cd9cd9d7ccb1f6959224bcaf"
+    },
+    "sign": {
+      "offset": 103665384,
+      "len": 25582938,
+      "sha256": "79f850fd6526669f7de510a62b260ff6452d64f8edb66c1f238faff1488028ed"
+    },
+    "weight": {
+      "offset": 129248322,
+      "len": 51165876,
+      "sha256": "f6e90645447923bb3e11b686ce00e5aa253258a449c6459b61f0fba421439bd3"
+    }
+  },
+  "positions_sections": {
+    "cell_type": {
+      "offset": 2667212,
+      "len": 666800,
+      "sha256": "4af34959d1fdefc38191b8c22a06594dac3a6133a859ce5aa01d7dfb0e6d0a33"
+    },
+    "id": {
+      "offset": 12,
+      "len": 666800,
+      "sha256": "fe2d710121425c82e242536b3b438c6ad62962cf96ec7d514a444639954a6e06"
+    },
+    "x": {
+      "offset": 666812,
+      "len": 666800,
+      "sha256": "7d73170c5e99792896308b7114e064196300e69a082c5289e519addac7ace7d4"
+    },
+    "y": {
+      "offset": 1333612,
+      "len": 666800,
+      "sha256": "23422ba1d93c20c9e8c3453e28a8da013eae7f709f4d5fef69fd44aca47455de"
+    },
+    "z": {
+      "offset": 2000412,
+      "len": 666800,
+      "sha256": "6f1d498e7ea3d1626df5faa2c527ee030db5500107dcf888d983fae19ac47d61"
+    }
+  },
+  "types_sha256": "545ec649b861b3cdeb41f597471b0061494007db9f25c592f2a43bbcf317024c",
+  "nodes_sha256": "52e7c6a88217b5f47f6a5c7979353fea946e91eaedab9676f876fba41c8c2f84",
+  "sources": {
+    "body_annotations": {
+      "file": "body-annotations.feather",
+      "bytes": 14483314,
+      "sha256": "2177e246113e4cfbf1e7772ec37c6da1955ff22e8063d0b1f833101f99a9a3b2",
+      "rows": 211577
+    },
+    "body_neurotransmitters": {
+      "file": "body-neurotransmitters.feather",
+      "bytes": 43282834,
+      "sha256": "95c9289220663abeb3409f3ad9e5a7f8a53f8093f5139d15502cd08da8879621",
+      "rows": 1835518
+    },
+    "connectome_weights": {
+      "file": "connectome-weights.feather",
+      "bytes": 1051241946,
+      "sha256": "e35da783d1c686b2b58b3b87cd6a403ae43bfcfba8bff28e08ef752c1a56afc1",
+      "rows": 151856684
+    }
+  },
+  "created_at_ms": 1789190742937,
+  "attribution": {
+    "dataset": "male-cns:v1.0",
+    "licence": "CC-BY-4.0",
+    "url": "https://male-cns.janelia.org",
+    "citation": "Berg et al. 2026, Cell; doi:10.1016/j.cell.2026.08.015"
+  }
+}

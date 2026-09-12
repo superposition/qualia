@@ -1,0 +1,24 @@
+[package]
+name = "qualia-connectome-view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Desktop viewer entry point for the Male CNS connectome: replay a recorded spike stream or take a live one"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "qualia-connectome-view"
+path = "src/main.rs"
+
+[dependencies]
+qualia-connectome-stream = { workspace = true }
+qualia-rerun-bridge = { workspace = true }
+rerun = { workspace = true }
+clap = { version = "4.5", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

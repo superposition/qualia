@@ -19,3 +19,6 @@ __pycache__/
 # egui_kittest writes these beside a snapshot when UPDATE_SNAPSHOTS=1 runs.
 apps/qualia-console/tests/snapshots/*.old.png
 apps/qualia-console/tests/snapshots/*.diff.png
+
+# The console example renders a scratch snapshot relative to the invocation cwd; never a repo root file.
+/tests/

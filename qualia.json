@@ -151,7 +151,7 @@
       },
       "write_idx": {
         "type": "AtomicUsize",
-        "description": "0 or 1, atomically swapped on publish"
+        "description": "publication counter, +1 on each publish; its low bit is the front buffer, so readers mask with & 1 (the reference's 0-or-1 parity index, kept as the low bit)"
       },
       "challenge_flag": {
         "type": "AtomicBool"
