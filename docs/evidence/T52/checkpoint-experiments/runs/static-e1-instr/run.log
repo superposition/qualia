@@ -1,0 +1,3 @@
+jepa train epoch=1/1 backend=cuda samples=41670 batches=1303 cnn_total=21.618604 cnn_nll=-3.781032 cnn_var=0.927230 cnn_cov=2.217859 cnn_ground=0.001022 flat_total=478.954797 flat_nll=101.194513 seconds=21.294 samples_per_second=1956.89
+jepa calibrate constant_baseline_samples=41670
+qualia-jepa-train: refusing to publish checkpoint t52-static-e1-instr: non-finite training-report metric validation.flat_mlp.rollout_error = NaN; a non-finite metric means the evaluation diverged, and JSON writes it as null, which the reader rejects
