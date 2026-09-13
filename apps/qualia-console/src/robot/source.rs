@@ -64,6 +64,7 @@ fn validate(name: &str, value: Value) -> Result<Value, String> {
         "neurons" => super::neurons::valid_status(&value),
         "wheel-shadow" => super::wheels::valid_status(&value),
         "model-matrices" => super::matrices::valid_status(&value),
+        "retina" => super::neurons::valid_retina(&value),
         "wheel-transport" => super::wheels::valid_transport(&value),
         "host-health" => value["healthy"].is_boolean() && value["ready"].is_boolean(),
         "host-world" => value["schema_version"] == "world.v1" && value["nav"].is_object(),
@@ -93,7 +94,7 @@ impl Monitor {
         let data = Arc::new(Mutex::new(Data { neuron_type: "T4a".into(), ..Data::default() }));
         let stop = Arc::new(AtomicBool::new(false));
         // Sensor and camera cadence is independent of optional host services.
-        for lane in 0..11 {
+        for lane in 0..12 {
             let shared = Arc::clone(&data);
             let stopping = Arc::clone(&stop);
             let robot = robot_url.clone();
@@ -146,6 +147,9 @@ impl Monitor {
                         let matrix_url = reqwest::Url::parse(&neuron_url).ok().map(|mut url| {
                             url.set_path("/matrices"); url.to_string()
                         }).unwrap_or_else(|| "invalid model matrix URL".into());
+                        let retina_url = reqwest::Url::parse(&pretrained).ok().map(|mut url| {
+                            url.set_path("/retina"); url.set_query(None); url.to_string()
+                        }).unwrap_or_else(|| "invalid retinal input URL".into());
                         let paths: &[(&str, &str, &str)] = if lane == 0 {
                             &[("sensors", &robot, "/sensors")]
                         } else if lane == 2 {
@@ -178,8 +182,10 @@ impl Monitor {
                             &[("cognition", &robot, "/cognition/status")]
                         } else if lane == 9 {
                             &[("host-belief", &agent, "/belief/status"), ("host-sketch", &agent, "/belief/sketch")]
-                        } else {
+                        } else if lane == 10 {
                             &[("wheel-transport", &transport, "")]
+                        } else {
+                            &[("retina", &retina_url, "")]
                         };
                         for (name, base, path) in paths {
                             if stopping.load(Ordering::Acquire) { return; }
@@ -201,7 +207,7 @@ impl Monitor {
                             }
                         }
                     }
-                    std::thread::sleep(Duration::from_millis(if lane >= 4 { 250 } else if lane >= 2 { 1000 } else { 200 }));
+                    std::thread::sleep(Duration::from_millis(if lane == 11 { 500 } else if lane >= 4 { 250 } else if lane >= 2 { 1000 } else { 200 }));
                 }
             });
         }

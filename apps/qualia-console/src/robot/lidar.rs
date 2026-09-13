@@ -2,6 +2,9 @@ use serde_json::Value;
 
 pub const SIDE: usize = 160;
 
+/// Display only: body +X is up and body +Y is left. Measurements stay in body axes.
+pub fn display_point([x, y]: [f32; 2]) -> [f32; 2] { [-y, -x] }
+
 #[derive(Clone, Default)]
 pub struct Scan {
     pub timestamp_ms: u64,
@@ -51,7 +54,7 @@ impl Scan {
             && now.saturating_sub(advanced_ms) <= 1500
     }
 
-    /// A fresh grid in the scan's own frame. Free space follows measured rays;
+    /// A fresh display grid with body +X up and +Y left. Free space follows measured rays;
     /// endpoint hits are marked last so crossing rays cannot erase obstacles.
     pub fn occupancy(&self, extent: f32) -> Vec<u8> {
         let mut cells = vec![0; SIDE * SIDE];
@@ -59,8 +62,9 @@ impl Scan {
         let mut occupied = Vec::new();
         let cell = 2.0 * extent / SIDE as f32;
         let index = |p: [f32; 2]| -> Option<usize> {
-            let x = ((p[0] + extent) / cell).floor() as isize;
-            let y = ((extent - p[1]) / cell).floor() as isize;
+            let [screen_x, screen_y] = display_point(p);
+            let x = ((screen_x + extent) / cell).floor() as isize;
+            let y = ((screen_y + extent) / cell).floor() as isize;
             (x >= 0 && y >= 0 && x < SIDE as isize && y < SIDE as isize)
                 .then_some(y.max(0) as usize * SIDE + x.max(0) as usize)
         };
@@ -85,9 +89,9 @@ mod tests {
     fn occupancy_keeps_unknown_space_and_measured_hits() {
         let scan = Scan { rays: vec![([2.0, 0.0], true)], ..Scan::default() };
         let cells = scan.occupancy(4.0);
-        assert_eq!(cells[80 * SIDE + 120], 2);
-        assert_eq!(cells[80 * SIDE + 100], 1);
-        assert_eq!(cells[80 * SIDE + 140], 0);
+        assert_eq!(cells[40 * SIDE + 80], 2);
+        assert_eq!(cells[60 * SIDE + 80], 1);
+        assert_eq!(cells[20 * SIDE + 80], 0);
         assert_eq!(cells[20 * SIDE + 20], 0);
     }
     #[test]

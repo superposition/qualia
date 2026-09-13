@@ -80,13 +80,12 @@ fn age_text(value: &Value, elapsed_ms: u64) -> String {
 pub struct PretrainedView {
     run: String,
     last_output: u64,
-    history: VecDeque<(u64, f64)>,
+    history: VecDeque<(u64, f64, f64)>,
     pub neurons: super::neurons::NeuronView,
 }
 impl PretrainedView {
     pub fn render(&mut self, ui: &mut Ui, data: &Data, producer: &str) {
-        ui.strong("CNS visual response · graded model voltage");
-        ui.small(producer);
+        ui.strong("Camera-driven graded response");
         let Some(reading) = data.sources.get("pretrained") else {
             ui.label("Waiting for the pretrained model's published status"); return;
         };
@@ -104,21 +103,20 @@ impl PretrainedView {
             self.run = run.into(); self.history.clear(); self.last_output = 0;
         }
         if live && stamp > self.last_output {
-            self.history.push_back((stamp, number(&output["voltage_mean"]).unwrap_or(0.0)));
-            if self.history.len() > 180 { self.history.pop_front(); }
+            if let Some((retina, motion)) = response_means(output) {
+                self.history.push_back((stamp, retina, motion));
+                if self.history.len() > 180 { self.history.pop_front(); }
+            }
             self.last_output = stamp;
         }
         let state = value["state"].as_str().unwrap_or("unknown");
         ui.colored_label(if live {Color32::LIGHT_GREEN} else {Color32::YELLOW},
-            format!("{} · state {state} · frame {} · tick {}", if live {"LIVE measured response"} else {"Response unverified / stale"}, panels::text(&value["camera_frames"]), panels::text(&value["tick"])));
-        ui.label(format!("Model {} {} · weights frozen · controls locked", panels::text(&value["model"]["name"]), panels::text(&value["model"]["id"])));
+            format!("{} · {state} · frame {} · tick {}", if live {"Live"} else {"Stale / unverified"}, panels::text(&value["camera_frames"]), panels::text(&value["tick"])));
         let elapsed = now.saturating_sub(reading.received_ms);
-        ui.label(format!("Camera receipt {} · output {} · output input {}",
-            age_text(&value["source"]["received_age_ms"], elapsed), age_text(&output["age_ms"], elapsed), age_text(&output["input_age_ms"], elapsed)));
-        let change = number(&output["mean_abs_delta_from_previous"]).map(|v| format!("{v:.3e}")).unwrap_or_else(|| "unavailable".into());
-        ui.label(format!("Compute {} ms · mean voltage {} · mean |change| {change}", decimal(&value["compute_ms"]), decimal(&output["voltage_mean"])));
+        ui.small(format!("Input {} · response {} · frozen weights", age_text(&output["input_age_ms"], elapsed), age_text(&output["age_ms"], elapsed)));
         self.neurons.render(ui, data, value);
         self.plot(ui, live);
+        response_bars(ui, output, live);
         egui::CollapsingHeader::new("Cell-type summary").default_open(false).show(ui, |ui| {
             if let Some(rows) = output["per_type"].as_array() {
                 egui::Grid::new("pretrained-types").striped(true).show(ui, |ui| {
@@ -131,6 +129,8 @@ impl PretrainedView {
             } else { ui.label("No computed response published"); }
         });
         egui::CollapsingHeader::new("Source, model and errors").default_open(false).show(ui, |ui| {
+            ui.label(producer);
+            ui.label(format!("Compute {} ms · mean voltage {}", decimal(&value["compute_ms"]), decimal(&output["voltage_mean"])));
             ui.label("Camera luminance drives this model. Values are not spikes or Hz; camera exposure time is unknown.");
             ui.label(format!("Run {run}"));
             if let Some(error) = &reading.error { ui.colored_label(Color32::YELLOW, error); }
@@ -141,20 +141,51 @@ impl PretrainedView {
     }
 
     fn plot(&self, ui: &mut Ui, live: bool) {
-        ui.small(format!("Mean graded voltage · {} received outputs · history", self.history.len()));
+        ui.small(format!("Mean |ΔV| over {} observed outputs · R1 cyan / T4+T5 orange", self.history.len()));
         let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(20.0), 68.0), egui::Sense::hover());
         if self.history.is_empty() { return; }
-        let low = self.history.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-        let high = self.history.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
         let first = self.history.front().unwrap().0; let last = self.history.back().unwrap().0;
-        let span = (high-low).max(1e-9); let time_span = last.saturating_sub(first).max(1);
-        let points: Vec<_> = self.history.iter().map(|(stamp, mean)| egui::pos2(
-            rect.left()+((*stamp-first) as f64/time_span as f64) as f32*rect.width(),
-            rect.bottom()-if high == low {rect.height()*0.5} else {((*mean-low)/span) as f32*rect.height()}
-        )).collect();
-        let color = if live {Color32::LIGHT_GREEN} else {Color32::GRAY};
-        for pair in points.windows(2) { ui.painter().line_segment([pair[0],pair[1]],Stroke::new(1.5,color)); }
-        if points.len()==1 { ui.painter().circle_filled(points[0],2.0,color); }
-        ui.small(format!("Observed range {low:.4}..{high:.4}; {:.1} s shown", time_span as f64/1e9));
+        let time_span = last.saturating_sub(first).max(1);
+        let painter = ui.painter_at(rect);
+        for (motion, color) in [(false, Color32::from_rgb(70,220,245)), (true, Color32::from_rgb(255,155,60))] {
+            let points: Vec<_> = self.history.iter().map(|(stamp, retina, cells)| (*stamp, egui::pos2(
+                rect.left()+((*stamp-first) as f64/time_span as f64) as f32*rect.width(),
+                rect.bottom()-((if motion {*cells} else {*retina})/0.003).clamp(0.0,1.0) as f32*rect.height()
+            ))).collect();
+            let color = if live {color} else {Color32::GRAY};
+            for pair in points.windows(2) { if pair[1].0-pair[0].0 <= 1_500_000_000 {
+                painter.line_segment([pair[0].1,pair[1].1],Stroke::new(1.5,color));
+            }}
+            for (_, point) in points { painter.circle_filled(point,1.2,color); }
+        }
+        ui.small(format!("Fixed 0–0.003 model units · {:.1} s · gaps have no samples", time_span as f64/1e9));
+    }
+}
+
+const MOTION_TYPES: [&str; 8] = ["T4a", "T4b", "T4c", "T4d", "T5a", "T5b", "T5c", "T5d"];
+fn response_means(output: &Value) -> Option<(f64, f64)> {
+    let rows = output["per_type"].as_array()?;
+    let retina = rows.iter().find(|row| row["cell_type"] == "R1").and_then(|row| number(&row["mean_abs_delta_from_previous"]))?;
+    let mut weighted = 0.0; let mut count = 0;
+    for name in MOTION_TYPES {
+        let row = rows.iter().find(|row| row["cell_type"] == name)?;
+        let n = row["count"].as_u64()?;
+        weighted += number(&row["mean_abs_delta_from_previous"])? * n as f64; count += n;
+    }
+    (count > 0).then_some((retina, weighted / count.max(1) as f64))
+}
+fn response_bars(ui: &mut Ui, output: &Value, live: bool) {
+    let Some(rows) = output["per_type"].as_array() else { return; };
+    ui.small("T4/T5 mean |ΔV| · cell types, not calibrated robot bearings");
+    for names in MOTION_TYPES.chunks(4) {
+        ui.columns(4, |columns| {
+            for (column, name) in columns.iter_mut().zip(names) {
+                let signal = rows.iter().find(|row| row["cell_type"] == *name).and_then(|row| number(&row["mean_abs_delta_from_previous"]));
+                if let Some(signal) = signal {
+                    column.add(egui::ProgressBar::new((signal/0.003).clamp(0.0,1.0) as f32)
+                        .fill(if live {Color32::from_rgb(230,145,60)} else {Color32::GRAY}).text(format!("{name} {signal:.1e}")));
+                } else { column.label(format!("{name} unavailable")); }
+            }
+        });
     }
 }

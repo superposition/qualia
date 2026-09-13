@@ -48,12 +48,27 @@ pub fn scan_plot(ui: &mut Ui, scan: &Scan, extent: f32) {
     painter.line_segment([egui::pos2(rect.left(), center.y), egui::pos2(rect.right(), center.y)], Stroke::new(1.0, Color32::GRAY));
     painter.line_segment([egui::pos2(center.x, rect.top()), egui::pos2(center.x, rect.bottom())], Stroke::new(1.0, Color32::GRAY));
     for point in &scan.points {
-        let position = center + egui::vec2(point[0] * scale, -point[1] * scale);
+        let [x, y] = super::lidar::display_point(*point);
+        let position = center + egui::vec2(x * scale, y * scale);
         if rect.contains(position) { painter.circle_filled(position, 2.0, Color32::from_rgb(88, 234, 190)); }
     }
-    painter.circle_filled(center, 4.0, Color32::WHITE);
-    painter.arrow(center, egui::vec2(22.0, 0.0), Stroke::new(2.0, Color32::WHITE));
+    scan_axes(&painter, rect);
     ui.label(format!("±{extent:.1} m · range rings 1 m"));
+}
+
+/// The same display reference overlays the point scan and measured occupancy.
+pub fn scan_axes(painter: &egui::Painter, rect: egui::Rect) {
+    let center = rect.center();
+    painter.circle_filled(center, 4.0, Color32::WHITE);
+    painter.arrow(center, egui::vec2(0.0, -22.0), Stroke::new(2.0, Color32::WHITE));
+    for (position, anchor, label) in [
+        (egui::pos2(center.x, rect.top() + 5.0), egui::Align2::CENTER_TOP, "FORWARD / +X"),
+        (egui::pos2(center.x, rect.bottom() - 5.0), egui::Align2::CENTER_BOTTOM, "BACK / -X"),
+        (egui::pos2(rect.left() + 5.0, center.y), egui::Align2::LEFT_CENTER, "+Y / LEFT"),
+        (egui::pos2(rect.right() - 5.0, center.y), egui::Align2::RIGHT_CENTER, "RIGHT / -Y"),
+    ] {
+        painter.text(position, anchor, label, egui::FontId::proportional(11.0), Color32::WHITE);
+    }
 }
 
 pub fn matrix(ui: &mut Ui, title: &str, value: &Value) {

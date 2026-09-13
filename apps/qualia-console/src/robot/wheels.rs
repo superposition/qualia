@@ -50,7 +50,7 @@ pub fn valid_transport(value: &Value) -> bool {
     let enabled = value["nonzero_enabled"].as_bool();
     let maximum = number(&value["max_wheel_speed_mps"]);
     value["schema"] == "qualia.wheel-transport.v1" && zero_only.is_some() && enabled.is_some() && zero_only != enabled
-        && maximum.is_some_and(|v| v > 0.0 && v <= 0.05)
+        && maximum.is_some_and(|v| v > 0.0 && v <= 0.1)
         && value["run_id"].as_str().is_some_and(|v| !v.is_empty() && v.len() <= 128)
         && value["published_unix_ns"].as_u64().is_some() && value["deadline_unix_ns"].as_u64().is_some()
         && value["transport_attached"].is_boolean() && value["transport"].is_object()
@@ -150,10 +150,19 @@ pub fn render(ui: &mut Ui, data: &Data) {
     if let Some(reasons) = value["hold_reasons"].as_array() {
         for reason in reasons { ui.colored_label(Color32::YELLOW, panels::text(reason)); }
     }
-    ui.label(format!("Nearest return {} m · gyro yaw {} rad/s", decimal(&value["body"]["nearest_return_m"]), decimal(&value["body"]["gyro_yaw_radps"])));
+    ui.label(format!("All-around nearest {} m · gyro yaw {} rad/s", decimal(&value["body"]["nearest_return_m"]), decimal(&value["body"]["gyro_yaw_radps"])));
+    if let Some(sector) = value["body"]["forward_sector"].as_object() {
+        let coverage = sector.get("coverage_fraction").and_then(number).filter(|v| (0.0..=1.0).contains(v))
+            .map(|v| format!("{:.0}%", v * 100.0)).unwrap_or_else(|| "unavailable".into());
+        ui.label(format!("Forward sector: nearest {} m · coverage {coverage} · {} unknown beams",
+            decimal(&value["body"]["forward_sector"]["min_return_m"]), panels::text(&value["body"]["forward_sector"]["unknown_beams"])));
+        ui.small(format!("Readout direction {} · selected {} clearance {} m; rear/side clearance remains separate.",
+            panels::text(&value["proposed"]["direction"]), panels::text(&value["proposed"]["clearance_sector"]),
+            decimal(&value["proposed"]["selected_clearance_m"])));
+    }
     egui::CollapsingHeader::new("Wheel input and frame evidence").show(ui, |ui| {
         if let Some(error) = &reading.error { ui.colored_label(Color32::YELLOW, error); }
-        for key in ["run_id", "vision", "body", "proposed", "emitted_frame", "frame_written_unix_ns", "decision_age_ms", "published_unix_ns", "deadline_unix_ns"] {
+        for key in ["run_id", "cruise_speed_mps", "directional_clearance_enabled", "vision", "body", "proposed", "emitted_frame", "frame_written_unix_ns", "decision_age_ms", "published_unix_ns", "deadline_unix_ns"] {
             panels::object(ui, key, &value[key]);
         }
         ui.small("T is the trace tick label. A JSONL frame is a readout result, not a robot acknowledgement.");

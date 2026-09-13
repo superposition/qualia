@@ -260,10 +260,12 @@ impl RobotConsole {
         ui.colored_label(if fresh {Color32::LIGHT_GREEN} else {Color32::YELLOW}, format!(
             "{} | {} returns | {:.1} Hz | {} ms", if fresh {"Live lidar"} else {"STALE lidar"}, scan.points.len(), scan.rate_hz.unwrap_or(0.0), now.saturating_sub(scan.timestamp_ms)));
         ui.label(format!("{} | current scan | +/-{:.1} m", scan.frame, self.extent));
+        ui.small("Forward +X up · left +Y left · operator-aligned reference, not metric calibration");
         if occupancy {
             if let Some((_, _, texture)) = &self.grid {
                 let size = ui.available_width().min(ui.available_height().max(160.0) - 30.0).min(470.0);
-                ui.add(egui::Image::new(texture).fit_to_exact_size(egui::vec2(size, size)));
+                let image = ui.add(egui::Image::new(texture).fit_to_exact_size(egui::vec2(size, size)));
+                panels::scan_axes(&ui.painter_at(image.rect), image.rect);
                 ui.label("Green occupied | teal measured free | dark unknown");
                 ui.label(format!("160 x 160 | {:.3} m/cell | no accumulated map", 2.0 * self.extent / lidar::SIDE as f32));
             }

@@ -1,0 +1,140 @@
+{
+  "schema": "qualia.console-temporal-evidence.v1",
+  "recorded_unix_ms": 1789266849129,
+  "console_pid": 5736,
+  "console_sha256": "37d56c5eb44c1034006d28e1a2825fc082f436223af1692a45494d32ce2f0220",
+  "build": {
+    "command": "cargo build --offline --locked -p qualia-console --bin qualia-console -j 2",
+    "cargo_target_dir": "C:/Users/ericm/qualia/target",
+    "exit_code": 0,
+    "elapsed_s": 5.91,
+    "additional_tests_run": false
+  },
+  "verification": "HTTP reads, UIA, console-window captures, non-actuating Occupancy display selection",
+  "actuator_controls_invoked_by_ui_agent": false,
+  "ui_text": [
+    "Current response | 721 cells | tick 866 | mean |ΔV| 8.99e-4",
+    "Eye input · R1",
+    "Measured · tick 866",
+    "Same image and tick",
+    "Peak |ΔV| 3.85e-3 · real tick-to-tick change, held until next tick. No generated spikes.",
+    "Fixed 0–0.003 model units · 31.5 s · gaps have no samples",
+    "Forward +X up · left +Y left · operator-aligned reference, not metric calibration",
+    "Consumed tick 149 · forwarded tick 149",
+    "Reported speed bound 0.100 m/s. Forwarding and mode flags do not prove wheel movement.",
+    "Forward sector: nearest 1.413 m · coverage 100% · 0 unknown beams"
+  ],
+  "source_readings_recorded_unix_ms": 1789266650074,
+  "source_samples": [
+    {
+      "schema": "qualia.flyvis-live.v1",
+      "path": "status",
+      "run_id": "49458c95-e2fd-4d0a-839b-27d884316c21",
+      "state": "running",
+      "tick": 773,
+      "payload_bytes": 35201,
+      "source_link": {
+        "input_sha256": "2db546bfe3affd1ecef93ad18f171e0661461aa9fca7ed6d4579016abbe2e76c",
+        "input_received_unix_ns": 1789266648782806215,
+        "output_completed_unix_ns": 1789266649930154985,
+        "hash_matches": true,
+        "receipt_matches": true,
+        "input_age_ms": 1334.3311120006547,
+        "output_age_ms": 186.97805400006473
+      }
+    },
+    {
+      "schema": "qualia.flyvis-retina.v1",
+      "path": "retina",
+      "run_id": "49458c95-e2fd-4d0a-839b-27d884316c21",
+      "state": "running",
+      "tick": 773,
+      "payload_bytes": 71713,
+      "cell_count": 721,
+      "signal": {
+        "field": "input_drive",
+        "min": 0.11249895393848419,
+        "max": 0.6311938762664795,
+        "mean_abs": 0.3976043540772552
+      },
+      "first_cell": {
+        "model_index": 0,
+        "u": -15,
+        "v": 0,
+        "input_drive": 0.18343940377235413
+      },
+      "source_link": {
+        "input_sha256": "2db546bfe3affd1ecef93ad18f171e0661461aa9fca7ed6d4579016abbe2e76c",
+        "input_received_unix_ns": 1789266648782806215,
+        "output_completed_unix_ns": 1789266649930154985,
+        "hash_matches": true,
+        "receipt_matches": true,
+        "input_age_ms": 1350.9083790013392,
+        "output_age_ms": 203.55532100074925
+      }
+    },
+    {
+      "schema": "qualia.flyvis-cells.v1",
+      "path": "cells?type=T4a",
+      "run_id": "49458c95-e2fd-4d0a-839b-27d884316c21",
+      "state": "running",
+      "tick": 773,
+      "payload_bytes": 100380,
+      "cell_count": 721,
+      "signal": {
+        "field": "delta_voltage",
+        "min": -0.004673302173614502,
+        "max": 0.005115687847137451,
+        "mean_abs": 0.0010231162903212973
+      },
+      "first_cell": {
+        "model_index": 24039,
+        "u": -15,
+        "v": 0,
+        "voltage": 0.23771321773529053,
+        "delta_voltage": 0.00046131014823913574
+      },
+      "source_link": {
+        "input_sha256": "2db546bfe3affd1ecef93ad18f171e0661461aa9fca7ed6d4579016abbe2e76c",
+        "input_received_unix_ns": 1789266648782806215,
+        "output_completed_unix_ns": 1789266649930154985,
+        "hash_matches": true,
+        "receipt_matches": true,
+        "input_age_ms": 1371.4825040005962,
+        "output_age_ms": 224.12944600000628
+      }
+    }
+  ],
+  "captures": [
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-temporal-before.png",
+      "sha256": "8121f8fe7263c477bb8584884bc6888cc566f9c11b66c80000dc17d035b55171",
+      "file_modified_unix_ms": 1789266560142,
+      "note": "Temporal-only deployed binary; source stale, gray values"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-temporal-final.png",
+      "sha256": "d9bd98cd63456010aa10b181dbae70414c62bbea1636c5b4eb9970c561dd8f5b",
+      "file_modified_unix_ms": 1789266699753,
+      "note": "Final deployed binary; forward-up reference"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-occupancy-forward.png",
+      "sha256": "5fbeebacca45d42075082dc5777601045a5cdf58e7afa02e9598fe7ae4193290",
+      "file_modified_unix_ms": 1789266767541,
+      "note": "Final binary; visibly live retina and signed change at tick1014"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-occupancy-forward-check.png",
+      "sha256": "915581a2e394e7f63be00fc3b8479d58d0f275dda73ec9fd50601a394f7ec3af",
+      "file_modified_unix_ms": 1789266802338,
+      "note": "Temporary occupancy inspection; same forward-up reference as point scan"
+    }
+  ],
+  "limitations": [
+    "Current samples turn historical after freshness expiry; a captured value is not continuing health.",
+    "Retina and cell routes are polled independently and identify their own image/tick.",
+    "Body frame display is an operator-aligned reference, not metric camera extrinsic calibration.",
+    "No actual motion, learned driving, or parameter update is established by this UI evidence."
+  ]
+}
