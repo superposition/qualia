@@ -110,6 +110,7 @@ pub fn cognition(ui: &mut Ui, data: &Data) {
 
 pub fn evidence(ui: &mut Ui, data: &Data) {
     ui.heading("Leash applied-action evidence");
+    super::wheels::probe(ui, data);
     let Some(reading) = data.sources.get("actions") else { ui.label("Waiting for action ledger"); return; };
     freshness(ui, reading, 5000);
     ui.label(format!("Epoch {} · latest sequence {}", text(&reading.value["producer_epoch"]), text(&reading.value["latest_sequence"])));
@@ -217,7 +218,7 @@ pub fn perception(ui: &mut Ui, data: &Data) {
 }
 
 pub fn mission(ui: &mut Ui, data: &Data) {
-    ui.label("Motion controls locked until acknowledgement repair and operator presence are confirmed.");
+    ui.label("Mission motion controls are disabled here. Action evidence shows dated integration results.");
     ui.horizontal_wrapped(|ui| {
         for label in ["Set goal", "Clear goal", "Explore", "Stop explore", "Start arena", "End arena", "Operator stop"] {
             ui.add_enabled(false, egui::Button::new(label));
@@ -241,48 +242,94 @@ pub fn mission(ui: &mut Ui, data: &Data) {
 }
 
 
-pub fn fly_inputs(ui: &mut Ui, data: &Data) {
-    let Some(reading) = data.sources.get("fly-inputs") else {
-        ui.label("Waiting for live producer input evidence"); return;
-    };
-    freshness(ui, reading, 1500);
-    let status = &reading.value;
-    let input = &status["input"];
-    let output = &status["output"];
-    let now = now_ms();
-    let age = input["received_ms"].as_u64().map(|t| now.saturating_sub(t));
-    let fresh = reading.fresh_at(now, 1500) && super::exploration::source_fresh(status, now);
-    ui.colored_label(if fresh {Color32::LIGHT_GREEN} else {Color32::YELLOW},
-        format!("{} | tick {} | age {} ms", if fresh {"Measured inputs"} else {"STALE inputs"}, text(&input["tick"]), age.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into())));
-    ui.label("Required sources: camera + IMU + odometry + lidar; engineering encoder");
-    if let Some(reason) = input["hold_reason"].as_str() { ui.colored_label(Color32::YELLOW, format!("Output held: {reason}")); }
-    if input["model_stepped"] == false { ui.colored_label(Color32::YELLOW, "No neural step for this acquisition"); }
-    let measured = &input["measured"];
-    egui::Grid::new("fly-input-evidence").num_columns(2).show(ui, |ui| {
-        for (label, value) in [
-            ("IMU timestamp", &measured["imu_ts_ms"]),
-            ("Lidar timestamp", &measured["lidar_ts_ms"]),
-            ("Odometry timestamp", &measured["odometry_ts_ms"]),
-            ("Gyroscope (rad/s)", &measured["angular_velocity_radps"]),
-            ("Acceleration incl. gravity (m/s2)", &measured["acceleration_including_gravity_mps2"]),
-            ("Odometry speed (m/s)", &input["odometry_speed_mps"]),
-            ("Fused yaw rate (rad/s)", &input["fused_yaw_rate_radps"]),
-            ("Nearest lidar return (m)", &measured["nearest_return_m"]),
-            ("Motion attenuation", &input["motion_attenuation"]),
-            ("Proximity attention", &input["proximity_attention"]),
-        ] { ui.label(label); ui.monospace(text(value)); ui.end_row(); }
-    });
-    if let Some(columns) = input["conditioned_columns"].as_array() {
-        ui.label("Sensor-conditioned camera columns");
-        for (i, value) in columns.iter().enumerate() {
-            ui.add(egui::ProgressBar::new(value.as_f64().unwrap_or(0.0) as f32).text(format!("{}: {:.3}", i + 1, value.as_f64().unwrap_or(0.0))));
-        }
+fn current_stamp(value: &Value, now: u64) -> bool {
+    value.as_u64().is_some_and(|stamp| stamp > 0 && stamp <= now.saturating_add(100) && now.saturating_sub(stamp) <= 1500)
+}
+
+fn sensor_age(value: &Value, now: u64) -> String {
+    match value.as_u64() {
+        Some(stamp) if stamp > now.saturating_add(100) => "future timestamp".into(),
+        Some(stamp) if stamp > 0 => format!("{} ms", now.saturating_sub(stamp)),
+        _ => "unavailable".into(),
     }
-    ui.label("Camera reports retrieval time; capture timestamp is unavailable.");
-    let paired = output["tick"] == input["tick"] && output["tick"].is_u64() && output["run_id"].is_string() && output["run_id"] == input["run_id"];
-    if paired {
-        ui.label(format!("Model decision {} | gated {} | proposal L {} / R {}", text(&output["neural_command"]), text(&output["gated_command"]), text(&output["proposed_left"]), text(&output["proposed_right"])));
-    } else { ui.label("No paired model output for the latest input"); }
-    ui.label(format!("Transport: {} | wheel limit {}", if status["transport_attached"] == false { "disconnected" } else if status["transport_attached"] == true { "attached" } else { "unknown" }, text(&output["max_wheel_speed"])));
-    ui.colored_label(Color32::YELLOW, "Model limitation: inhibitory receptor outputs have no calibrated downstream resting activity. Motor firing is not established.");
+}
+
+pub fn fly_inputs(ui: &mut Ui, data: &Data) {
+    ui.strong("Active CNS inputs");
+    let Some(reading) = data.sources.get("pretrained") else {
+        ui.label("Waiting for the active visual model's input evidence");
+        super::wheels::render(ui, data); super::wheels::probe(ui, data); return;
+    };
+    let now = now_ms();
+    let status = &reading.value;
+    if !super::pretrained::valid_status(status) {
+        ui.colored_label(Color32::YELLOW, "No valid active visual-model status");
+        super::wheels::render(ui, data); super::wheels::probe(ui, data); return;
+    }
+    let live = reading.fresh_at(now, 1500) && super::pretrained::fresh_link(status, now);
+    ui.colored_label(if live {Color32::LIGHT_GREEN} else {Color32::YELLOW}, format!(
+        "{} | tick {}", if live {"Current visual input"} else {"Visual input unavailable / stale"}, text(&status["tick"])));
+    ui.small("Camera enters vision; IMU, odometry and lidar feed the engineered wheel readout.");
+    let source = &status["source"];
+    let elapsed = now.saturating_sub(reading.received_ms) as f64;
+    let age = |value: &Value| value.as_f64().filter(|v| v.is_finite() && *v >= 0.0).map(|v| format!("{:.0}", v + elapsed)).unwrap_or_else(|| "unavailable".into());
+    ui.label(format!("Camera receipt: {} ms | model input: {} ms", age(&source["received_age_ms"]), age(&status["output"]["input_age_ms"])));
+
+    let context = &status["measured_context"];
+    let telemetry = &context["telemetry"];
+    let telemetry_data = &telemetry["data"];
+    let sensors = &telemetry_data["sensors"];
+    let received_ms = telemetry["received_unix_ns"].as_u64().map(|v| v / 1_000_000).unwrap_or(0);
+    let received = serde_json::json!(received_ms);
+    let context_current = reading.fresh_at(now, 1500) && telemetry["error"].is_null()
+        && current_stamp(&received, now)
+        && telemetry["age_ms"].as_f64().is_some_and(|v| v.is_finite() && (0.0..=1500.0).contains(&v));
+    let imu = &sensors["imu"]["sample"];
+    let odometry = &telemetry_data["odometry_pose"]["pose"];
+    let scan = &sensors["range_scan"]["sample"];
+    let vector = |value: &Value| ["x", "y", "z"].iter().all(|key| value[key].as_f64().is_some_and(f64::is_finite));
+    let imu_current = context_current && sensors["imu"]["status"] == "available"
+        && current_stamp(&imu["ts_ms"], now) && vector(&imu["angular_velocity_radps"]) && vector(&imu["linear_acceleration_mps2"]);
+    let odometry_current = context_current && current_stamp(&odometry["ts_ms"], now)
+        && ["x_m", "y_m", "yaw_rad"].iter().all(|key| odometry[key].as_f64().is_some_and(f64::is_finite));
+    let minimum = scan["range_min_m"].as_f64().filter(|v| v.is_finite() && *v >= 0.0);
+    let maximum = scan["range_max_m"].as_f64().filter(|v| v.is_finite());
+    let ranges: Vec<f64> = scan["ranges_m"].as_array().filter(|v| v.len() <= 10000).map(|values| {
+        values.iter().filter_map(Value::as_f64).filter(|v| v.is_finite() && minimum.is_some_and(|min| *v >= min) && maximum.is_some_and(|max| *v <= max)).collect()
+    }).unwrap_or_default();
+    let lidar_current = context_current && sensors["range_scan"]["status"] == "available" && current_stamp(&scan["ts_ms"], now) && !ranges.is_empty();
+    let wheel_body = data.sources.get("wheel-shadow").filter(|r| super::wheels::valid_status(&r.value) && r.value["body"].is_object());
+    let (body_rows, body_label) = if let Some(wheel) = wheel_body {
+        let body = &wheel.value["body"];
+        let fresh = super::wheels::current_decision(wheel, now) && body["oldest_age_ms"].as_f64()
+            .is_some_and(|v| v.is_finite() && v >= 0.0 && v + now.saturating_sub(wheel.received_ms) as f64 <= 1000.0);
+        let valid_stamp = |stamp: &Value| current_stamp(stamp, now) && stamp.as_u64().is_some_and(|v| now.saturating_sub(v) <= 1000);
+        ([ ("IMU", fresh && valid_stamp(&body["imu_ts_ms"]), &body["imu_ts_ms"]),
+           ("Odometry", fresh && valid_stamp(&body["odometry_ts_ms"]), &body["odometry_ts_ms"]),
+           ("Lidar", fresh && valid_stamp(&body["lidar_ts_ms"]), &body["lidar_ts_ms"]) ], "Body samples used by wheel readout")
+    } else {
+        ([("IMU", imu_current, &imu["ts_ms"]), ("Odometry", odometry_current, &odometry["ts_ms"]), ("Lidar", lidar_current, &scan["ts_ms"])], "Body context; wheel inputs unavailable")
+    };
+    ui.small(body_label);
+    egui::Grid::new("active-body-inputs").striped(true).show(ui, |ui| {
+        for label in ["Body source", "State", "Source age"] { ui.strong(label); } ui.end_row();
+        for (label, fresh, stamp) in body_rows {
+            ui.label(label); ui.colored_label(if fresh {Color32::LIGHT_GREEN} else {Color32::YELLOW}, if fresh {"Current"} else {"Stale"}); ui.label(sensor_age(stamp, now)); ui.end_row();
+        }
+    });
+    ui.separator(); super::wheels::render(ui, data); super::wheels::probe(ui, data);
+    egui::CollapsingHeader::new("Input provenance and context").show(ui, |ui| {
+        ui.label(format!("Visual model run {}", text(&status["run_id"])));
+        ui.small("Camera exposure time is unknown; receipt and image hash link the input to its response. Body measurements are not injected into the pretrained visual model.");
+        ui.label(format!("Gyroscope rad/s: {}", text(&imu["angular_velocity_radps"])));
+        ui.label(format!("Acceleration incl. gravity m/s^2: {}", text(&imu["linear_acceleration_mps2"])));
+        ui.label(format!("Odometry: x {} m / y {} m / yaw {} rad", text(&odometry["x_m"]), text(&odometry["y_m"]), text(&odometry["yaw_rad"])));
+        let nearest = ranges.iter().copied().reduce(f64::min).map(|v| format!("{v:.3} m")).unwrap_or_else(|| "unavailable".into());
+        ui.label(format!("Nearest valid lidar return: {nearest}"));
+        if let Some(error) = &reading.error { ui.colored_label(Color32::YELLOW, error); }
+        if let Some(error) = telemetry["error"].as_str() { ui.colored_label(Color32::YELLOW, error); }
+        object(ui, "Camera source", source);
+        object(ui, "Body receipt", &received);
+        object(ui, "Lighting context", &context["camera_lights"]);
+    });
 }

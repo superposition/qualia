@@ -1,0 +1,125 @@
+{
+  "schema": "qualia.console-ui-evidence.v1",
+  "recorded_unix_ms": 1789263016786,
+  "console_pid": 30832,
+  "console_sha256": "3c8027dd60e2d6c65ca2b4a07375daa62440008ed776299c66e62d409d861bc9",
+  "verification": "HTTP reads, UIA, non-actuating matrix selection and maximized console-window capture",
+  "actuator_controls_invoked": false,
+  "latest_ui_text": [
+    "Recorded zero probe: HTTP 200 · stop ACK true",
+    "LIVE measured response · state running · frame 3168 · tick 3163",
+    "Current cell values · 721 cells · 563 positive · tick 3164",
+    "model configured",
+    "deepseek-flash",
+    "deepseek-flash · tokens 3342/69",
+    "Consumed tick 2895 · forwarded tick 2895",
+    "Zero drive: HTTP 200 · ok true",
+    "Verified stop: HTTP 200 · acknowledged true",
+    "Live substep · T4a · tick 3163",
+    "Cell 24039",
+    "pre 0.276593",
+    "post 0.276637",
+    "tau 0.0198 s",
+    "alpha 1.0000",
+    "dt 0.0200 s"
+  ],
+  "host_belief_ui_text": [
+    "Sequence 7579 · published layer state",
+    "Linear color scale ±0.98770; no interpolated values.",
+    "Precision 0.8789 · prediction error 0.0091 · learning signal 0.3131"
+  ],
+  "dated_source_readings": {
+    "checked_at_unix_ms": 1789262937082,
+    "host_layers": [
+      {
+        "layer": 3,
+        "sequence": 7157,
+        "learning_signal": 0.3194218,
+        "activation_nonzero": 73,
+        "weight_delta_nonzero": 8
+      },
+      {
+        "layer": 4,
+        "sequence": 1892,
+        "learning_signal": 0.30860773,
+        "activation_nonzero": 73,
+        "weight_delta_nonzero": 8
+      },
+      {
+        "layer": 5,
+        "sequence": 423,
+        "learning_signal": 0.30942786,
+        "activation_nonzero": 73,
+        "weight_delta_nonzero": 8
+      },
+      {
+        "layer": 6,
+        "sequence": 94,
+        "learning_signal": 0.18545213,
+        "activation_nonzero": 73,
+        "weight_delta_nonzero": 8
+      }
+    ],
+    "bridge": {
+      "schema": "qualia.wheel-transport.v1",
+      "run_id": "79803d9a-4fd1-4187-a9a1-af23ff4f503b",
+      "state": "connected_zero_only",
+      "zero_only": true,
+      "nonzero_enabled": false,
+      "max_wheel_speed_mps": 0.05,
+      "transport_attached": true,
+      "forwarded_frame": {
+        "T": 2727,
+        "L": 0.0,
+        "R": 0.0
+      },
+      "forwarded_count": 518
+    },
+    "transport": {
+      "process_alive": true,
+      "stdin_open": true,
+      "session_label": "3c1b15c2",
+      "last_consumed_tick": 2727
+    }
+  },
+  "private_captures": [
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-final-uia.json",
+      "sha256": "ebf1ffec672dbefcf3ae2fce0dc21cb252fb8321c3d673509a97223b9742e5bb"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-matrix-weights.json",
+      "sha256": "d8fb5166e7ec8f8f1c66d4b21a225ab1031adcb5561ea93ffacb7bb1cb139086"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-matrix-weights.png",
+      "sha256": "a4688f79a12b56ccf4a9c863507e3b00f9a898e23c68044ae030bda556a75049"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-matrix-host-beliefs.json",
+      "sha256": "96bae82618c4327e2d82ab813b4ff2e46d5f70541db658e8cd8350f47ea05f4e"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-matrix-host-beliefs.png",
+      "sha256": "ee360b7f76fe92f04caeacc1c517e86b19283858a78b3f4cdfc8339a979c9d71"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-matrix-recurrence.json",
+      "sha256": "72496f9b0bf9c92b52e9760f3532fcc560554460fc16bbea9cce8fe778e9d7e5"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-matrix-robot-l2.json",
+      "sha256": "48be5e09c6d32171993c02a9a124eb40dd2d02162e7768c465002a6662700d15"
+    },
+    {
+      "path": "C:\\Users\\ericm\\.local\\state\\qualia\\console-runtime\\console-final-sources.json",
+      "sha256": "45cb902974f1b24d7a663f960dd5d7e44b5fd35d8f7c0e659498845b432a1583"
+    }
+  ],
+  "limits": [
+    "No nonzero motion or operator authorization inferred.",
+    "Global ledger is not session-attributed.",
+    "Pretrained weights are frozen; DeepSeek guidance does not update them.",
+    "Recurrence/Robot L2 mode captures predate the final layout-only revision; final default and Host beliefs captures use the recorded console SHA."
+  ]
+}

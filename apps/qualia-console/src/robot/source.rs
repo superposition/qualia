@@ -25,6 +25,7 @@ pub struct Data {
     pub camera_error: Option<String>,
     pub observing: bool,
     pub observation: Option<Reading>,
+    pub neuron_type: String,
 }
 
 pub struct Monitor {
@@ -60,6 +61,10 @@ fn validate(name: &str, value: Value) -> Result<Value, String> {
         "actions" => value["schema_version"] == "leash.applied-action-page.v1" && value["entries"].is_array(),
         "lighting" => super::lighting::valid_status(&value),
         "pretrained" => super::pretrained::valid_status(&value),
+        "neurons" => super::neurons::valid_status(&value),
+        "wheel-shadow" => super::wheels::valid_status(&value),
+        "model-matrices" => super::matrices::valid_status(&value),
+        "wheel-transport" => super::wheels::valid_transport(&value),
         "host-health" => value["healthy"].is_boolean() && value["ready"].is_boolean(),
         "host-world" => value["schema_version"] == "world.v1" && value["nav"].is_object(),
         "host-sketch" => value["schema_version"] == "qualia.belief-sketch.v1" && value["canonical"].is_array(),
@@ -85,15 +90,17 @@ fn mcp_error(value: &Value) -> Option<String> {
 
 impl Monitor {
     pub fn new(robot_url: String, agent_url: String) -> Self {
-        let data = Arc::new(Mutex::new(Data::default()));
+        let data = Arc::new(Mutex::new(Data { neuron_type: "T4a".into(), ..Data::default() }));
         let stop = Arc::new(AtomicBool::new(false));
         // Sensor and camera cadence is independent of optional host services.
-        for lane in 0..5 {
+        for lane in 0..11 {
             let shared = Arc::clone(&data);
             let stopping = Arc::clone(&stop);
             let robot = robot_url.clone();
             let agent = agent_url.clone();
             let pretrained = super::pretrained::endpoint(&robot_url);
+            let wheels = super::wheels::endpoint(&robot_url);
+            let transport = super::wheels::transport_endpoint();
             std::thread::spawn(move || {
                 let mut builder = reqwest::blocking::Client::builder()
                     .connect_timeout(Duration::from_millis(700))
@@ -130,13 +137,21 @@ impl Monitor {
                             Err(error) => guard.camera_error = Some(error),
                         }
                     } else {
+                        let neuron_type = shared.lock().unwrap().neuron_type.clone();
+                        let neuron_url = reqwest::Url::parse(&pretrained).ok().map(|mut url| {
+                            url.set_path("/cells"); url.set_query(None);
+                            url.query_pairs_mut().append_pair("type", &neuron_type);
+                            url.to_string()
+                        }).unwrap_or_else(|| "invalid neuron producer URL".into());
+                        let matrix_url = reqwest::Url::parse(&neuron_url).ok().map(|mut url| {
+                            url.set_path("/matrices"); url.to_string()
+                        }).unwrap_or_else(|| "invalid model matrix URL".into());
                         let paths: &[(&str, &str, &str)] = if lane == 0 {
                             &[("sensors", &robot, "/sensors")]
                         } else if lane == 2 {
                             &[
                                 ("health", &robot, "/health"),
                                 ("lighting", &robot, "/camera/lights"),
-                                ("cognition", &robot, "/cognition/status"),
                                 ("spatial", &robot, "/telemetry/compact"),
                                 ("actions", &robot, "/action-evidence?limit=1"),
                                 ("robot-agent", &robot, "/agent/state"),
@@ -145,16 +160,26 @@ impl Monitor {
                             &[
                                 ("host-health", &agent, "/health/ready"),
                                 ("host-world", &agent, "/world/snapshot"),
-                                ("host-belief", &agent, "/belief/status"),
                                 ("host-perception", &agent, "/perception/status"),
                                 ("host-arena", &agent, "/arena/status"),
-                                ("host-sketch", &agent, "/belief/sketch"),
                                 ("host-costmap", &agent, "/planner/costmap"),
                                 ("host-explore", &agent, "/explore/status"),
                                 ("host-entities", &agent, "/entities"),
                             ]
-                        } else {
+                        } else if lane == 4 {
                             &[("pretrained", &pretrained, "")]
+                        } else if lane == 5 {
+                            &[("neurons", &neuron_url, "")]
+                        } else if lane == 6 {
+                            &[("wheel-shadow", &wheels, "")]
+                        } else if lane == 7 {
+                            &[("model-matrices", &matrix_url, "")]
+                        } else if lane == 8 {
+                            &[("cognition", &robot, "/cognition/status")]
+                        } else if lane == 9 {
+                            &[("host-belief", &agent, "/belief/status"), ("host-sketch", &agent, "/belief/sketch")]
+                        } else {
+                            &[("wheel-transport", &transport, "")]
                         };
                         for (name, base, path) in paths {
                             if stopping.load(Ordering::Acquire) { return; }
@@ -176,11 +201,11 @@ impl Monitor {
                             }
                         }
                     }
-                    std::thread::sleep(Duration::from_millis(if lane == 4 { 250 } else if lane >= 2 { 1000 } else { 200 }));
+                    std::thread::sleep(Duration::from_millis(if lane >= 4 { 250 } else if lane >= 2 { 1000 } else { 200 }));
                 }
             });
         }
-        for (environment, source_name) in [("QUALIA_FLY_STATUS", "fly-inputs"), ("QUALIA_PERCEPTION_STATUS", "perception-observation")] {
+        for (environment, source_name) in [("QUALIA_FLY_STATUS", "fly-inputs"), ("QUALIA_PERCEPTION_STATUS", "perception-observation"), ("QUALIA_WHEEL_PROBE_STATUS", "wheel-probe")] {
         if let Ok(path) = std::env::var(environment) {
             let shared = Arc::clone(&data);
             let stopping = Arc::clone(&stop);
@@ -189,15 +214,17 @@ impl Monitor {
                     let result = std::fs::File::open(&path).map_err(|e| e.to_string()).and_then(|file| {
                         let mut bytes = Vec::new();
                         file.take(65537).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-                        if bytes.len() > 65536 { return Err("Fly status exceeds 64 KiB".into()); }
+                        if bytes.len() > 65536 { return Err("Runtime status exceeds 64 KiB".into()); }
                         let value: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-                        if value["published_ms"].as_u64().is_none() { return Err("Fly status has no publication timestamp".into()); }
+                        if source_name == "wheel-probe" {
+                            if !super::wheels::valid_probe(&value) { return Err("Wheel probe has no valid dated integration result".into()); }
+                        } else if value["published_ms"].as_u64().is_none() { return Err("Runtime status has no publication timestamp".into()); }
                         Ok(value)
                     });
                     let mut guard = shared.lock().unwrap();
                     let reading = guard.sources.entry(source_name.into()).or_default();
                     match result {
-                        Ok(value) => { reading.received_ms = value["published_ms"].as_u64().unwrap(); reading.value = value; reading.error = None; }
+                        Ok(value) => { reading.received_ms = if source_name == "wheel-probe" { now_ms() } else { value["published_ms"].as_u64().unwrap() }; reading.value = value; reading.error = None; }
                         Err(error) => reading.error = Some(error),
                     }
                     drop(guard);

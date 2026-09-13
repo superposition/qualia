@@ -1,26 +1,31 @@
-//! Live robot views use the robot's published HTTP readings. They do not send
-//! motor commands or turn a missing host producer into a simulated reading.
+//! Live views use published HTTP readings; the separate gimbal client controls
+//! only camera aim. Missing sources never become simulated readings.
 mod lidar;
 mod lighting;
+mod gimbal;
+mod neurons;
 mod pretrained;
 mod exploration;
 mod panels;
 mod source;
 mod spatial;
+mod wheels;
+mod matrices;
 
 use egui::{Color32, TextureHandle, TextureOptions};
 use source::{Data, Monitor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Dialog { Camera, Lidar, Occupancy, Brain, Inputs, Coach, Cognition, Matrices, World, Perception, Mission, Evidence, Compute, Telemetry, Diagnostics, Braid, Recordings, Lighting, Pretrained }
-const DIALOGS: [(Dialog, &str); 19] = [
-    (Dialog::Pretrained, "Pretrained vision"), (Dialog::Camera, "Camera"), (Dialog::Lighting, "Lighting"), (Dialog::Coach, "DeepSeek console"),
-    (Dialog::Mission, "Exploration + score + MCP"), (Dialog::Perception, "Visual processing"),
-    (Dialog::Lidar, "Lidar"), (Dialog::Occupancy, "Occupancy"), (Dialog::Inputs, "Fly inputs"),
-    (Dialog::Evidence, "Action evidence"), (Dialog::Cognition, "Seven layers"), (Dialog::Matrices, "Belief matrices"),
+enum Dialog { Camera, Lidar, Occupancy, Brain, Inputs, Coach, Cognition, Matrices, World, Perception, Mission, Evidence, Compute, Telemetry, Diagnostics, Braid, Recordings, Lighting, Pretrained, Gimbal }
+const DIALOGS: [(Dialog, &str); 20] = [
+    (Dialog::Pretrained, "Brain"), (Dialog::Camera, "Camera"), (Dialog::Coach, "DeepSeek"),
+    (Dialog::Gimbal, "Camera gimbal"), (Dialog::Lighting, "Lighting"), (Dialog::Lidar, "Lidar"),
+    (Dialog::Inputs, "CNS inputs + wheel readout"), (Dialog::Perception, "Visual processing"),
+    (Dialog::Occupancy, "Occupancy"), (Dialog::Mission, "Exploration + score + MCP"),
+    (Dialog::Evidence, "Action evidence"), (Dialog::Cognition, "Seven layers"), (Dialog::Matrices, "Model matrices"),
     (Dialog::World, "World + route"), (Dialog::Compute, "Compute"), (Dialog::Telemetry, "Robot telemetry"),
     (Dialog::Diagnostics, "Diagnostics"), (Dialog::Braid, "Braid"), (Dialog::Recordings, "Recordings"),
-    (Dialog::Brain, "Legacy connectome spikes"),
+    (Dialog::Brain, "CNS spike stream"),
 ];
 
 pub struct RobotConsole {
@@ -36,21 +41,27 @@ pub struct RobotConsole {
     scan_error: Option<String>,
     scan_advanced_ms: u64,
     spatial: spatial::SpatialView,
-    weight_delta: bool,
+    matrices: matrices::MatrixView,
     pretrained: pretrained::PretrainedView,
     pretrained_url: String,
+    gimbal: gimbal::GimbalView,
 }
 
 impl RobotConsole {
     pub fn from_env() -> Option<Self> {
         let robot_url = std::env::var("QUALIA_LEASH_BASE_URL").ok()?.trim_end_matches('/').to_owned();
         if robot_url.is_empty() { return None; }
+        let mut open = [false; DIALOGS.len()];
+        for (index, (dialog, _)) in DIALOGS.iter().enumerate() {
+            open[index] = matches!(dialog, Dialog::Pretrained | Dialog::Camera | Dialog::Coach | Dialog::Gimbal | Dialog::Lidar | Dialog::Inputs | Dialog::Matrices);
+        }
         Some(Self {
             monitor: Monitor::new(robot_url.clone(), crate::client::agent_url()),
             pretrained_url: pretrained::endpoint(&robot_url), pretrained: pretrained::PretrainedView::default(),
-            robot_url, open: [true; DIALOGS.len()], arrange: true, last_size: egui::Vec2::ZERO, extent: 6.0, camera: None,
+            gimbal: gimbal::GimbalView::new(&robot_url),
+            robot_url, open, arrange: true, last_size: egui::Vec2::ZERO, extent: 6.0, camera: None,
             grid: None, scan: None, scan_error: None, scan_advanced_ms: 0,
-            spatial: spatial::SpatialView::default(), weight_delta: false,
+            spatial: spatial::SpatialView::default(), matrices: matrices::MatrixView::default(),
         })
     }
 
@@ -106,7 +117,7 @@ impl RobotConsole {
                     ui.label(format!("{} · {}", panels::text(&health.value["role"]), panels::text(&health.value["mode"])));
                 }
                 ui.separator();
-                ui.label("Console controls locked · acknowledgement repair unconfirmed");
+                ui.label("Wheel commands disabled here · see Action evidence");
             });
             ui.horizontal(|ui| {
                 ui.menu_button("Dialogs", |ui| {
@@ -117,6 +128,7 @@ impl RobotConsole {
                 if let Some(health) = data.sources.get("health") {
                     ui.label(format!("Reported estop: {} | deadman OK: {}", panels::text(&health.value["estop"]), panels::text(&health.value["deadman_ok"])));
                 }
+                wheels::probe_summary(ui, &data);
             });
             let mut issues: Vec<String> = data.sources.iter().filter_map(|(name, reading)| {
                 reading.error.as_ref().map(|error| format!("{name}: {error}"))
@@ -137,19 +149,36 @@ impl RobotConsole {
         }
         let count = self.open.iter().filter(|open| **open).count().max(1);
         let columns = if bounds.width() >= 2400.0 { 5 } else if bounds.width() >= 1500.0 { 4 } else { 3 };
-        let primary = self.open[0];
-        let rows = (count + if primary { 3 } else { 0 }).div_ceil(columns).max(if primary { 2 } else { 1 });
+        let rows = count.div_ceil(columns);
         let cell = egui::vec2(bounds.width() / columns as f32, bounds.height() / rows as f32);
+        let primary_count = self.open[..3].iter().filter(|v| **v).count();
+        let focus_layout = count <= 8 && primary_count > 0;
+        let weights = [0.40, 0.27, 0.33];
+        let primary_weight: f32 = (0..3).filter(|i| self.open[*i]).map(|i| weights[i]).sum();
+        let auxiliary_count = count.saturating_sub(primary_count);
+        let primary_height = bounds.height() * if auxiliary_count > 0 { 0.63 } else { 1.0 };
+        let auxiliary_columns = auxiliary_count.clamp(1, 4);
+        let auxiliary_rows = auxiliary_count.div_ceil(auxiliary_columns).max(1);
+        let mut primary_x = bounds.left();
+        let mut auxiliary = 0;
         let mut visible = 0;
         for (index, (dialog, title)) in DIALOGS.iter().copied().enumerate() {
             let mut open = self.open[index];
             if !open { continue; }
-            let (column, row, span) = if primary && index == 0 { (0, 0, 2.0) } else {
-                while primary && visible / columns < 2 && visible % columns < 2 { visible += 1; }
-                let position = (visible % columns, visible / columns, 1.0); visible += 1; position
+            let (position, available) = if focus_layout && index < 3 {
+                let width = bounds.width() * weights[index] / primary_weight;
+                let position = egui::pos2(primary_x + 5.0, bounds.top() + 5.0);
+                primary_x += width;
+                (position, egui::vec2(width, primary_height))
+            } else if focus_layout {
+                let size = egui::vec2(bounds.width()/auxiliary_columns as f32, (bounds.height()-primary_height)/auxiliary_rows as f32);
+                let position = bounds.min + egui::vec2((auxiliary%auxiliary_columns) as f32*size.x+5.0, primary_height+(auxiliary/auxiliary_columns) as f32*size.y+5.0);
+                auxiliary += 1; (position,size)
+            } else {
+                (bounds.min + egui::vec2((visible%columns) as f32*cell.x+5.0,(visible/columns) as f32*cell.y+5.0),cell)
             };
-            let position = bounds.min + egui::vec2(column as f32 * cell.x + 5.0, row as f32 * cell.y + 5.0);
-            let size = egui::vec2((cell.x * span - 20.0).max(240.0), (cell.y * span - 42.0).max(120.0));
+            visible += 1;
+            let size = egui::vec2((available.x-20.0).max(240.0),(available.y-42.0).max(120.0));
             let mut window = egui::Window::new(title).id(egui::Id::new(("live-dialog", index)))
                 .open(&mut open).collapsible(false).resizable(true)
                 .default_pos(position).default_size(size).min_size([230.0, 110.0]);
@@ -169,13 +198,13 @@ impl RobotConsole {
             Dialog::Lidar => self.lidar_panel(ui, false),
             Dialog::Occupancy => self.lidar_panel(ui, true),
             Dialog::Brain => {
-                ui.colored_label(Color32::YELLOW, "Legacy CNS run ended; this spike stream is unused by pretrained vision.");
+                ui.label("CNS spike evidence is separate from the graded visual response shown in Brain.");
                 panels::brain(ui, state);
             }
             Dialog::Inputs => panels::fly_inputs(ui, data),
             Dialog::Coach => crate::views::coach::render(ui, state),
             Dialog::Cognition => panels::cognition(ui, data),
-            Dialog::Matrices => self.matrices(ui, data),
+            Dialog::Matrices => self.matrices.render(ui, data),
             Dialog::World => self.spatial.render(ui, data),
             Dialog::Perception => panels::perception(ui, data),
             Dialog::Mission => {
@@ -213,30 +242,13 @@ impl RobotConsole {
             }
             Dialog::Recordings => crate::views::evidence::render(ui, state),
             Dialog::Lighting => lighting::render(ui, data),
-            Dialog::Pretrained => self.pretrained.render(ui, data, &self.pretrained_url),
-        }
-    }
-
-    fn matrices(&mut self, ui: &mut egui::Ui, data: &Data) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.weight_delta, false, "Activity");
-            ui.selectable_value(&mut self.weight_delta, true, "Weight delta");
-        });
-        if let Some(sketch) = data.sources.get("host-sketch") {
-            panels::freshness(ui, sketch, 5000);
-            if let Some(layers) = sketch.value["canonical"].as_array() {
-                for pair in layers.chunks(2) {
-                    ui.columns(2, |columns| {
-                        for (layer, column) in pair.iter().zip(columns.iter_mut()) {
-                            column.label(format!("L{} | seq {}", panels::text(&layer["layer"]), panels::text(&layer["sequence"])));
-                            if layer["sequence"].as_u64().unwrap_or(0) == 0 { column.colored_label(Color32::YELLOW, "No published activity"); }
-                            panels::matrix(column, if self.weight_delta {"Weight delta"} else {"Activation"}, &layer[if self.weight_delta {"weight_delta"} else {"activation"}]);
-                            column.label(format!("Learning signal {}", panels::text(&layer["learning_signal"])));
-                        }
-                    });
+            Dialog::Pretrained => {
+                self.pretrained.render(ui, data, &self.pretrained_url);
+                if data.neuron_type != self.pretrained.neurons.selected_type {
+                    self.monitor.data.lock().unwrap().neuron_type = self.pretrained.neurons.selected_type.clone();
                 }
             }
-            panels::object(ui, "Persistence", &sketch.value["persistence"]);
+            Dialog::Gimbal => self.gimbal.render(ui, data),
         }
     }
 

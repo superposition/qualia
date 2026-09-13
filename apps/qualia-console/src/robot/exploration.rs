@@ -17,7 +17,7 @@ fn stamp_fresh(stamp: &serde_json::Value, now: u64) -> bool {
 pub fn render(ui: &mut Ui, data: &Data) {
     let now = now_ms();
     ui.strong("Goal: explore and build a localized map");
-    ui.colored_label(Color32::YELLOW, "Physical execution held: acknowledgement repair unconfirmed");
+    ui.colored_label(Color32::YELLOW, "Wheel commands are disabled here; Action evidence shows recorded integration outcomes.");
     let perception = data.sources.get("perception-observation")
         .filter(|r| r.fresh_at(now, 1500) && r.value["state"] == "live" && r.value["schema_version"] == "qualia.perception-observation.v1"
             && stamp_fresh(&r.value["camera_request_started_ms"], now) && stamp_fresh(&r.value["camera_received_ms"], now));

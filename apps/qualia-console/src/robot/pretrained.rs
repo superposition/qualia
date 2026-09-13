@@ -22,12 +22,7 @@ fn hash(value: &Value) -> bool {
 }
 pub fn valid_status(value: &Value) -> bool {
     value["schema"] == "qualia.flyvis-live.v1"
-        && value["activity_kind"] == "graded_model_voltage"
-        && value["parameters_frozen"] == true && value["controls_locked"] == true
-        && value["run_id"].as_str().is_some_and(|v| !v.is_empty())
-        && value["published_unix_ns"].as_u64().is_some()
-        && matches!(value["state"].as_str(), Some("starting" | "waiting_for_camera" | "warming_up" | "running" | "stale" | "memory_hold" | "stopped" | "failed"))
-        && value["model"].is_object() && value["source"].is_object()
+        && valid_envelope(value)
         && (value["output"].is_null() || value["output"]["per_type"].as_array().is_some_and(|rows| {
             rows.len() <= 256 && rows.iter().all(|row| {
                 row["cell_type"].as_str().is_some_and(|v| !v.is_empty() && v.len() <= 128)
@@ -36,6 +31,15 @@ pub fn valid_status(value: &Value) -> bool {
                         .iter().all(|key| number(&row[key]).is_some())
             })
         }))
+}
+
+pub(super) fn valid_envelope(value: &Value) -> bool {
+    value["activity_kind"] == "graded_model_voltage"
+        && value["parameters_frozen"] == true && value["controls_locked"] == true
+        && value["run_id"].as_str().is_some_and(|v| !v.is_empty())
+        && value["published_unix_ns"].as_u64().is_some()
+        && matches!(value["state"].as_str(), Some("starting" | "waiting_for_camera" | "warming_up" | "running" | "stale" | "memory_hold" | "stopped" | "failed"))
+        && value["model"].is_object() && value["source"].is_object()
 }
 
 fn fresh_ns(value: &Value, now: u64) -> bool {
@@ -48,12 +52,17 @@ fn fresh_age(value: &Value) -> bool {
     number(value).is_some_and(|age| (0.0..=FRESH_MS as f64).contains(&age))
 }
 fn fresh(reading: &Reading, now: u64) -> bool {
-    let value = &reading.value; let source = &value["source"]; let output = &value["output"];
-    reading.fresh_at(now, FRESH_MS) && valid_status(value) && value["state"] == "running"
+    reading.fresh_at(now, FRESH_MS) && valid_status(&reading.value) && fresh_link(&reading.value, now)
+}
+pub(super) fn fresh_link(value: &Value, now: u64) -> bool {
+    let source = &value["source"]; let output = &value["output"];
+    value["state"] == "running"
         && value["error"].is_null() && fresh_ns(&value["published_unix_ns"], now)
         && fresh_ns(&source["request_started_unix_ns"], now) && fresh_ns(&source["received_unix_ns"], now)
         && fresh_ns(&output["completed_unix_ns"], now) && fresh_ns(&output["input_received_unix_ns"], now)
         && source["request_started_unix_ns"].as_u64() <= source["received_unix_ns"].as_u64()
+        && source["received_unix_ns"].as_u64() <= output["completed_unix_ns"].as_u64()
+        && output["completed_unix_ns"].as_u64() <= value["published_unix_ns"].as_u64()
         && source["received_unix_ns"] == output["input_received_unix_ns"]
         && hash(&source["jpeg_sha256"]) && source["jpeg_sha256"] == output["input_sha256"]
         && fresh_age(&source["received_age_ms"]) && fresh_age(&output["age_ms"]) && fresh_age(&output["input_age_ms"])
@@ -72,10 +81,11 @@ pub struct PretrainedView {
     run: String,
     last_output: u64,
     history: VecDeque<(u64, f64)>,
+    pub neurons: super::neurons::NeuronView,
 }
 impl PretrainedView {
     pub fn render(&mut self, ui: &mut Ui, data: &Data, producer: &str) {
-        ui.strong("Pretrained fly vision · graded model voltage");
+        ui.strong("CNS visual response · graded model voltage");
         ui.small(producer);
         let Some(reading) = data.sources.get("pretrained") else {
             ui.label("Waiting for the pretrained model's published status"); return;
@@ -105,10 +115,11 @@ impl PretrainedView {
         let elapsed = now.saturating_sub(reading.received_ms);
         ui.label(format!("Camera receipt {} · output {} · output input {}",
             age_text(&value["source"]["received_age_ms"], elapsed), age_text(&output["age_ms"], elapsed), age_text(&output["input_age_ms"], elapsed)));
-        ui.label(format!("Compute {} ms · mean voltage {} · mean |change| {}", decimal(&value["compute_ms"]), decimal(&output["voltage_mean"]), decimal(&output["mean_abs_delta_from_previous"])));
-        ui.small("Camera luminance drives this model. Graded values are not spikes or Hz. Camera exposure time is unknown.");
+        let change = number(&output["mean_abs_delta_from_previous"]).map(|v| format!("{v:.3e}")).unwrap_or_else(|| "unavailable".into());
+        ui.label(format!("Compute {} ms · mean voltage {} · mean |change| {change}", decimal(&value["compute_ms"]), decimal(&output["voltage_mean"])));
+        self.neurons.render(ui, data, value);
         self.plot(ui, live);
-        egui::CollapsingHeader::new("Cell-type responses").default_open(true).show(ui, |ui| {
+        egui::CollapsingHeader::new("Cell-type summary").default_open(false).show(ui, |ui| {
             if let Some(rows) = output["per_type"].as_array() {
                 egui::Grid::new("pretrained-types").striped(true).show(ui, |ui| {
                     for label in ["Cell type", "Cells", "Mean voltage", "Mean |change|"] { ui.strong(label); } ui.end_row();
@@ -119,7 +130,8 @@ impl PretrainedView {
                 });
             } else { ui.label("No computed response published"); }
         });
-        egui::CollapsingHeader::new("Source, model and errors").show(ui, |ui| {
+        egui::CollapsingHeader::new("Source, model and errors").default_open(false).show(ui, |ui| {
+            ui.label("Camera luminance drives this model. Values are not spikes or Hz; camera exposure time is unknown.");
             ui.label(format!("Run {run}"));
             if let Some(error) = &reading.error { ui.colored_label(Color32::YELLOW, error); }
             if let Some(error) = value["error"].as_str() { ui.colored_label(Color32::YELLOW, error); }
