@@ -1,0 +1,25 @@
+{
+  "schema": "qualia.wheel-motion-launch-recipe.v1",
+  "enabled": false,
+  "pending": "Explicit operator presence and clear-space confirmation; current near lidar must remain a hold",
+  "script": "scripts/wheel_transport.py",
+  "arguments_after_approval": [
+    "--transport", "C:/Users/ericm/qualia/target/debug/qualia-leash-transport.exe",
+    "--run-dir", "C:/Users/ericm/.local/state/qualia/console-runtime/wheel-motion-NEW",
+    "--producer-url", "http://10.0.0.180:8092/status",
+    "--base-url", "http://10.0.0.180:8000",
+    "--arena", "/qualia_observe_20260912",
+    "--seconds", "30",
+    "--port", "8093",
+    "--motion-authorized"
+  ],
+  "credential": "Operator supplies protected QUALIA_LEASH_OPERATOR_TOKEN_FILE; no credential value is stored here",
+  "speed_mode": "low",
+  "wheel_absolute_ceiling_mps": 0.05,
+  "clearance_hold_m": 0.25,
+  "deadman_ms": 500,
+  "source_reacquisition_ms": 3000,
+  "max_outstanding_ticks": 1,
+  "requires_fresh_original_inputs": true,
+  "recorded_nonzero_demonstration": false
+}

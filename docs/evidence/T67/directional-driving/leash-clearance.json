@@ -1,0 +1,84 @@
+{
+  "available": true,
+  "forward": {
+    "angular_fallback": false,
+    "blocked": false,
+    "closest_observed_deg": -54.999999999999986,
+    "closest_observed_m": 1.418,
+    "collision_blocked": false,
+    "considered_bins": 121,
+    "logical_command": {
+      "left": 1.0,
+      "right": 1.0
+    },
+    "reason": null,
+    "sector_center_deg": 0.0,
+    "sector_half_width_deg": 60.0,
+    "unknown_bins": 0,
+    "valid_bins": 121
+  },
+  "frame_id": "base_scan",
+  "gate_scope": "lidar collision and freshness only",
+  "geometry_model": "120-degree travel sectors; all-around in-place rotation",
+  "grants_motion_authority": false,
+  "observed_at_ms": 1789266609999,
+  "orientation": {
+    "body_masks_deg": [
+      [
+        135.0,
+        226.0
+      ]
+    ],
+    "clockwise": false,
+    "logical_body_axes": "+X forward, +Y left, +Z up",
+    "mount_calibration": "not-verified-by-this-endpoint",
+    "yaw_offset_deg": 270.0
+  },
+  "reverse": {
+    "angular_fallback": false,
+    "blocked": true,
+    "closest_observed_deg": 131.99999999999997,
+    "closest_observed_m": 0.16,
+    "collision_blocked": true,
+    "considered_bins": 121,
+    "logical_command": {
+      "left": -1.0,
+      "right": -1.0
+    },
+    "reason": "close-return-in-sector",
+    "sector_center_deg": 180.0,
+    "sector_half_width_deg": 60.0,
+    "unknown_bins": 96,
+    "valid_bins": 25
+  },
+  "rotation": {
+    "angular_fallback": false,
+    "blocked": true,
+    "closest_observed_deg": 131.99999999999997,
+    "closest_observed_m": 0.16,
+    "collision_blocked": true,
+    "considered_bins": 360,
+    "logical_command": {
+      "left": -1.0,
+      "right": 1.0
+    },
+    "reason": "close-return-in-sector",
+    "sector_center_deg": 0.0,
+    "sector_half_width_deg": 180.0,
+    "unknown_bins": 101,
+    "valid_bins": 259
+  },
+  "sample_present": true,
+  "scan_age_ms": 71,
+  "scan_fresh": true,
+  "scan_status": "available",
+  "scan_ts_ms": 1789266609928,
+  "schema": "leash.motor-clearance.v1",
+  "stale_after_ms": 500,
+  "threshold_m": 0.25,
+  "wire_mapping": {
+    "applied_after_collision_check": true,
+    "drive_invert": true,
+    "drive_swap": false
+  }
+}

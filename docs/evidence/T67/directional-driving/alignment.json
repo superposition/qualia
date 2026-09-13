@@ -1,0 +1,14 @@
+{
+  "installed": true,
+  "before": {
+    "LEASH_UGV_LIDAR_BODY_MASKS_DEG": "45:136"
+  },
+  "effective": {
+    "LEASH_UGV_LIDAR_BODY_MASKS_DEG": "135:226",
+    "LEASH_UGV_LIDAR_YAW_OFFSET_DEG": "270"
+  },
+  "backup": "/home/jetson/.config/leash/leash.env.before-forward-alignment-1789266346",
+  "operator_active": false,
+  "alignment_basis": "operator confirms centered camera forward corresponds to previous scan -90 degrees; metric extrinsics unmeasured",
+  "masked_raw_rays_preserved": true
+}
