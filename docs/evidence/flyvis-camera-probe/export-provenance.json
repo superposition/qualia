@@ -1,0 +1,29 @@
+{
+  "name": "flyvis",
+  "id": "flow/0000/000",
+  "version": "1.2.0",
+  "source_url": "https://github.com/TuragaLab/flyvis/tree/92b3845cc426dd309a1a0e1b3890156c42e14021",
+  "source_revision": "92b3845cc426dd309a1a0e1b3890156c42e14021",
+  "checkpoint_sha256": "d0e42857e738d0315897c2d50fde9eb3fb1a3fb1f071d55dfc13d53d72bccc3f",
+  "archive_sha256": "71c78d4070556a536b13b23ee3139cd2788aa2a9d07d430a223b4edead281db1",
+  "config_sha256": "2aa8a9505324c82bbb4011ee2f7c375b5f8b1bddde1a5281e038baecf91fc5dd",
+  "export_sha256": "38264020d56f16dabca42af3ff1d0dbf6bc88c5384e34ce5b31b7062461541d1",
+  "nodes": 45669,
+  "edges": 1513231,
+  "dynamics": "PPNeuronIGRSynapses/relu",
+  "dt_s": 0.02,
+  "exported_unix_ns": 1789257785647836900,
+  "parameter_changes": null,
+  "code_license": "MIT (flyvis); weights from official archive, no separate license file found",
+  "exporter_sha256": "7ac95014cd006b1629b1edf31dcdc2c6a09af8404f73b71a7e5490c558fd7f0e",
+  "parity": {
+    "steps": 32,
+    "dt_s": 0.02,
+    "retina_max_abs_error": 0.0,
+    "voltage_max_abs_error": 0.0,
+    "input_jpeg_sha256": "eaaed80cb230c6a0a49f06b4da9fbdf1a77fde48948ff025aba250a69db73959",
+    "parameters_unchanged": true,
+    "reference": "flyvis1.2.0 Network.simulate CPU"
+  },
+  "status": "complete"
+}

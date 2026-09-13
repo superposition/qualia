@@ -1,0 +1,751 @@
+{
+  "schema": "qualia.flyvis-live.v1",
+  "run_id": "326e2ca0-4b4f-4a53-80b1-3f4f503b5acb",
+  "state": "running",
+  "started_unix_ns": 1789258201797768768,
+  "deadline_unix_ns": 1789260001797768768,
+  "published_unix_ns": 1789258549706292678,
+  "tick": 1557,
+  "camera_frames": 1560,
+  "activity_kind": "graded_model_voltage",
+  "parameters_frozen": true,
+  "controls_locked": true,
+  "identity_space": "flyvis model indices; not MaleCNS body IDs",
+  "model_inputs": [
+    "camera_luminance"
+  ],
+  "measured_context_drives_model": false,
+  "source": {
+    "url": "http://127.0.0.1:8000/camera/snapshot",
+    "request_started_unix_ns": 1789258549236414284,
+    "received_unix_ns": 1789258549239006479,
+    "request_elapsed_ms": 2.590659001725726,
+    "camera_exposure_unix_ns": null,
+    "jpeg_sha256": "f779e1e3b8d919e0bcb913b507654c7ff443db9ace61a119a276b9dae7ba5b6d",
+    "producer": {
+      "sequence": 3428,
+      "dequeued_unix_ms": 1789258549198,
+      "acquisition_started_unix_ms": 1789258548998,
+      "driver_timestamp_us": 12828929060,
+      "driver_timestamp_flags": 73729,
+      "timestamp_basis": "v4l2-monotonic"
+    },
+    "received_age_ms": 467.2849189992121
+  },
+  "latest_camera": {
+    "url": "http://127.0.0.1:8000/camera/snapshot",
+    "request_started_unix_ns": 1789258549677114935,
+    "received_unix_ns": 1789258549680195366,
+    "request_elapsed_ms": 3.0782549983996432,
+    "camera_exposure_unix_ns": null,
+    "jpeg_sha256": "484edc9bf5f949ad7a9b5b98da84da158ff96bc4f9618f1164deaa304b4fcf04",
+    "producer": {
+      "sequence": 3430,
+      "dequeued_unix_ms": 1789258549598,
+      "acquisition_started_unix_ms": 1789258549398,
+      "driver_timestamp_us": 12829329073,
+      "driver_timestamp_flags": 73729,
+      "timestamp_basis": "v4l2-monotonic"
+    },
+    "received_age_ms": 26.096736000909004
+  },
+  "output": {
+    "voltage_min": -2.2615888118743896,
+    "voltage_max": 2.692711353302002,
+    "voltage_mean": 0.40439391136169434,
+    "mean_abs_delta_from_previous": 0.0004362442414276302,
+    "per_type": [
+      {
+        "cell_type": "Am",
+        "count": 721,
+        "mean_voltage": -1.8247019052505493,
+        "min_voltage": -2.2615888118743896,
+        "max_voltage": -0.7384283542633057,
+        "std_voltage": 0.2568259537220001,
+        "mean_abs_delta_from_previous": 0.001199484569951892
+      },
+      {
+        "cell_type": "C2",
+        "count": 721,
+        "mean_voltage": 0.21513678133487701,
+        "min_voltage": 0.18843480944633484,
+        "max_voltage": 0.22442039847373962,
+        "std_voltage": 0.00600642804056406,
+        "mean_abs_delta_from_previous": 1.2701534615189303e-05
+      },
+      {
+        "cell_type": "C3",
+        "count": 721,
+        "mean_voltage": 0.4155716300010681,
+        "min_voltage": 0.33291953802108765,
+        "max_voltage": 0.6111745238304138,
+        "std_voltage": 0.04551226645708084,
+        "mean_abs_delta_from_previous": 0.00015913551033008844
+      },
+      {
+        "cell_type": "CT1(Lo1)",
+        "count": 721,
+        "mean_voltage": 0.6477923393249512,
+        "min_voltage": 0.514184296131134,
+        "max_voltage": 1.0513741970062256,
+        "std_voltage": 0.08222418278455734,
+        "mean_abs_delta_from_previous": 0.0006508890073746443
+      },
+      {
+        "cell_type": "CT1(M10)",
+        "count": 721,
+        "mean_voltage": 0.5387765169143677,
+        "min_voltage": 0.4504053294658661,
+        "max_voltage": 0.7403334975242615,
+        "std_voltage": 0.06585753709077835,
+        "mean_abs_delta_from_previous": 0.000412304128985852
+      },
+      {
+        "cell_type": "L1",
+        "count": 721,
+        "mean_voltage": -1.2712368965148926,
+        "min_voltage": -1.5907243490219116,
+        "max_voltage": -0.43891897797584534,
+        "std_voltage": 0.1958690583705902,
+        "mean_abs_delta_from_previous": 0.0008235383429564536
+      },
+      {
+        "cell_type": "L2",
+        "count": 721,
+        "mean_voltage": -1.2372387647628784,
+        "min_voltage": -1.5658233165740967,
+        "max_voltage": -0.419019877910614,
+        "std_voltage": 0.1942731738090515,
+        "mean_abs_delta_from_previous": 0.0009512724354863167
+      },
+      {
+        "cell_type": "L3",
+        "count": 721,
+        "mean_voltage": 0.11118406802415848,
+        "min_voltage": 0.08066827058792114,
+        "max_voltage": 0.23199328780174255,
+        "std_voltage": 0.024560069665312767,
+        "mean_abs_delta_from_previous": 5.376615808927454e-05
+      },
+      {
+        "cell_type": "L4",
+        "count": 721,
+        "mean_voltage": 1.0986449718475342,
+        "min_voltage": 0.6974951028823853,
+        "max_voltage": 1.2627100944519043,
+        "std_voltage": 0.07593978941440582,
+        "mean_abs_delta_from_previous": 8.405991138715763e-06
+      },
+      {
+        "cell_type": "L5",
+        "count": 721,
+        "mean_voltage": 0.03131425380706787,
+        "min_voltage": -0.06840632855892181,
+        "max_voltage": 0.23106732964515686,
+        "std_voltage": 0.034899190068244934,
+        "mean_abs_delta_from_previous": 0.00011349292617524043
+      },
+      {
+        "cell_type": "Lawf1",
+        "count": 123,
+        "mean_voltage": -0.9841641783714294,
+        "min_voltage": -1.217634677886963,
+        "max_voltage": -0.5303797721862793,
+        "std_voltage": 0.1602354198694229,
+        "mean_abs_delta_from_previous": 0.00038918439531698823
+      },
+      {
+        "cell_type": "Lawf2",
+        "count": 123,
+        "mean_voltage": -0.3198387026786804,
+        "min_voltage": -0.6080883145332336,
+        "max_voltage": 0.30059701204299927,
+        "std_voltage": 0.21558846533298492,
+        "mean_abs_delta_from_previous": 0.00028426910284906626
+      },
+      {
+        "cell_type": "Mi1",
+        "count": 721,
+        "mean_voltage": 0.44322964549064636,
+        "min_voltage": 0.33702149987220764,
+        "max_voltage": 0.5944586992263794,
+        "std_voltage": 0.041830211877822876,
+        "mean_abs_delta_from_previous": 0.0004083497333340347
+      },
+      {
+        "cell_type": "Mi10",
+        "count": 721,
+        "mean_voltage": 0.3872186243534088,
+        "min_voltage": -0.03163279965519905,
+        "max_voltage": 0.618027925491333,
+        "std_voltage": 0.10814565420150757,
+        "mean_abs_delta_from_previous": 0.0005656718858517706
+      },
+      {
+        "cell_type": "Mi11",
+        "count": 721,
+        "mean_voltage": 0.6806075572967529,
+        "min_voltage": 0.6622023582458496,
+        "max_voltage": 0.6846725940704346,
+        "std_voltage": 0.0044136084616184235,
+        "mean_abs_delta_from_previous": 6.104226486058906e-06
+      },
+      {
+        "cell_type": "Mi12",
+        "count": 721,
+        "mean_voltage": 0.5706762671470642,
+        "min_voltage": 0.3916362524032593,
+        "max_voltage": 0.6514887809753418,
+        "std_voltage": 0.03290759399533272,
+        "mean_abs_delta_from_previous": 8.218012953875586e-05
+      },
+      {
+        "cell_type": "Mi13",
+        "count": 721,
+        "mean_voltage": 0.5431755781173706,
+        "min_voltage": 0.3456263542175293,
+        "max_voltage": 0.7002156972885132,
+        "std_voltage": 0.04274884611368179,
+        "mean_abs_delta_from_previous": 7.13530826033093e-05
+      },
+      {
+        "cell_type": "Mi14",
+        "count": 721,
+        "mean_voltage": 0.501794159412384,
+        "min_voltage": 0.34230124950408936,
+        "max_voltage": 0.6927489042282104,
+        "std_voltage": 0.04240494221448898,
+        "mean_abs_delta_from_previous": 0.00019587705901358277
+      },
+      {
+        "cell_type": "Mi15",
+        "count": 721,
+        "mean_voltage": 0.07165774703025818,
+        "min_voltage": -0.17862889170646667,
+        "max_voltage": 0.2900592088699341,
+        "std_voltage": 0.06254973262548447,
+        "mean_abs_delta_from_previous": 0.0008740248158574104
+      },
+      {
+        "cell_type": "Mi2",
+        "count": 721,
+        "mean_voltage": 1.2371485233306885,
+        "min_voltage": 0.6403683423995972,
+        "max_voltage": 1.3619054555892944,
+        "std_voltage": 0.09125691652297974,
+        "mean_abs_delta_from_previous": 9.704595140647143e-05
+      },
+      {
+        "cell_type": "Mi3",
+        "count": 721,
+        "mean_voltage": 0.7793458700180054,
+        "min_voltage": 0.5678661465644836,
+        "max_voltage": 0.9892978668212891,
+        "std_voltage": 0.07367546856403351,
+        "mean_abs_delta_from_previous": 0.00012106893700547516
+      },
+      {
+        "cell_type": "Mi4",
+        "count": 721,
+        "mean_voltage": 1.1572688817977905,
+        "min_voltage": 0.5553233623504639,
+        "max_voltage": 1.5116305351257324,
+        "std_voltage": 0.13765190541744232,
+        "mean_abs_delta_from_previous": 0.0020104399882256985
+      },
+      {
+        "cell_type": "Mi9",
+        "count": 721,
+        "mean_voltage": 0.7979707717895508,
+        "min_voltage": 0.589030921459198,
+        "max_voltage": 1.3941254615783691,
+        "std_voltage": 0.1199636161327362,
+        "mean_abs_delta_from_previous": 0.0010346985654905438
+      },
+      {
+        "cell_type": "R1",
+        "count": 721,
+        "mean_voltage": 0.9646680355072021,
+        "min_voltage": 0.5293970108032227,
+        "max_voltage": 1.1493219137191772,
+        "std_voltage": 0.10557533800601959,
+        "mean_abs_delta_from_previous": 0.0004946541739627719
+      },
+      {
+        "cell_type": "R2",
+        "count": 721,
+        "mean_voltage": 0.8446298837661743,
+        "min_voltage": 0.5575653314590454,
+        "max_voltage": 1.019074559211731,
+        "std_voltage": 0.08331696689128876,
+        "mean_abs_delta_from_previous": 0.000494939333293587
+      },
+      {
+        "cell_type": "R3",
+        "count": 721,
+        "mean_voltage": 0.5868901610374451,
+        "min_voltage": 0.3717261552810669,
+        "max_voltage": 0.7568788528442383,
+        "std_voltage": 0.0731491819024086,
+        "mean_abs_delta_from_previous": 0.0004953827010467649
+      },
+      {
+        "cell_type": "R4",
+        "count": 721,
+        "mean_voltage": 1.061823844909668,
+        "min_voltage": 0.6133439540863037,
+        "max_voltage": 1.2473666667938232,
+        "std_voltage": 0.10781683027744293,
+        "mean_abs_delta_from_previous": 0.0004946081317029893
+      },
+      {
+        "cell_type": "R5",
+        "count": 721,
+        "mean_voltage": 1.362809419631958,
+        "min_voltage": 0.7152738571166992,
+        "max_voltage": 1.5600757598876953,
+        "std_voltage": 0.147207111120224,
+        "mean_abs_delta_from_previous": 0.0004931625444442034
+      },
+      {
+        "cell_type": "R6",
+        "count": 721,
+        "mean_voltage": 1.4973222017288208,
+        "min_voltage": 0.5732669234275818,
+        "max_voltage": 1.714874029159546,
+        "std_voltage": 0.19670315086841583,
+        "mean_abs_delta_from_previous": 0.0004930395516566932
+      },
+      {
+        "cell_type": "R7",
+        "count": 721,
+        "mean_voltage": 0.0666368305683136,
+        "min_voltage": 0.00728047639131546,
+        "max_voltage": 0.14274999499320984,
+        "std_voltage": 0.02997894026339054,
+        "mean_abs_delta_from_previous": 0.00022958952467888594
+      },
+      {
+        "cell_type": "R8",
+        "count": 721,
+        "mean_voltage": 1.0020803213119507,
+        "min_voltage": 0.8757801651954651,
+        "max_voltage": 1.1640359163284302,
+        "std_voltage": 0.06379001587629318,
+        "mean_abs_delta_from_previous": 0.0004885232774540782
+      },
+      {
+        "cell_type": "T1",
+        "count": 721,
+        "mean_voltage": 0.08475576341152191,
+        "min_voltage": -0.012166917324066162,
+        "max_voltage": 0.30189964175224304,
+        "std_voltage": 0.050684694200754166,
+        "mean_abs_delta_from_previous": 0.0003824985178653151
+      },
+      {
+        "cell_type": "T2",
+        "count": 721,
+        "mean_voltage": 1.8550429344177246,
+        "min_voltage": 1.1907492876052856,
+        "max_voltage": 2.692711353302002,
+        "std_voltage": 0.3234265148639679,
+        "mean_abs_delta_from_previous": 0.0009472116944380105
+      },
+      {
+        "cell_type": "T2a",
+        "count": 721,
+        "mean_voltage": -0.032483939081430435,
+        "min_voltage": -0.23947465419769287,
+        "max_voltage": 0.6842144727706909,
+        "std_voltage": 0.13328473269939423,
+        "mean_abs_delta_from_previous": 0.0003221019287593663
+      },
+      {
+        "cell_type": "T3",
+        "count": 721,
+        "mean_voltage": 0.060242388397455215,
+        "min_voltage": -0.09410609304904938,
+        "max_voltage": 0.6770480871200562,
+        "std_voltage": 0.12290757149457932,
+        "mean_abs_delta_from_previous": 0.0003351243503857404
+      },
+      {
+        "cell_type": "T4a",
+        "count": 721,
+        "mean_voltage": 0.07692262530326843,
+        "min_voltage": -0.16827049851417542,
+        "max_voltage": 0.8499562740325928,
+        "std_voltage": 0.14498336613178253,
+        "mean_abs_delta_from_previous": 0.0007875640294514596
+      },
+      {
+        "cell_type": "T4b",
+        "count": 721,
+        "mean_voltage": 0.05725955218076706,
+        "min_voltage": -0.09425371885299683,
+        "max_voltage": 0.851351261138916,
+        "std_voltage": 0.14189083874225616,
+        "mean_abs_delta_from_previous": 0.0006369538605213165
+      },
+      {
+        "cell_type": "T4c",
+        "count": 721,
+        "mean_voltage": 0.09728754311800003,
+        "min_voltage": -0.15172381699085236,
+        "max_voltage": 0.8914116024971008,
+        "std_voltage": 0.1616828888654709,
+        "mean_abs_delta_from_previous": 0.0006190198473632336
+      },
+      {
+        "cell_type": "T4d",
+        "count": 721,
+        "mean_voltage": 0.009060366079211235,
+        "min_voltage": -0.2270597666501999,
+        "max_voltage": 0.7003918886184692,
+        "std_voltage": 0.12685255706310272,
+        "mean_abs_delta_from_previous": 0.0006962925544939935
+      },
+      {
+        "cell_type": "T5a",
+        "count": 721,
+        "mean_voltage": 0.014546570368111134,
+        "min_voltage": -0.37233197689056396,
+        "max_voltage": 1.1813769340515137,
+        "std_voltage": 0.27289918065071106,
+        "mean_abs_delta_from_previous": 0.0004990382003597915
+      },
+      {
+        "cell_type": "T5b",
+        "count": 721,
+        "mean_voltage": -0.0411921851336956,
+        "min_voltage": -0.46823686361312866,
+        "max_voltage": 0.9141169786453247,
+        "std_voltage": 0.20706158876419067,
+        "mean_abs_delta_from_previous": 0.0004645344743039459
+      },
+      {
+        "cell_type": "T5c",
+        "count": 721,
+        "mean_voltage": 0.031404756009578705,
+        "min_voltage": -0.307842493057251,
+        "max_voltage": 1.1216895580291748,
+        "std_voltage": 0.1890513300895691,
+        "mean_abs_delta_from_previous": 0.0007463799556717277
+      },
+      {
+        "cell_type": "T5d",
+        "count": 721,
+        "mean_voltage": 0.04238632321357727,
+        "min_voltage": -0.398967981338501,
+        "max_voltage": 1.3010250329971313,
+        "std_voltage": 0.22515356540679932,
+        "mean_abs_delta_from_previous": 0.0009186199167743325
+      },
+      {
+        "cell_type": "Tm1",
+        "count": 721,
+        "mean_voltage": 0.31811586022377014,
+        "min_voltage": 0.28030315041542053,
+        "max_voltage": 0.40133756399154663,
+        "std_voltage": 0.017575306817889214,
+        "mean_abs_delta_from_previous": 6.41020669718273e-05
+      },
+      {
+        "cell_type": "Tm16",
+        "count": 721,
+        "mean_voltage": 0.16598905622959137,
+        "min_voltage": 0.05074237287044525,
+        "max_voltage": 0.3914188742637634,
+        "std_voltage": 0.06053915247321129,
+        "mean_abs_delta_from_previous": 0.00018067477503791451
+      },
+      {
+        "cell_type": "Tm2",
+        "count": 721,
+        "mean_voltage": 0.06731453537940979,
+        "min_voltage": -0.03155966103076935,
+        "max_voltage": 0.4337728023529053,
+        "std_voltage": 0.06786324083805084,
+        "mean_abs_delta_from_previous": 0.0004215853987261653
+      },
+      {
+        "cell_type": "Tm20",
+        "count": 721,
+        "mean_voltage": 0.5125828981399536,
+        "min_voltage": 0.4581146240234375,
+        "max_voltage": 0.7202572226524353,
+        "std_voltage": 0.039415162056684494,
+        "mean_abs_delta_from_previous": 0.00010922613000730053
+      },
+      {
+        "cell_type": "Tm28",
+        "count": 721,
+        "mean_voltage": 0.30993083119392395,
+        "min_voltage": 0.17594927549362183,
+        "max_voltage": 0.5248986482620239,
+        "std_voltage": 0.05992395803332329,
+        "mean_abs_delta_from_previous": 0.0004177049268037081
+      },
+      {
+        "cell_type": "Tm3",
+        "count": 721,
+        "mean_voltage": 0.9823669195175171,
+        "min_voltage": 0.8715920448303223,
+        "max_voltage": 1.1343857049942017,
+        "std_voltage": 0.05554470792412758,
+        "mean_abs_delta_from_previous": 0.0002777627669274807
+      },
+      {
+        "cell_type": "Tm30",
+        "count": 721,
+        "mean_voltage": 0.3520491123199463,
+        "min_voltage": 0.34384453296661377,
+        "max_voltage": 0.35372793674468994,
+        "std_voltage": 0.0018028552876785398,
+        "mean_abs_delta_from_previous": 1.164439936474082e-06
+      },
+      {
+        "cell_type": "Tm4",
+        "count": 721,
+        "mean_voltage": 5.940342816757038e-05,
+        "min_voltage": -0.14294934272766113,
+        "max_voltage": 0.3219592869281769,
+        "std_voltage": 0.06740059703588486,
+        "mean_abs_delta_from_previous": 9.06497152755037e-05
+      },
+      {
+        "cell_type": "Tm5Y",
+        "count": 721,
+        "mean_voltage": 0.5168104767799377,
+        "min_voltage": 0.44020897150039673,
+        "max_voltage": 0.6612816452980042,
+        "std_voltage": 0.035231880843639374,
+        "mean_abs_delta_from_previous": 0.00027322268579155207
+      },
+      {
+        "cell_type": "Tm5a",
+        "count": 721,
+        "mean_voltage": 0.3907030522823334,
+        "min_voltage": 0.25515034794807434,
+        "max_voltage": 0.5396276712417603,
+        "std_voltage": 0.053099870681762695,
+        "mean_abs_delta_from_previous": 0.00034528764081187546
+      },
+      {
+        "cell_type": "Tm5b",
+        "count": 721,
+        "mean_voltage": 1.268617868423462,
+        "min_voltage": 0.7368384599685669,
+        "max_voltage": 1.4202115535736084,
+        "std_voltage": 0.1357680857181549,
+        "mean_abs_delta_from_previous": 0.00032258679857477546
+      },
+      {
+        "cell_type": "Tm5c",
+        "count": 721,
+        "mean_voltage": 0.7790654301643372,
+        "min_voltage": 0.39048531651496887,
+        "max_voltage": 0.9420775175094604,
+        "std_voltage": 0.09195297211408615,
+        "mean_abs_delta_from_previous": 0.0002926978631876409
+      },
+      {
+        "cell_type": "Tm9",
+        "count": 721,
+        "mean_voltage": 0.3027994632720947,
+        "min_voltage": 0.21786919236183167,
+        "max_voltage": 0.45947402715682983,
+        "std_voltage": 0.03907354921102524,
+        "mean_abs_delta_from_previous": 0.00045483288704417646
+      },
+      {
+        "cell_type": "TmY10",
+        "count": 721,
+        "mean_voltage": 0.5296808481216431,
+        "min_voltage": 0.4237790107727051,
+        "max_voltage": 0.6536469459533691,
+        "std_voltage": 0.04430965706706047,
+        "mean_abs_delta_from_previous": 0.00020928765297867358
+      },
+      {
+        "cell_type": "TmY13",
+        "count": 721,
+        "mean_voltage": 0.21826261281967163,
+        "min_voltage": 0.09288090467453003,
+        "max_voltage": 0.5227690935134888,
+        "std_voltage": 0.05494688078761101,
+        "mean_abs_delta_from_previous": 0.00018804632418323308
+      },
+      {
+        "cell_type": "TmY14",
+        "count": 721,
+        "mean_voltage": -0.500337541103363,
+        "min_voltage": -1.0683398246765137,
+        "max_voltage": 0.46491825580596924,
+        "std_voltage": 0.2308325320482254,
+        "mean_abs_delta_from_previous": 0.0006156981689855456
+      },
+      {
+        "cell_type": "TmY15",
+        "count": 721,
+        "mean_voltage": 0.49511587619781494,
+        "min_voltage": 0.3777783513069153,
+        "max_voltage": 0.9802765846252441,
+        "std_voltage": 0.09458526223897934,
+        "mean_abs_delta_from_previous": 0.00034977641189470887
+      },
+      {
+        "cell_type": "TmY18",
+        "count": 721,
+        "mean_voltage": 1.4518568515777588,
+        "min_voltage": 0.9291247129440308,
+        "max_voltage": 1.5874788761138916,
+        "std_voltage": 0.10646385699510574,
+        "mean_abs_delta_from_previous": 0.00033168241498060524
+      },
+      {
+        "cell_type": "TmY3",
+        "count": 721,
+        "mean_voltage": 0.04154883697628975,
+        "min_voltage": -0.16024182736873627,
+        "max_voltage": 0.5500251650810242,
+        "std_voltage": 0.11099746078252792,
+        "mean_abs_delta_from_previous": 0.0004938663332723081
+      },
+      {
+        "cell_type": "TmY4",
+        "count": 721,
+        "mean_voltage": 0.5041022300720215,
+        "min_voltage": 0.17731666564941406,
+        "max_voltage": 1.51659095287323,
+        "std_voltage": 0.25312623381614685,
+        "mean_abs_delta_from_previous": 0.0006042455206625164
+      },
+      {
+        "cell_type": "TmY5a",
+        "count": 721,
+        "mean_voltage": 0.5840696096420288,
+        "min_voltage": 0.3558412790298462,
+        "max_voltage": 0.8764086961746216,
+        "std_voltage": 0.06732824444770813,
+        "mean_abs_delta_from_previous": 0.00044261454604566097
+      },
+      {
+        "cell_type": "TmY9",
+        "count": 721,
+        "mean_voltage": 1.0091173648834229,
+        "min_voltage": 0.679477334022522,
+        "max_voltage": 1.2422914505004883,
+        "std_voltage": 0.09127461910247803,
+        "mean_abs_delta_from_previous": 0.00013958275667391717
+      }
+    ],
+    "completed_unix_ns": 1789258549671743213,
+    "model_time_s": 343.1800000000053,
+    "input_received_unix_ns": 1789258549239006479,
+    "input_sha256": "f779e1e3b8d919e0bcb913b507654c7ff443db9ace61a119a276b9dae7ba5b6d",
+    "age_ms": 34.54508100003295,
+    "input_age_ms": 467.2849189992121
+  },
+  "error": null,
+  "compute_ms": 126.3417149984889,
+  "memory_rss_mib": 277.578125,
+  "memory_available_mib": 1696.0703125,
+  "threads": 2,
+  "model": {
+    "name": "flyvis",
+    "id": "flow/0000/000",
+    "version": "1.2.0",
+    "source_url": "https://github.com/TuragaLab/flyvis/tree/92b3845cc426dd309a1a0e1b3890156c42e14021",
+    "source_revision": "92b3845cc426dd309a1a0e1b3890156c42e14021",
+    "checkpoint_sha256": "d0e42857e738d0315897c2d50fde9eb3fb1a3fb1f071d55dfc13d53d72bccc3f",
+    "archive_sha256": "71c78d4070556a536b13b23ee3139cd2788aa2a9d07d430a223b4edead281db1",
+    "config_sha256": "2aa8a9505324c82bbb4011ee2f7c375b5f8b1bddde1a5281e038baecf91fc5dd",
+    "export_sha256": "38264020d56f16dabca42af3ff1d0dbf6bc88c5384e34ce5b31b7062461541d1",
+    "nodes": 45669,
+    "edges": 1513231,
+    "dynamics": "PPNeuronIGRSynapses/relu",
+    "dt_s": 0.02,
+    "exported_unix_ns": 1789257785647836900,
+    "parameter_changes": null,
+    "code_license": "MIT (flyvis); weights from official archive, no separate license file found",
+    "exporter_sha256": "7ac95014cd006b1629b1edf31dcdc2c6a09af8404f73b71a7e5490c558fd7f0e",
+    "parity": {
+      "steps": 32,
+      "dt_s": 0.02,
+      "retina_max_abs_error": 0.0,
+      "voltage_max_abs_error": 0.0,
+      "input_jpeg_sha256": "eaaed80cb230c6a0a49f06b4da9fbdf1a77fde48948ff025aba250a69db73959",
+      "parameters_unchanged": true,
+      "reference": "flyvis1.2.0 Network.simulate CPU"
+    },
+    "status": "complete"
+  },
+  "measured_context": {
+    "telemetry": {
+      "received_unix_ns": 1789258549355940080,
+      "error": null,
+      "age_ms": 350.34802200061677,
+      "data_present": true,
+      "top_level_fields": [
+        "cognition",
+        "localization",
+        "localization_provider",
+        "odometry_pose",
+        "path",
+        "schema_version",
+        "sensors",
+        "ts_ms",
+        "voxel_grid"
+      ]
+    },
+    "camera_lights": {
+      "received_unix_ns": 1789258549358363726,
+      "error": null,
+      "age_ms": 347.92517599998973,
+      "data_present": true,
+      "top_level_fields": [
+        "auto_on_latched",
+        "bright_reset_threshold",
+        "configured_camera_pwm",
+        "configured_chassis_pwm",
+        "cooldown_ms",
+        "dark_threshold",
+        "enabled",
+        "events",
+        "last_error",
+        "last_sample",
+        "last_written_camera_pwm",
+        "last_written_chassis_pwm",
+        "measurement_interval_ms",
+        "mode",
+        "physical_feedback",
+        "physical_state_known",
+        "schema_version",
+        "sustained_ms"
+      ]
+    }
+  },
+  "warmup": {
+    "steps": 50,
+    "dt_s": 0.02,
+    "input": "first real image held; not new camera acquisitions"
+  },
+  "time_semantics": "causal zero-order hold between host receipt times; model time excludes warmup",
+  "deployment": {
+    "supervisor_pid": 42093,
+    "runtime_child_pids": [
+      42094
+    ],
+    "robot_directory": "/home/jetson/qualia-flyvis-20260912",
+    "run_directory": "/home/jetson/qualia-flyvis-20260912/run-20260913T001001Z",
+    "deadline_local": "2026-09-12 20:40 EDT",
+    "qwen_pid_1299_still_present": true,
+    "source_sha256": {
+      "flyvis_frozen.py": "76176c6aed7ddfa78afe30c49d3c174b778c0cebb4095fffcc5dc714e7aa3660",
+      "export_flyvis_frozen.py": "7ac95014cd006b1629b1edf31dcdc2c6a09af8404f73b71a7e5490c558fd7f0e",
+      "flyvis_live_observer.py": "e49e7e23136468cc646432f5944e7970e21b73fb32f9bc198442a2b83757e4d5"
+    }
+  }
+}

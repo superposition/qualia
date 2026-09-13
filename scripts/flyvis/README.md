@@ -7,8 +7,9 @@ It does not replace the running Qualia CNS.
 
 The first host run used actual robot camera images and completed with 45,669 cells,
 1,513,231 connections, 65 cell-type/compartment labels, and finite responses. Its
-Windows peak working set was 847 MiB. This establishes host CPU inference, not a
-trained wheel controller or Jetson performance. See
+Windows peak working set was 847 MiB. That run establishes host CPU inference, not a
+trained wheel controller. A subsequent [bounded live Jetson observer](LIVE.md)
+uses the exported frozen computation and about 278 MiB RSS. See
 [the evidence](../../docs/evidence/flyvis-camera-probe/README.md).
 
 ## Model and input contract
@@ -165,6 +166,7 @@ This feature demonstrates a real camera-to-pretrained-visual-network path. It do
 not establish a biological visual-to-descending-neuron mapping, fused IMU/lidar
 input to this model, optical-flow decoding accuracy on the robot, or a wheel
 policy. Those require separately measured/calibrated interfaces and validation.
-Before deployment on the 3,601 MiB Jetson, establish a matching ARM64 Python/PyTorch
-environment, measure its total memory alongside the robot services, and verify
-bounded latency. No Jetson installation or execution is claimed here.
+The subsequent [live observer](LIVE.md) uses the Jetson's installed CPU PyTorch
+and records actual bounded latency and memory alongside the existing robot
+services. This probe's original host evidence remains separate from that
+deployment evidence.
