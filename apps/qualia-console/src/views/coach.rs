@@ -241,7 +241,7 @@ pub fn render(ui: &mut Ui, state: &crate::ConsoleState) {
                 Some("timeout") => ("timeout", theme::FAIL),
                 Some("error") => ("error", theme::FAIL),
                 Some("requesting") => ("asking model", theme::ACCENT),
-                Some("waiting") => ("waiting for input", theme::WARN),
+                Some("waiting" | "waiting_input") => ("waiting for fresh input", theme::WARN),
                 _ => ("unknown", theme::MUTED),
             };
             theme::status_pill(ui, pill.0, pill.1);
@@ -249,13 +249,15 @@ pub fn render(ui: &mut Ui, state: &crate::ConsoleState) {
             if let Some(decision) = snapshot.decisions.first().filter(|d| d.decision_kind == "operator_guidance") {
                 ui.strong("DeepSeek operator guidance");
                 if let Some(reason) = &decision.reason { ui.add(egui::Label::new(reason).wrap()); }
-                ui.label(format!("Received {}", theme::age(state.observed_at_ns, decision.decided_at_ms.saturating_mul(1_000_000))));
-                if let Some(stamp) = decision.source_observed_at_ms { ui.label(format!("Sensor snapshot {}", theme::age(state.observed_at_ns, stamp.saturating_mul(1_000_000)))); }
+                ui.label(format!("Received {}", theme::age(crate::now_ns(), decision.decided_at_ms.saturating_mul(1_000_000))));
+                if let Some(stamp) = decision.source_observed_at_ms { ui.label(format!("Sensor snapshot {}", theme::age(crate::now_ns(), stamp.saturating_mul(1_000_000)))); }
                 ui.colored_label(theme::WARN, "Advice refers to its recorded sensor snapshot; no mission or motor command dispatched.");
                 ui.add_space(theme::GAP_S);
             }
 
             if let Some(model) = &snapshot.model {
+                if let Some(reason) = &model.reason { ui.label(reason); }
+                ui.label("Belief/weight updates from this guidance: none (advisory observer)");
                 theme::field_text(ui, "model", &model.model_id);
                 theme::field_path(ui, "base url", &model.base_url);
                 theme::field_text(
@@ -276,7 +278,9 @@ pub fn render(ui: &mut Ui, state: &crate::ConsoleState) {
                     Some("ms"),
                 );
                 if let Some(error) = &model.last_error {
-                    theme::state_line(ui, error, theme::WARN);
+                    egui::CollapsingHeader::new("Guidance error details").show(ui, |ui| {
+                        theme::state_line(ui, error, theme::WARN);
+                    });
                 }
             } else {
                 theme::state_line(ui, "the broker reported no model state", theme::WARN);

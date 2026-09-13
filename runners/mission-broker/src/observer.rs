@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use crate::{config::CoachConfig, now_ms, redact, status::{DecisionRow, ModelState, StatusHandle}};
 
-const PROMPT: &str = "You are the operator coach for a robot whose goal is learning visually guided exploration. Judge the supplied real observations: image quality, visual model responses, localization, map coverage and verified action outcomes. Automatic camera lighting is installed; use its supplied status and measured luma rather than inventing its state. Some snapshots contain a frozen pretrained flyvis optic model with graded voltages. These are not spikes, object detections, a calibrated map or learned driving decisions. Other snapshots contain the engineering sensor-conditioned CNS encoder and its documented limitations. Measured telemetry supplied separately does not enter the visual model unless the snapshot explicitly says so. No RL policy update has been measured. Return only JSON with instruction and reason, each a short plain-English string, grounded in the actual snapshot. Suggest one specific next observation or teaching prerequisite. Do not invent neural firing, object identification, a map, learned motor skill or executed action. This observer cannot dispatch missions or wheel commands. Motion acknowledgement repair remains unconfirmed and controls are locked. Do not instruct motion, motor authorization or estop reset. Do not call visual activity successful driving.";
+const PROMPT: &str = "Help this robot explore using the supplied live visual-neuron and body-sensor observations. Return JSON with instruction and reason, each one short practical sentence. Prioritize a useful next step toward wheel exploration and explain the specific measurement behind it. Automatic lighting is available; its hysteresis thresholds are control settings, not an image-quality score. Neural responses are graded activity from a frozen visual model. The camera can turn only when its dedicated authority reports enabled. Never infer the direction of an obstacle from a minimum range alone: camera/lidar alignment is uncalibrated. Never invent a completed action or clear a measured clearance hold. No RL update, semantic belief update, or metric map is established in this observer. Focus on the useful next action, without a repetitive capability list. This advisory process does not dispatch commands or change model weights.";
 
 pub fn snapshot(value: Value, now: u64) -> Result<Value, String> {
     if value["schema"] == "qualia.flyvis-live.v1" {
@@ -80,14 +80,43 @@ fn pretrained_snapshot(value: Value, now: u64) -> Result<Value, String> {
     Ok(json!({"run_id":value["run_id"],"snapshot_tick":value["tick"],
         "source_received_ms":source["received_unix_ns"].as_u64().map(|v| v/1_000_000),
         "source":source,"model":value["model"],"activity_kind":value["activity_kind"],
-        "model_output":output,"model_inputs":value["model_inputs"],
-        "measured_context":value["measured_context"],"measured_context_drives_model":false,
+        "model_output":json!({"completed_unix_ns":output["completed_unix_ns"],"input_age_ms":output["input_age_ms"],
+            "voltage_min":output["voltage_min"],"voltage_max":output["voltage_max"],"voltage_mean":output["voltage_mean"],
+            "mean_abs_delta_from_previous":output["mean_abs_delta_from_previous"],
+            "per_type":output["per_type"].as_array().unwrap().iter().filter(|row| row["cell_type"].as_str().is_some_and(|name|
+                name.starts_with("T4") || name.starts_with("T5") || matches!(name,"R1"|"R2"|"R3"|"R4"|"R5"|"R6"|"L1"|"L2"|"Mi1"|"Tm3"))).collect::<Vec<_>>()}),
+        "model_inputs":value["model_inputs"],"measured_context":compact_context(&value["measured_context"]),"measured_context_drives_model":false,
         "parameters_frozen":true,"controls_locked":true,"transport_attached":false}))
 }
 
-fn read_snapshot(path: &Path) -> Result<Value, String> {
+fn compact_context(context: &Value) -> Value {
+    let telemetry=&context["telemetry"];
+    let data=&telemetry["data"];
+    let scan=&data["sensors"]["range_scan"]["sample"];
+    let ranges=scan["ranges_m"].as_array();
+    let valid:Vec<f64>=ranges.into_iter().flatten().filter_map(Value::as_f64)
+        .filter(|r| r.is_finite() && *r>0.0).collect();
+    json!({"telemetry":{"received_unix_ns":telemetry["received_unix_ns"],"age_ms":telemetry["age_ms"],"error":telemetry["error"],
+        "imu":data["sensors"]["imu"]["sample"],"odometry_pose":data["odometry_pose"],
+        "range_scan":{"ts_ms":scan["ts_ms"],"frame_id":scan["frame_id"],"valid_returns":valid.len(),
+            "total_returns":ranges.map(Vec::len),"nearest_return_m":valid.into_iter().reduce(f64::min)},
+        "localization":data["localization"]},
+        "camera_lights":{"received_unix_ns":context["camera_lights"]["received_unix_ns"],"age_ms":context["camera_lights"]["age_ms"],
+            "error":context["camera_lights"]["error"],"mode":context["camera_lights"]["data"]["mode"],
+            "auto_on_latched":context["camera_lights"]["data"]["auto_on_latched"],
+            "last_sample":context["camera_lights"]["data"]["last_sample"],"physical_feedback":context["camera_lights"]["data"]["physical_feedback"]},
+        "camera_aim":context["camera_aim"]})
+}
+
+fn read_snapshot(path: &Path, http: &reqwest::blocking::Client, source_url: Option<&str>) -> Result<Value, String> {
     let mut bytes = Vec::new();
-    File::open(path).map_err(|e| e.to_string())?.take(65537).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if let Some(url) = source_url {
+        let response = http.get(url).send().map_err(|e| format!("Visual source transport: {e:#}"))?;
+        if !response.status().is_success() { return Err(format!("Visual source HTTP {}", response.status().as_u16())); }
+        response.take(65537).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    } else {
+        File::open(path).map_err(|e| e.to_string())?.take(65537).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    }
     if bytes.len() > 65536 { return Err("Sensor status exceeds 64 KiB".into()); }
     snapshot(serde_json::from_slice(&bytes).map_err(|e| format!("Sensor status: {e}"))?, now_ms() as u64)
 }
@@ -103,6 +132,9 @@ pub fn run(mut config: CoachConfig, source: &Path, evidence: &Path, ticks: u32, 
     let key = config.api_key.as_deref().ok_or("DeepSeek credential is unavailable; no model request was sent")?.to_owned();
     config.timeout = config.timeout.clamp(Duration::from_millis(1000), Duration::from_secs(15));
     let http = reqwest::blocking::Client::builder().connect_timeout(Duration::from_secs(3)).timeout(config.timeout).build().map_err(|e| e.to_string())?;
+    let source_http = reqwest::blocking::Client::builder().connect_timeout(Duration::from_millis(500))
+        .timeout(Duration::from_millis(1000)).redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
+    let source_url = std::env::var("QUALIA_COACH_SOURCE_URL").ok();
     let mut journal = OpenOptions::new().write(true).create_new(true).open(evidence).map_err(|e| format!("New observer evidence file: {e}"))?;
     let status = StatusHandle::new(ModelState {configured:true, model_id:config.model.clone(), base_url:config.base_url.clone(),
         key_presence:config.key_presence(), status:"waiting".into(), reason:Some("Awaiting measured input; advisory only".into()),
@@ -115,7 +147,25 @@ pub fn run(mut config: CoachConfig, source: &Path, evidence: &Path, ticks: u32, 
     let mut recorded = 0;
     let mut evidence_failed = false;
     for tick in 0..ticks {
-        let result = read_snapshot(source).and_then(|measured| {
+        // Catch the next current publication instead of letting one expired
+        // mirrored sample suppress guidance for the entire provider interval.
+        let acquisition = Instant::now();
+        let measured = loop {
+            match read_snapshot(source, &source_http, source_url.as_deref()) {
+                Ok(value) => break Ok(value),
+                Err(error) if acquisition.elapsed() < Duration::from_secs(3) => {
+                    status.set_model(|m| {m.status="waiting_input".into(); m.reason=Some(error.clone()); m.last_error=None;});
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                Err(error) => break Err(error),
+            }
+        };
+        if let Err(error) = &measured {
+            let error = redact::scrub(error, &[&key]);
+            status.set_model(|m| {m.status="waiting_input".into(); m.reason=Some(error); m.last_error=None;});
+        }
+        let input_ready = measured.is_ok();
+        let result = measured.and_then(|measured| {
             let identity = (measured["run_id"].clone(), measured["snapshot_tick"].clone());
             if last_source.as_ref() == Some(&identity) { return Err("No newer measured snapshot; no repeated model request".into()); }
             last_source = Some(identity);
@@ -124,10 +174,10 @@ pub fn run(mut config: CoachConfig, source: &Path, evidence: &Path, ticks: u32, 
                 "response_format":{"type":"json_object"}, "max_tokens":512, "temperature":0.2});
             let request = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
             let digest = format!("sha256:{:x}", Sha256::digest(&request));
-            status.set_model(|m| {m.status="requesting".into(); m.last_error=None;});
+            status.set_model(|m| {m.status="requesting".into(); m.reason=Some("Fresh input acquired; awaiting DeepSeek".into()); m.last_error=None;});
             let start = Instant::now();
             let response = http.post(format!("{}/chat/completions", config.base_url.trim_end_matches('/')))
-                .bearer_auth(&key).header("content-type","application/json").body(request).send().map_err(|e|e.to_string())?;
+                .bearer_auth(&key).header("content-type","application/json").body(request).send().map_err(|e|format!("Provider transport: {e:#}"))?;
             if !response.status().is_success() { return Err(format!("Coach HTTP {}; no guidance accepted", response.status().as_u16())); }
             let mut bytes = Vec::new();
             response.take(65537).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
@@ -159,7 +209,7 @@ pub fn run(mut config: CoachConfig, source: &Path, evidence: &Path, ticks: u32, 
         });
         if let Err(error) = result {
             let error = redact::scrub(&error, &[&key]);
-            status.set_model(|m| {m.status="error".into();m.last_error=Some(error.clone());});
+            if input_ready { status.set_model(|m| {m.status="error".into();m.reason=Some("Guidance request failed".into());m.last_error=Some(error.clone());}); }
             crate::warn(&format!("coach-observer: {error}"));
         }
         if evidence_failed { return Err("Observer stopped after evidence write failure".into()); }
