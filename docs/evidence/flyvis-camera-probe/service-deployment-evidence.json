@@ -1,0 +1,141 @@
+{
+  "schema": "qualia.read-only-service-deployment.v1",
+  "observed_unix_ns": 1789263329693651790,
+  "source_commit": "183830f",
+  "retired_verified_manual_pids": [
+    73646,
+    73647,
+    84004,
+    84008
+  ],
+  "units": {
+    "qualia-flyvis-vision.service": {
+      "MainPID": "110744",
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "qualia-flyvis-shadow.service": {
+      "MainPID": "110745",
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    }
+  },
+  "roles": {
+    "vision": {
+      "launcher": {
+        "owner": "qualia.read-only-observation-service.v1",
+        "role": "vision",
+        "run_directory": "/home/jetson/qualia-flyvis-20260912/service-runs/vision-20260913T013501Z-fb7628ca",
+        "started_unix_ns": 1789263301501658586,
+        "completed": false,
+        "exit_code": null,
+        "port": 8091,
+        "interval_seconds": 1800,
+        "transport_attached_by_service": false,
+        "credentials_forwarded": false,
+        "launcher_pid": 110744,
+        "supervisor_pid": 110747
+      },
+      "run_id": "18d7da14-b899-479c-bc9b-cbaf5426eb50",
+      "state": "running",
+      "tick": 58,
+      "deadline_unix_ns": 1789265101764212521,
+      "error": null,
+      "memory_rss_mib": 280.65625,
+      "memory_available_mib": 1677.08984375,
+      "checkpoint_sha256": "d0e42857e738d0315897c2d50fde9eb3fb1a3fb1f071d55dfc13d53d72bccc3f",
+      "export_sha256": "38264020d56f16dabca42af3ff1d0dbf6bc88c5384e34ce5b31b7062461541d1",
+      "parameters_frozen": true,
+      "controls_locked": true,
+      "source": {
+        "url": "http://127.0.0.1:8000/camera/snapshot",
+        "request_started_unix_ns": 1789263328775785302,
+        "received_unix_ns": 1789263328778732752,
+        "request_elapsed_ms": 2.9458179997163825,
+        "camera_exposure_unix_ns": null,
+        "jpeg_sha256": "4b93ab822dd1a43fe778bb04e5c20b9ccf43a281f727f6caf52585167c9e3f9b",
+        "producer": {
+          "sequence": 4544,
+          "dequeued_unix_ms": 1789263328753,
+          "acquisition_started_unix_ms": 1789263328553,
+          "driver_timestamp_us": 17608487537,
+          "driver_timestamp_flags": 73729,
+          "timestamp_basis": "v4l2-monotonic"
+        },
+        "received_age_ms": 933.4921830013627
+      },
+      "output": {
+        "input_sha256": "4b93ab822dd1a43fe778bb04e5c20b9ccf43a281f727f6caf52585167c9e3f9b",
+        "input_received_unix_ns": 1789263328778732752,
+        "completed_unix_ns": 1789263329668234788,
+        "age_ms": 43.98678700090386,
+        "input_age_ms": 933.4921830013627
+      }
+    },
+    "shadow": {
+      "launcher": {
+        "owner": "qualia.read-only-observation-service.v1",
+        "role": "shadow",
+        "run_directory": "/home/jetson/qualia-flyvis-20260912/service-runs/shadow-20260913T013501Z-13ae927f",
+        "started_unix_ns": 1789263301501656058,
+        "completed": false,
+        "exit_code": null,
+        "port": 8092,
+        "interval_seconds": 1800,
+        "transport_attached_by_service": false,
+        "credentials_forwarded": false,
+        "launcher_pid": 110745,
+        "supervisor_pid": 110746
+      },
+      "run_id": "acd09e88-bd31-401e-a566-4be6df6c0ca9",
+      "state": "held",
+      "tick": 139,
+      "deadline_unix_ns": 1789265101765899613,
+      "error": null,
+      "transport_attached": false,
+      "motion_output": false,
+      "emitted_frame": {
+        "T": 139,
+        "L": 0.0,
+        "R": 0.0
+      },
+      "hold_reasons": [
+        "nearest lidar return 0.160 m is inside 0.25 m hold"
+      ]
+    }
+  },
+  "physical_transport_started": false,
+  "other_services_modified": false,
+  "owned_observer_processes": [
+    {
+      "pid": 110746,
+      "role": "shadow",
+      "worker": false
+    },
+    {
+      "pid": 110747,
+      "role": "vision",
+      "worker": false
+    },
+    {
+      "pid": 110748,
+      "role": "vision",
+      "worker": true
+    },
+    {
+      "pid": 110749,
+      "role": "shadow",
+      "worker": true
+    }
+  ],
+  "file_sha256": {
+    "scripts/flyvis_service.py": "3f23020212d84ea527012463904324e40fb6ad4d1bcb8969963702b1bf4e8736",
+    "qualia-flyvis-vision.service": "a2b203a2502c80c178245a5f91fd2aa7e7fd30aacb82eb925252500e79c4e577",
+    "qualia-flyvis-shadow.service": "0ff384153690b7ab5ae8c2b26da85f705a56dbb6bde1eadfecd920d89fc734fe"
+  },
+  "existing_qwen_service_state": "active"
+}

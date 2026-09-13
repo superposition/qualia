@@ -69,3 +69,22 @@ and evidence directories are outside this namespace and are never pruned.
 The physical wheel bridge remains a separate bounded operator execution. These
 services do not start it, change its zero-only default, renew an operator lease,
 or authorize movement when the camera/shadow interval renews.
+
+## Actual deployment
+
+Root approved installation and the two units were enabled and started on
+2026-09-13 at approximately 01:35:01 UTC. The four manual observer PIDs were
+rechecked against their exact owned script paths before retirement. No Qwen,
+Leash, physical transport, or experimental/evidence directory was changed.
+
+One actual post-start observation found both units `active/running`, enabled,
+and at zero restarts. Vision used launcher/supervisor/worker PIDs
+110744/110747/110748 and run `18d7da14-b899-479c-bc9b-cbaf5426eb50`; its matched
+camera/output snapshot at tick 58 had input age 933.5 ms, output age 44.0 ms,
+RSS 280.7 MiB, and the unchanged checkpoint/export hashes. Shadow used PIDs
+110745/110746/110749 and run `acd09e88-bd31-401e-a566-4be6df6c0ca9`; tick 139
+emitted exact zero for a measured 0.160 m nearest lidar return. Qwen remained
+active. These current 1800-second intervals end around 02:05:01 UTC, after
+which the configured units renew them; no additional restart/test cycle was
+performed. The sanitized status and process evidence is committed at
+`docs/evidence/flyvis-camera-probe/service-deployment-evidence.json`.
