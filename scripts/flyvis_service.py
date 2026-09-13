@@ -46,10 +46,13 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--role", choices=("vision", "shadow"), required=True)
     parser.add_argument("--keep-completed", type=int, default=2)
+    parser.add_argument("--reverse-escape", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve(strict=True)
     if not 1 <= args.keep_completed <= 8:
         parser.error("keep-completed must be in 1..8")
+    if args.reverse_escape and args.role != "shadow":
+        parser.error("reverse-escape belongs only to the file-only shadow role")
     run_root = root / "service-runs"
     run_root.mkdir(mode=0o700, exist_ok=True)
     if run_root.is_symlink() or run_root.resolve().parent != root:
@@ -86,6 +89,7 @@ def main():
                 "started_unix_ns": time.time_ns(), "completed": False, "exit_code": None,
                 "port": port, "interval_seconds": 1800, "transport_attached_by_service": False,
                 "credentials_forwarded": False, "launcher_pid": os.getpid(), "supervisor_pid": None}
+    metadata["reverse_escape_enabled"] = args.reverse_escape
     status_path = root / ("service-" + args.role + ".json")
     command = ["/usr/bin/python3", str(script), "--run-dir", str(run), "--seconds", "1800",
                "--period-ms", "200", "--port", str(port)]
@@ -94,6 +98,8 @@ def main():
     else:
         command += ["--base-url", "http://127.0.0.1:8000", "--vision-url", "http://127.0.0.1:8091/cells?type=T4a",
                     "--max-speed", "0.05"]
+        if args.reverse_escape:
+            command.append("--reverse-escape")
     # Build a small environment from public constants rather than copying login
     # or operator token variables. No physical transport is launched here.
     environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(Path.home()), "LANG": "C.UTF-8",

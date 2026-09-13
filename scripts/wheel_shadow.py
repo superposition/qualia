@@ -168,9 +168,10 @@ def parse_vision(sample, now):
 
 
 class BodyHistory:
-    def __init__(self):
+    def __init__(self, reverse_escape=False):
         self.previous = None
         self.velocity = None
+        self.reverse_escape = reverse_escape
 
     def reset(self):
         self.previous, self.velocity = None, None
@@ -204,6 +205,24 @@ class BodyHistory:
             raise ValueError("fewer than half of lidar beams are valid")
         returns = [x for x in valid if x < high]
         nearest = min(returns) if returns else None
+        angle_min = number(scan.get("angle_min_rad"), "lidar angle minimum")
+        increment = number(scan.get("angle_increment_rad"), "lidar angle increment")
+        if not 0 < abs(increment) <= math.pi or abs(increment) * len(ranges) > math.tau + 0.05:
+            raise ValueError("lidar angular geometry is invalid")
+
+        def sector(center):
+            selected = [r for index, r in enumerate(ranges)
+                        if abs((angle_min + index * increment - center + math.pi) % math.tau - math.pi) <= math.pi / 3 + 1e-8]
+            seen = [float(r) for r in selected if type(r) in (int, float) and math.isfinite(r) and low <= r <= high]
+            return {"center_deg": round(math.degrees(center)), "half_width_deg": 60,
+                    "total_beams": len(selected), "valid_beams": len(seen), "unknown_beams": len(selected) - len(seen),
+                    "coverage_fraction": len(seen) / len(selected) if selected else 0.0,
+                    "min_return_m": min(seen) if seen else None}
+
+        front, rear = sector(0), sector(math.pi)
+        reverse_eligible = (self.reverse_escape and front["min_return_m"] is not None
+                            and front["min_return_m"] < CLEARANCE_M and rear["min_return_m"] is not None
+                            and rear["min_return_m"] >= CLEARANCE_M and rear["coverage_fraction"] >= 0.75)
         if self.previous is not None:
             previous_ts, previous_pose = self.previous
             if stamps[2] < previous_ts:
@@ -227,13 +246,15 @@ class BodyHistory:
             holds.append("IMU and odometry yaw disagree by more than 0.5 rad/s")
         if not 4 <= norm <= 16:
             holds.append("acceleration norm outside 4..16 m/s2 gravity envelope")
-        if nearest is not None and nearest < CLEARANCE_M:
+        if nearest is not None and nearest < CLEARANCE_M and not reverse_eligible:
             holds.append(f"nearest lidar return {nearest:.3f} m is inside {CLEARANCE_M:.2f} m hold")
         return {"imu_ts_ms": stamps[0], "lidar_ts_ms": stamps[1], "odometry_ts_ms": stamps[2],
                 "oldest_age_ms": max(ages), "sensor_skew_ms": max(stamps) - min(stamps),
                 "gyro_yaw_radps": gyro[2], "odom_yaw_radps": self.velocity[1] if self.velocity else None,
                 "odom_speed_mps": self.velocity[0] if self.velocity else None,
                 "acceleration_norm_mps2": norm, "nearest_return_m": nearest,
+                "forward_sector": front, "reverse_sector": rear, "reverse_escape_eligible": reverse_eligible,
+                "direction_convention": "Leash logical positive forward, negative reverse; configured wire inversion applied by Leash",
                 "valid_ranges": len(valid), "total_ranges": len(ranges)}, min(expiries), holds
 
 
@@ -246,11 +267,23 @@ def propose(vision, body, ceiling):
     # Positive camera v is right. Positive differential L-R turns clockwise;
     # a positive CCW body gyro adds the opposing clockwise damping term.
     differential = clamp(neural + damping, -0.025, 0.025)
+    direction, clearance_sector = "forward", "all_around"
+    selected_clearance = body["nearest_return_m"]
+    if body["reverse_escape_eligible"]:
+        # Engineered avoidance, not a learned motor output. Do not invert the
+        # logical command again: Leash handles its measured wire convention.
+        speed = min(ceiling, 0.02) * (0.5 + 0.5 * strength) / (1 + speed / 0.05)
+        forward = -speed
+        differential = clamp(neural + damping, -speed * 0.25, speed * 0.25)
+        ceiling = min(ceiling, 0.02)
+        direction, clearance_sector = "reverse_escape", "reverse"
+        selected_clearance = body["reverse_sector"]["min_return_m"]
     values = {"left_mps": clamp(forward + differential, -ceiling, ceiling),
               "right_mps": clamp(forward - differential, -ceiling, ceiling),
               "neural_turn_mps": neural, "gyro_damping_mps": damping, "forward_mps": forward}
     if any(not math.isfinite(x) for x in values.values()):
         raise ValueError("wheel proposal is nonfinite")
+    values.update(direction=direction, clearance_sector=clearance_sector, selected_clearance_m=selected_clearance)
     return values
 
 
@@ -262,6 +295,7 @@ class Status:
                      "policy_kind": "engineered_frozen_vision_readout", "motion_output": False,
                      "transport_attached": False if args.frames_out != "-" else None,
                      "max_speed_mps": args.max_speed, "clearance_hold_m": CLEARANCE_M,
+                     "reverse_escape_enabled": args.reverse_escape,
                      "vision": None, "body": None, "proposed": None, "emitted_frame": None,
                      "frame_written_unix_ns": None, "hold_reasons": ["waiting for observations"],
                      "decision_age_ms": None, "error": None}
@@ -336,7 +370,7 @@ def run(args):
             fd = os.open(args.frames_out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         vision_poll = InputPoller(args.vision_url, stop)
         body_poll = InputPoller(args.base_url + "/telemetry/compact", stop)
-        history = BodyHistory()
+        history = BodyHistory(args.reverse_escape)
         previous_run = None
         deadline = time.monotonic() + args.seconds - 1
         next_tick = time.monotonic()
@@ -425,6 +459,8 @@ def main():
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--period-ms", type=int, default=200)
     parser.add_argument("--max-speed", type=float, default=0.05)
+    parser.add_argument("--reverse-escape", action="store_true",
+                        help="file-only engineered reverse readout for forward obstacle and >=75%% covered clear rear sector")
     parser.add_argument("--port", type=int, default=8092)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
