@@ -1,6 +1,8 @@
 //! Live robot views use the robot's published HTTP readings. They do not send
 //! motor commands or turn a missing host producer into a simulated reading.
 mod lidar;
+mod lighting;
+mod pretrained;
 mod exploration;
 mod panels;
 mod source;
@@ -10,20 +12,21 @@ use egui::{Color32, TextureHandle, TextureOptions};
 use source::{Data, Monitor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Dialog { Camera, Lidar, Occupancy, Brain, Inputs, Coach, Cognition, Matrices, World, Perception, Mission, Evidence, Compute, Telemetry, Diagnostics, Braid, Recordings }
-const DIALOGS: [(Dialog, &str); 17] = [
-    (Dialog::Camera, "Camera"), (Dialog::Brain, "Brain"), (Dialog::Coach, "DeepSeek console"),
+enum Dialog { Camera, Lidar, Occupancy, Brain, Inputs, Coach, Cognition, Matrices, World, Perception, Mission, Evidence, Compute, Telemetry, Diagnostics, Braid, Recordings, Lighting, Pretrained }
+const DIALOGS: [(Dialog, &str); 19] = [
+    (Dialog::Pretrained, "Pretrained vision"), (Dialog::Camera, "Camera"), (Dialog::Lighting, "Lighting"), (Dialog::Coach, "DeepSeek console"),
     (Dialog::Mission, "Exploration + score + MCP"), (Dialog::Perception, "Visual processing"),
     (Dialog::Lidar, "Lidar"), (Dialog::Occupancy, "Occupancy"), (Dialog::Inputs, "Fly inputs"),
     (Dialog::Evidence, "Action evidence"), (Dialog::Cognition, "Seven layers"), (Dialog::Matrices, "Belief matrices"),
     (Dialog::World, "World + route"), (Dialog::Compute, "Compute"), (Dialog::Telemetry, "Robot telemetry"),
     (Dialog::Diagnostics, "Diagnostics"), (Dialog::Braid, "Braid"), (Dialog::Recordings, "Recordings"),
+    (Dialog::Brain, "Legacy connectome spikes"),
 ];
 
 pub struct RobotConsole {
     monitor: Monitor,
     robot_url: String,
-    open: [bool; 17],
+    open: [bool; DIALOGS.len()],
     arrange: bool,
     last_size: egui::Vec2,
     extent: f32,
@@ -34,6 +37,8 @@ pub struct RobotConsole {
     scan_advanced_ms: u64,
     spatial: spatial::SpatialView,
     weight_delta: bool,
+    pretrained: pretrained::PretrainedView,
+    pretrained_url: String,
 }
 
 impl RobotConsole {
@@ -42,7 +47,8 @@ impl RobotConsole {
         if robot_url.is_empty() { return None; }
         Some(Self {
             monitor: Monitor::new(robot_url.clone(), crate::client::agent_url()),
-            robot_url, open: [true; 17], arrange: true, last_size: egui::Vec2::ZERO, extent: 6.0, camera: None,
+            pretrained_url: pretrained::endpoint(&robot_url), pretrained: pretrained::PretrainedView::default(),
+            robot_url, open: [true; DIALOGS.len()], arrange: true, last_size: egui::Vec2::ZERO, extent: 6.0, camera: None,
             grid: None, scan: None, scan_error: None, scan_advanced_ms: 0,
             spatial: spatial::SpatialView::default(), weight_delta: false,
         })
@@ -106,7 +112,7 @@ impl RobotConsole {
                 ui.menu_button("Dialogs", |ui| {
                     for (index, (_, label)) in DIALOGS.iter().enumerate() { ui.checkbox(&mut self.open[index], *label); }
                 });
-                if ui.button("Show all").clicked() { self.open = [true; 17]; self.arrange = true; }
+                if ui.button("Show all").clicked() { self.open = [true; DIALOGS.len()]; self.arrange = true; }
                 if ui.button("Arrange dialogs").clicked() { self.arrange = true; }
                 if let Some(health) = data.sources.get("health") {
                     ui.label(format!("Reported estop: {} | deadman OK: {}", panels::text(&health.value["estop"]), panels::text(&health.value["deadman_ok"])));
@@ -131,15 +137,19 @@ impl RobotConsole {
         }
         let count = self.open.iter().filter(|open| **open).count().max(1);
         let columns = if bounds.width() >= 2400.0 { 5 } else if bounds.width() >= 1500.0 { 4 } else { 3 };
-        let rows = count.div_ceil(columns);
+        let primary = self.open[0];
+        let rows = (count + if primary { 3 } else { 0 }).div_ceil(columns).max(if primary { 2 } else { 1 });
         let cell = egui::vec2(bounds.width() / columns as f32, bounds.height() / rows as f32);
         let mut visible = 0;
         for (index, (dialog, title)) in DIALOGS.iter().copied().enumerate() {
             let mut open = self.open[index];
             if !open { continue; }
-            let position = bounds.min + egui::vec2((visible % columns) as f32 * cell.x + 5.0, (visible / columns) as f32 * cell.y + 5.0);
-            let size = egui::vec2((cell.x - 20.0).max(240.0), (cell.y - 42.0).max(120.0));
-            visible += 1;
+            let (column, row, span) = if primary && index == 0 { (0, 0, 2.0) } else {
+                while primary && visible / columns < 2 && visible % columns < 2 { visible += 1; }
+                let position = (visible % columns, visible / columns, 1.0); visible += 1; position
+            };
+            let position = bounds.min + egui::vec2(column as f32 * cell.x + 5.0, row as f32 * cell.y + 5.0);
+            let size = egui::vec2((cell.x * span - 20.0).max(240.0), (cell.y * span - 42.0).max(120.0));
             let mut window = egui::Window::new(title).id(egui::Id::new(("live-dialog", index)))
                 .open(&mut open).collapsible(false).resizable(true)
                 .default_pos(position).default_size(size).min_size([230.0, 110.0]);
@@ -158,7 +168,10 @@ impl RobotConsole {
             Dialog::Camera => self.camera(ui, data, ui.available_height().max(140.0) - 30.0),
             Dialog::Lidar => self.lidar_panel(ui, false),
             Dialog::Occupancy => self.lidar_panel(ui, true),
-            Dialog::Brain => panels::brain(ui, state),
+            Dialog::Brain => {
+                ui.colored_label(Color32::YELLOW, "Legacy CNS run ended; this spike stream is unused by pretrained vision.");
+                panels::brain(ui, state);
+            }
             Dialog::Inputs => panels::fly_inputs(ui, data),
             Dialog::Coach => crate::views::coach::render(ui, state),
             Dialog::Cognition => panels::cognition(ui, data),
@@ -167,6 +180,7 @@ impl RobotConsole {
             Dialog::Perception => panels::perception(ui, data),
             Dialog::Mission => {
                 exploration::render(ui, data);
+                panels::mission(ui, data);
                 if ui.add_enabled(!data.observing, egui::Button::new("MCP observe (read only)")).clicked() { self.monitor.observe(); }
             }
             Dialog::Evidence => panels::evidence(ui, data),
@@ -198,6 +212,8 @@ impl RobotConsole {
                 }
             }
             Dialog::Recordings => crate::views::evidence::render(ui, state),
+            Dialog::Lighting => lighting::render(ui, data),
+            Dialog::Pretrained => self.pretrained.render(ui, data, &self.pretrained_url),
         }
     }
 

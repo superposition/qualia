@@ -58,6 +58,8 @@ fn validate(name: &str, value: Value) -> Result<Value, String> {
         "cognition" | "host-belief" => value["ok"] == true && value["layers"].is_array(),
         "spatial" => value["sensors"].is_object() && value.get("odometry_pose").is_some(),
         "actions" => value["schema_version"] == "leash.applied-action-page.v1" && value["entries"].is_array(),
+        "lighting" => super::lighting::valid_status(&value),
+        "pretrained" => super::pretrained::valid_status(&value),
         "host-health" => value["healthy"].is_boolean() && value["ready"].is_boolean(),
         "host-world" => value["schema_version"] == "world.v1" && value["nav"].is_object(),
         "host-sketch" => value["schema_version"] == "qualia.belief-sketch.v1" && value["canonical"].is_array(),
@@ -69,16 +71,29 @@ fn validate(name: &str, value: Value) -> Result<Value, String> {
     if valid { Ok(value) } else { Err(format!("{name}: response does not match the published source contract")) }
 }
 
+fn mcp_error(value: &Value) -> Option<String> {
+    if !value.is_object() || value["jsonrpc"] != "2.0" || value["id"] != 1 {
+        Some("MCP reply has an invalid envelope".into())
+    } else if value.get("error").is_some_and(|e| !e.is_null()) {
+        Some(format!("MCP observe refused: {}", value["error"]["message"].as_str().unwrap_or("JSON-RPC error")))
+    } else if !value["result"].is_object() || !value["result"]["content"].is_array() {
+        Some("MCP reply has no tool result".into())
+    } else if value["result"]["isError"] == true {
+        Some("MCP observe returned a tool error; inspect the actual result".into())
+    } else { None }
+}
+
 impl Monitor {
     pub fn new(robot_url: String, agent_url: String) -> Self {
         let data = Arc::new(Mutex::new(Data::default()));
         let stop = Arc::new(AtomicBool::new(false));
         // Sensor and camera cadence is independent of optional host services.
-        for lane in 0..4 {
+        for lane in 0..5 {
             let shared = Arc::clone(&data);
             let stopping = Arc::clone(&stop);
             let robot = robot_url.clone();
             let agent = agent_url.clone();
+            let pretrained = super::pretrained::endpoint(&robot_url);
             std::thread::spawn(move || {
                 let mut builder = reqwest::blocking::Client::builder()
                     .connect_timeout(Duration::from_millis(700))
@@ -120,12 +135,13 @@ impl Monitor {
                         } else if lane == 2 {
                             &[
                                 ("health", &robot, "/health"),
+                                ("lighting", &robot, "/camera/lights"),
                                 ("cognition", &robot, "/cognition/status"),
                                 ("spatial", &robot, "/telemetry/compact"),
                                 ("actions", &robot, "/action-evidence?limit=1"),
                                 ("robot-agent", &robot, "/agent/state"),
                             ]
-                        } else {
+                        } else if lane == 3 {
                             &[
                                 ("host-health", &agent, "/health/ready"),
                                 ("host-world", &agent, "/world/snapshot"),
@@ -137,6 +153,8 @@ impl Monitor {
                                 ("host-explore", &agent, "/explore/status"),
                                 ("host-entities", &agent, "/entities"),
                             ]
+                        } else {
+                            &[("pretrained", &pretrained, "")]
                         };
                         for (name, base, path) in paths {
                             if stopping.load(Ordering::Acquire) { return; }
@@ -158,7 +176,7 @@ impl Monitor {
                             }
                         }
                     }
-                    std::thread::sleep(Duration::from_millis(if lane >= 2 { 1000 } else { 200 }));
+                    std::thread::sleep(Duration::from_millis(if lane == 4 { 250 } else if lane >= 2 { 1000 } else { 200 }));
                 }
             });
         }
@@ -215,7 +233,7 @@ impl Monitor {
             let mut guard = data.lock().unwrap();
             guard.observing = false;
             guard.observation = Some(match result {
-                Ok(value) => Reading {value, received_ms: now_ms(), error: None},
+                Ok(value) => Reading {error: mcp_error(&value), value, received_ms: now_ms()},
                 Err(error) => Reading {error: Some(error), ..Reading::default()},
             });
         });
@@ -233,6 +251,12 @@ mod tests {
     fn a_successful_http_body_from_the_wrong_endpoint_is_not_a_world_reading() {
         assert!(validate("host-world", serde_json::json!({"ok":true})).is_err());
         assert!(validate("host-world", serde_json::json!({"schema_version":"world.v1","nav":{}})).is_ok());
+    }
+    #[test]
+    fn http_success_does_not_hide_mcp_refusal() {
+        assert!(mcp_error(&serde_json::json!({"jsonrpc":"2.0","id":1,"error":{"message":"denied"}})).is_some());
+        assert!(mcp_error(&serde_json::json!({"jsonrpc":"2.0","id":1,"result":{"content":[],"isError":true}})).is_some());
+        assert!(mcp_error(&serde_json::json!({"jsonrpc":"2.0","id":1,"result":{"content":[]}})).is_none());
     }
     #[test]
     fn retained_error_readings_age_out() {

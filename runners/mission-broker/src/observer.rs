@@ -4,9 +4,12 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use crate::{config::CoachConfig, now_ms, redact, status::{DecisionRow, ModelState, StatusHandle}};
 
-const PROMPT: &str = "You are the operator coach for a robot whose goal is exploration. Judge progress by usable imagery, localization, accumulated map coverage, sensory-to-motor decisions and verified action outcomes. Darkness should lead to a request for illumination, followed by judging image quality again; the current driver does not expose a light capability, so report that missing action rather than claim it happened. No RL policy update has been measured. The supplied JSON contains eight measured image_columns (camera brightness), engineered conditioned_columns (brightness and temporal contrast modulated by body motion and lidar proximity), the encoder description, measured IMU/lidar/odometry, and simulated neuron output. These eight columns are not object detections, a retinal calibration or a map. Return only JSON with instruction and reason, each a short plain-English string. Give one specific next operator check grounded in those readings. Do not invent a map, object identification, neural firing or executed action. This observer cannot dispatch missions or wheel commands. Motion acknowledgement repair and operator presence are unconfirmed, wheel transport is disconnected, and the receptor-only zero-resting model has not established downstream motor firing. Do not instruct motion, motor authorization, or estop reset. Explain a measured obstruction or missing prerequisite when present. Do not call a model spike stream successful driving.";
+const PROMPT: &str = "You are the operator coach for a robot whose goal is learning visually guided exploration. Judge the supplied real observations: image quality, visual model responses, localization, map coverage and verified action outcomes. Automatic camera lighting is installed; use its supplied status and measured luma rather than inventing its state. Some snapshots contain a frozen pretrained flyvis optic model with graded voltages. These are not spikes, object detections, a calibrated map or learned driving decisions. Other snapshots contain the engineering sensor-conditioned CNS encoder and its documented limitations. Measured telemetry supplied separately does not enter the visual model unless the snapshot explicitly says so. No RL policy update has been measured. Return only JSON with instruction and reason, each a short plain-English string, grounded in the actual snapshot. Suggest one specific next observation or teaching prerequisite. Do not invent neural firing, object identification, a map, learned motor skill or executed action. This observer cannot dispatch missions or wheel commands. Motion acknowledgement repair remains unconfirmed and controls are locked. Do not instruct motion, motor authorization or estop reset. Do not call visual activity successful driving.";
 
 pub fn snapshot(value: Value, now: u64) -> Result<Value, String> {
+    if value["schema"] == "qualia.flyvis-live.v1" {
+        return pretrained_snapshot(value, now);
+    }
     let input = &value["input"];
     if value["state"] != "live" || input["schema_version"] != "qualia.sensor-conditioned-retina.v1"
         || !input["measured"].is_object() || input["model_stepped"] == false {
@@ -41,6 +44,45 @@ pub fn snapshot(value: Value, now: u64) -> Result<Value, String> {
         "image_columns":input["image_columns"], "conditioned_columns":input["conditioned_columns"], "encoder":input["encoder"], "output_hold_reason":input["hold_reason"],
         "odometry_speed_mps":input["odometry_speed_mps"], "fused_yaw_rate_radps":input["fused_yaw_rate_radps"],
         "model_output":if paired {output.clone()} else {Value::Null}, "transport_attached":false}))
+}
+
+fn pretrained_snapshot(value: Value, now: u64) -> Result<Value, String> {
+    if value["state"] != "running" || value["parameters_frozen"] != true || value["controls_locked"] != true
+        || value["activity_kind"] != "graded_model_voltage" || value["model_inputs"] != json!(["camera_luminance"])
+        || value["run_id"].as_str().is_none_or(str::is_empty) || !value["tick"].is_u64() {
+        return Err("No current frozen visual model observation; no coach request sent".into());
+    }
+    let source = &value["source"];
+    let output = &value["output"];
+    for stamp in [&value["published_unix_ns"], &source["request_started_unix_ns"], &source["received_unix_ns"], &output["completed_unix_ns"]] {
+        let stamp = stamp.as_u64().filter(|v| *v > 0).ok_or("Missing visual source timestamp")? / 1_000_000;
+        if stamp > now.saturating_add(100) || now.saturating_sub(stamp) > 1500 {
+            return Err("Visual observation is stale; no coach request sent".into());
+        }
+    }
+    for age in [&source["received_age_ms"], &output["age_ms"], &output["input_age_ms"]] {
+        if !age.as_f64().is_some_and(|v| v.is_finite() && (0.0..=1500.0).contains(&v)) {
+            return Err("Visual observation age is invalid".into());
+        }
+    }
+    if source["jpeg_sha256"].as_str().is_none_or(str::is_empty)
+        || source["jpeg_sha256"] != output["input_sha256"]
+        || source["received_unix_ns"] != output["input_received_unix_ns"] {
+        return Err("Visual output does not match its source image".into());
+    }
+    for key in ["voltage_min", "voltage_max", "voltage_mean", "mean_abs_delta_from_previous"] {
+        if !output[key].as_f64().is_some_and(f64::is_finite) { return Err("Invalid graded model response".into()); }
+    }
+    if !output["per_type"].as_array().is_some_and(|rows| !rows.is_empty() && rows.len() <= 256
+        && rows.iter().all(|row| row["cell_type"].is_string() && row["mean_voltage"].as_f64().is_some_and(f64::is_finite))) {
+        return Err("Missing graded cell-type observations".into());
+    }
+    Ok(json!({"run_id":value["run_id"],"snapshot_tick":value["tick"],
+        "source_received_ms":source["received_unix_ns"].as_u64().map(|v| v/1_000_000),
+        "source":source,"model":value["model"],"activity_kind":value["activity_kind"],
+        "model_output":output,"model_inputs":value["model_inputs"],
+        "measured_context":value["measured_context"],"measured_context_drives_model":false,
+        "parameters_frozen":true,"controls_locked":true,"transport_attached":false}))
 }
 
 fn read_snapshot(path: &Path) -> Result<Value, String> {

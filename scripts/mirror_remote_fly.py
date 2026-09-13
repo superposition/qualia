@@ -18,7 +18,12 @@ def main():
                 raw = response.read(65537)
             if len(raw) > 65536: raise ValueError('status exceeds 64 KiB')
             value = json.loads(raw)
-            if not isinstance(value.get('published_ms'), int): raise ValueError('missing robot timestamp')
+            if not isinstance(value, dict): raise ValueError('status must be an object')
+            stamp = value.get('published_ms')
+            if value.get('schema') == 'qualia.flyvis-live.v1':
+                ns = value.get('published_unix_ns')
+                stamp = ns // 1_000_000 if type(ns) is int else None
+            if type(stamp) is not int or stamp <= 0 or stamp > int(time.time() * 1000) + 100: raise ValueError('invalid robot timestamp')
             temp = args.output.with_suffix('.tmp')
             temp.write_bytes(raw)
             os.replace(str(temp), str(args.output))

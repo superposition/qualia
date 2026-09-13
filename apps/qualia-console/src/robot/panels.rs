@@ -251,8 +251,7 @@ pub fn fly_inputs(ui: &mut Ui, data: &Data) {
     let output = &status["output"];
     let now = now_ms();
     let age = input["received_ms"].as_u64().map(|t| now.saturating_sub(t));
-    let fresh = reading.fresh_at(now, 1500) && age.is_some_and(|v| v <= 1500) && input["received_ms"].as_u64().is_some_and(|t| t <= now.saturating_add(100)) && status["state"] == "live"
-        && input["measured"].is_object() && input["model_stepped"] != false;
+    let fresh = reading.fresh_at(now, 1500) && super::exploration::source_fresh(status, now);
     ui.colored_label(if fresh {Color32::LIGHT_GREEN} else {Color32::YELLOW},
         format!("{} | tick {} | age {} ms", if fresh {"Measured inputs"} else {"STALE inputs"}, text(&input["tick"]), age.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into())));
     ui.label("Required sources: camera + IMU + odometry + lidar; engineering encoder");
