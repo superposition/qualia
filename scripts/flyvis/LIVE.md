@@ -153,6 +153,80 @@ timestamps and monotonic ages on receipt, since network delay can age any
 response after publication. Existing 1,500 ms freshness thresholds and frozen
 model equations remain unchanged.
 
+## Actual weights and recurrence
+
+`GET /matrices?type=T4a` uses schema `qualia.flyvis-matrices.v1`, with the same
+run/model/source/output linkage and fresh-only behavior as `/cells`. Its
+`cells` array contains at most 721 actual model indices and coordinates:
+
+```text
+{model_index, u, v, before_voltage, input_drive, recurrent_drive,
+ bias, tau_s, alpha, after_voltage, delta_voltage}
+```
+
+These are the **last completed 20 ms integration substep**, copied from the
+actual computation. Here `delta_voltage` is `after_voltage - before_voltage`
+for that substep; `/cells` retains its change over the whole camera-output
+interval. The original float32 recurrence remains:
+
+```text
+incoming[target] += weight[edge] * relu(voltage[source])
+derivative = (1 / max(tau, 0.02)) * (-voltage + bias + incoming + drive)
+next_voltage = voltage + derivative * 0.02
+alpha = 0.02 / max(tau, 0.02)
+```
+
+The reported `tau_s` is the actual learned time constant, before the original
+20 ms clamp. For example, T4a has bias 0.5668987036, tau 0.0198217109 s, and
+alpha 1.0. Its own previous voltage therefore has no direct leaky retention
+at this step size, while the recurrent network still contains state and other
+cell types have longer time constants. L1 has tau 0.0528366156 s and alpha
+0.3785253763. A generic added smoothing filter would change this model and is
+not present. Before the network, the existing retinal renderer resizes the
+real image and averages each 13×13 receptor support. That is spatial averaging,
+not a learned belief or an extra temporal smoother.
+
+`input_drive` means direct retinal injection: it is normally zero for T4a,
+whose visual input arrives through `recurrent_drive`. Selecting R1 through R8
+shows the actual direct drive from this grayscale camera representation.
+Negative graded voltage is valid; the synaptic activation uses its rectified
+value, not sampled spikes or a probability.
+
+`weight_matrix` contains `cell_types`, `mean_signed`, and `edge_counts`, all
+with 65 cell-type rows/columns. The exact axis order is
+`target_rows_source_columns`; each value is the mean signed effective weight
+over the represented source-to-target edges. A pair with no edges has count
+zero and mean null; an existing zero-weight edge is included in the count.
+The aggregate is computed once when the verified export loads and remains
+fixed. It summarizes 1,513,231 modeled edges; it is not the full 45,669×45,669
+cell adjacency matrix or a statement about individual anatomical synapses.
+
+The export has 927,450 positive, 526,429 negative, and 59,352 zero effective
+weights, spanning -1.5029785633 through 4.1733264923. Its 65 learned bias values
+span 0.0067284084 through 0.7954618335, and its 65 learned time constants span
+0.0194317997 through 0.3162950873 seconds. Weights, biases, and time constants
+remain frozen. `recurrence.optimizer_present` and `deepseek_updates_model`
+are false; `beliefs` and `probabilities` are null. There is no online optimizer,
+wheel-policy training, posterior distribution, or DeepSeek weight update in
+this observer.
+
+The selected recurrence arrays, full-output summary, source JPEG hash, and
+tick are published under the same lock. A stale or unavailable matrix response
+has no cells or weight matrix. Static connectivity does not itself become old,
+but this endpoint deliberately presents it with the causal current-substep
+evidence. Clients must still account for response transit age.
+
+The actual deployment on 2026-09-13 at 01:11:14 UTC used supervisor PID 73646,
+run `a4339a4d-fe45-4513-8823-5d3ceab8682a`, and a new 1800-second bound ending
+at approximately 01:41:14 UTC. The old observer was retired before the new one
+started. At tick 64, `/matrices?type=T4a` returned 279,161 bytes, 721 recurrence
+records, and all 65×65 aggregates; input age was 677.45 ms and output age was
+16.65 ms with matching source/output JPEG hashes. A compact actual snapshot
+is saved in `docs/evidence/flyvis-camera-probe/matrices-live-evidence.json`.
+No model training, test cycle, GPU job, or actuator call was used to add this
+exposure. The file-only wheel shadow remained independent and held through
+the observer renewal.
+
 ## Reproducing the deployment artifact
 
 From the isolated host CPU environment described in `README.md`:

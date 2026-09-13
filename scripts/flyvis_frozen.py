@@ -45,10 +45,21 @@ class FrozenVisualModel:
         self.groups = {name: np.flatnonzero(self.cell_types == name) for name in sorted(set(self.cell_types))}
         self.reciprocal_tau = 1 / torch.maximum(self.tau, torch.tensor(DT, dtype=torch.float32))
         self.kernel = torch.ones((1, 1, 13, 13), dtype=torch.float32)
+        names, type_index = np.unique(self.cell_types, return_inverse=True)
+        pairs = type_index[self.target.numpy()] * len(names) + type_index[self.source.numpy()]
+        counts = np.bincount(pairs, minlength=len(names) ** 2).reshape(len(names), len(names))
+        sums = np.bincount(pairs, weights=self.weight.numpy(), minlength=len(names) ** 2).reshape(counts.shape)
+        self.weight_matrix = {
+            "aggregation": "mean signed effective edge weight", "axis_order": "target_rows_source_columns",
+            "cell_types": names.tolist(), "edge_counts": counts.tolist(),
+            "mean_signed": [[float(sums[row, column] / counts[row, column]) if counts[row, column] else None
+                             for column in range(len(names))] for row in range(len(names))],
+        }
         self.reset()
 
     def reset(self):
         self.activity = self.bias.clone()
+        self.last_recurrence = None
 
     def retina(self, jpeg: bytes):
         if not 0 < len(jpeg) <= 8 * 1024 * 1024:
@@ -71,11 +82,18 @@ class FrozenVisualModel:
             raise ValueError("integration batch must have 1..100 steps")
         drive = torch.zeros(self.nodes, dtype=torch.float32)
         drive[self.input_index] = retina
-        for _ in range(steps):
+        for step in range(steps):
+            before = self.activity
             incoming = torch.zeros(self.nodes, dtype=torch.float32)
             incoming.scatter_add_(0, self.target, self.weight * torch.relu(self.activity[self.source]))
             derivative = self.reciprocal_tau * (-self.activity + self.bias + incoming + drive)
             self.activity = self.activity + derivative * DT
+            if step == steps - 1:
+                self.last_recurrence = {
+                    "before_voltage": before, "input_drive": drive, "recurrent_drive": incoming,
+                    "bias": self.bias, "tau_s": self.tau, "alpha": self.reciprocal_tau * DT,
+                    "after_voltage": self.activity, "delta_voltage": self.activity - before,
+                }
         if not torch.isfinite(self.activity).all():
             raise ValueError("nonfinite graded neural state")
         return self.activity

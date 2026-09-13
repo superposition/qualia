@@ -80,6 +80,9 @@ class SharedStatus:
         self.cell_values = None
         self.cell_deltas = None
         self.cell_tick = None
+        self.weight_matrix = None
+        self.recurrence_values = None
+        self.recurrence_tick = None
         self.started = time.monotonic()
         started_ns = time.time_ns()
         self.data = {
@@ -110,6 +113,7 @@ class SharedStatus:
         }
         with self.lock:
             self.cell_geometry = geometry
+            self.weight_matrix = model.weight_matrix
 
     def cell_types_snapshot(self):
         with self.lock:
@@ -154,6 +158,32 @@ class SharedStatus:
         ]
         return 200, result
 
+    def matrices_snapshot(self, cell_type):
+        with self.lock:
+            code, result = self.cells_snapshot(cell_type)
+            result.update(schema="qualia.flyvis-matrices.v1", cells=[], weight_matrix=None,
+                          recurrence={"method": "explicit_euler", "dt_s": 0.02,
+                                      "substep": "last completed integration substep",
+                                      "optimizer_present": False, "deepseek_updates_model": False,
+                                      "beliefs": None, "probabilities": None})
+            if code != 200:
+                return code, result
+            if self.recurrence_values is None or self.recurrence_tick != result["tick"] or self.weight_matrix is None:
+                result["error"] = "no fresh recurrence aligned to this output"
+                return 503, result
+            geometry = self.cell_geometry[cell_type]
+            indices = geometry["indices"]
+            fields = {name: values[indices].tolist() for name, values in self.recurrence_values.items()}
+            coordinates = list(zip(indices.tolist(), geometry["u"].tolist(), geometry["v"].tolist()))
+            # Installed once from the verified export and never mutated.
+            result["weight_matrix"] = self.weight_matrix
+        result["cells"] = [
+            {"model_index": int(index), "u": int(u), "v": int(v),
+             **{name: float(values[row]) for name, values in fields.items()}}
+            for row, (index, u, v) in enumerate(coordinates)
+        ]
+        return 200, result
+
     def snapshot(self):
         with self.lock:
             result = copy.deepcopy(self.data)
@@ -188,14 +218,15 @@ def serve_status(shared, port):
             elif self.path == "/cell-types":
                 raw = json.dumps(shared.cell_types_snapshot(), allow_nan=False).encode()
                 content_type = "application/json"
-            elif urllib.parse.urlsplit(self.path).path == "/cells":
+            elif urllib.parse.urlsplit(self.path).path in ("/cells", "/matrices"):
                 parsed = urllib.parse.urlsplit(self.path)
                 query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
                 requested = query.get("type", [])
                 if len(self.path) > 256 or set(query) != {"type"} or len(requested) != 1 or not 1 <= len(requested[0]) <= 128:
-                    self.send_error(400, "requires /cells?type=one_actual_cell_type")
+                    self.send_error(400, "requires one actual cell type as the type query parameter")
                     return
-                status_code, payload = shared.cells_snapshot(requested[0])
+                status_code, payload = (shared.matrices_snapshot(requested[0]) if parsed.path == "/matrices"
+                                        else shared.cells_snapshot(requested[0]))
                 raw = json.dumps(payload, allow_nan=False).encode()
                 content_type = "application/json"
             elif self.path == "/input.jpg":
@@ -335,11 +366,14 @@ def worker(args):
                     tick += 1
                     cell_values = model.activity.numpy().copy()
                     cell_deltas = cell_values - previous_activity
+                    recurrence_values = {name: value.numpy().copy() for name, value in model.last_recurrence.items()}
                     with shared.lock:
                         shared.latest_input = previous_jpeg
                         shared.cell_values = cell_values
                         shared.cell_deltas = cell_deltas
                         shared.cell_tick = tick
+                        shared.recurrence_values = recurrence_values
+                        shared.recurrence_tick = tick
                         shared.data.update(state="running", source=previous_record, output=output, tick=tick,
                                            compute_ms=compute_ms, error=None)
                     snapshot = shared.snapshot()
