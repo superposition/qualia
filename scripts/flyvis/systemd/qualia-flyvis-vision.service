@@ -1,0 +1,20 @@
+[Unit]
+Description=Qualia frozen visual observer (read-only, renewed bounded runs)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetson/qualia-flyvis-20260912
+ExecStart=/usr/bin/python3 /home/jetson/qualia-flyvis-20260912/scripts/flyvis_service.py --root /home/jetson/qualia-flyvis-20260912 --role vision
+Restart=always
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=10
+UMask=0077
+Nice=5
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
