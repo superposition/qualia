@@ -264,10 +264,10 @@ class BodyHistory:
                 "valid_ranges": len(valid), "total_ranges": len(ranges)}, min(expiries), holds
 
 
-def propose(vision, body, ceiling):
+def propose(vision, body, ceiling, cruise_speed):
     strength = vision["mean_abs_delta"] / (vision["mean_abs_delta"] + 0.002)
     speed = body["odom_speed_mps"] or 0.0
-    forward = 0.025 * (0.5 + 0.5 * strength) / (1 + speed / 0.05)
+    forward = cruise_speed * (0.5 + 0.5 * strength) / (1 + speed / 0.05)
     neural = 0.025 * vision["centroid_horizontal"]
     damping = 0.008 * body["gyro_yaw_radps"]
     # Positive camera v is right. Positive differential L-R turns clockwise;
@@ -277,7 +277,6 @@ def propose(vision, body, ceiling):
     selected_clearance = body["nearest_return_m"]
     if body["forward_directional_eligible"]:
         differential = clamp(neural + damping, -forward * 0.25, forward * 0.25)
-        ceiling = min(ceiling, 0.03)
         clearance_sector = "forward"
         selected_clearance = body["forward_sector"]["min_return_m"]
     if body["reverse_escape_eligible"]:
@@ -306,6 +305,7 @@ class Status:
                      "policy_kind": "engineered_frozen_vision_readout", "motion_output": False,
                      "transport_attached": False if args.frames_out != "-" else None,
                      "max_speed_mps": args.max_speed, "clearance_hold_m": CLEARANCE_M,
+                     "cruise_speed_mps": args.cruise_speed,
                      "reverse_escape_enabled": args.reverse_escape,
                      "directional_clearance_enabled": args.directional_clearance,
                      "vision": None, "body": None, "proposed": None, "emitted_frame": None,
@@ -413,7 +413,7 @@ def run(args):
                     if vision["mean_abs_delta"] <= 1e-9:
                         holds.append("no measured spatial neural change")
                     try:
-                        proposal = propose(vision, body, args.max_speed)
+                        proposal = propose(vision, body, args.max_speed, args.cruise_speed)
                     except Exception as error:
                         holds.append(str(error))
                 if time.monotonic() >= expiry:
@@ -471,6 +471,8 @@ def main():
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--period-ms", type=int, default=200)
     parser.add_argument("--max-speed", type=float, default=0.05)
+    parser.add_argument("--cruise-speed", type=float, default=0.025,
+                        help="engineered forward gain before actual neural and odometry modulation")
     parser.add_argument("--reverse-escape", action="store_true",
                         help="file-only engineered reverse readout for forward obstacle and >=75%% covered clear rear sector")
     parser.add_argument("--directional-clearance", action="store_true",
@@ -488,8 +490,10 @@ def main():
         parser.error("base-url must be an HTTP origin")
     if not 10 <= args.seconds <= 1800 or not 50 <= args.period_ms <= 250 or not 1024 <= args.port <= 65535:
         parser.error("seconds10..1800,period-ms50..250,port1024..65535 required")
-    if not math.isfinite(args.max_speed) or not 0 <= args.max_speed <= 0.05:
-        parser.error("max-speed must be finite in0..0.05m/s")
+    if not math.isfinite(args.max_speed) or not 0 <= args.max_speed <= 0.1:
+        parser.error("max-speed must be finite in0..0.1m/s")
+    if not math.isfinite(args.cruise_speed) or not 0 <= args.cruise_speed <= 0.1:
+        parser.error("cruise-speed must be finite in0..0.1m/s")
     args.run_id = args.run_id or str(uuid.uuid4())
     args.frames_out = args.frames_out or str(args.run_dir / "frames.jsonl")
     if args.worker:
