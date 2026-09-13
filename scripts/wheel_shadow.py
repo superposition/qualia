@@ -168,10 +168,11 @@ def parse_vision(sample, now):
 
 
 class BodyHistory:
-    def __init__(self, reverse_escape=False):
+    def __init__(self, reverse_escape=False, directional_clearance=False):
         self.previous = None
         self.velocity = None
         self.reverse_escape = reverse_escape
+        self.directional_clearance = directional_clearance
 
     def reset(self):
         self.previous, self.velocity = None, None
@@ -223,6 +224,8 @@ class BodyHistory:
         reverse_eligible = (self.reverse_escape and front["min_return_m"] is not None
                             and front["min_return_m"] < CLEARANCE_M and rear["min_return_m"] is not None
                             and rear["min_return_m"] >= CLEARANCE_M and rear["coverage_fraction"] >= 0.75)
+        forward_eligible = (self.directional_clearance and front["min_return_m"] is not None
+                            and front["min_return_m"] >= CLEARANCE_M and front["coverage_fraction"] >= 0.75)
         if self.previous is not None:
             previous_ts, previous_pose = self.previous
             if stamps[2] < previous_ts:
@@ -246,7 +249,9 @@ class BodyHistory:
             holds.append("IMU and odometry yaw disagree by more than 0.5 rad/s")
         if not 4 <= norm <= 16:
             holds.append("acceleration norm outside 4..16 m/s2 gravity envelope")
-        if nearest is not None and nearest < CLEARANCE_M and not reverse_eligible:
+        if self.directional_clearance and not forward_eligible and not reverse_eligible:
+            holds.append("forward sector lacks 75% measured coverage or 0.25 m clearance")
+        if nearest is not None and nearest < CLEARANCE_M and not reverse_eligible and not forward_eligible:
             holds.append(f"nearest lidar return {nearest:.3f} m is inside {CLEARANCE_M:.2f} m hold")
         return {"imu_ts_ms": stamps[0], "lidar_ts_ms": stamps[1], "odometry_ts_ms": stamps[2],
                 "oldest_age_ms": max(ages), "sensor_skew_ms": max(stamps) - min(stamps),
@@ -254,6 +259,7 @@ class BodyHistory:
                 "odom_speed_mps": self.velocity[0] if self.velocity else None,
                 "acceleration_norm_mps2": norm, "nearest_return_m": nearest,
                 "forward_sector": front, "reverse_sector": rear, "reverse_escape_eligible": reverse_eligible,
+                "forward_directional_eligible": forward_eligible,
                 "direction_convention": "Leash logical positive forward, negative reverse; configured wire inversion applied by Leash",
                 "valid_ranges": len(valid), "total_ranges": len(ranges)}, min(expiries), holds
 
@@ -269,6 +275,11 @@ def propose(vision, body, ceiling):
     differential = clamp(neural + damping, -0.025, 0.025)
     direction, clearance_sector = "forward", "all_around"
     selected_clearance = body["nearest_return_m"]
+    if body["forward_directional_eligible"]:
+        differential = clamp(neural + damping, -forward * 0.25, forward * 0.25)
+        ceiling = min(ceiling, 0.03)
+        clearance_sector = "forward"
+        selected_clearance = body["forward_sector"]["min_return_m"]
     if body["reverse_escape_eligible"]:
         # Engineered avoidance, not a learned motor output. Do not invert the
         # logical command again: Leash handles its measured wire convention.
@@ -296,6 +307,7 @@ class Status:
                      "transport_attached": False if args.frames_out != "-" else None,
                      "max_speed_mps": args.max_speed, "clearance_hold_m": CLEARANCE_M,
                      "reverse_escape_enabled": args.reverse_escape,
+                     "directional_clearance_enabled": args.directional_clearance,
                      "vision": None, "body": None, "proposed": None, "emitted_frame": None,
                      "frame_written_unix_ns": None, "hold_reasons": ["waiting for observations"],
                      "decision_age_ms": None, "error": None}
@@ -370,7 +382,7 @@ def run(args):
             fd = os.open(args.frames_out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         vision_poll = InputPoller(args.vision_url, stop)
         body_poll = InputPoller(args.base_url + "/telemetry/compact", stop)
-        history = BodyHistory(args.reverse_escape)
+        history = BodyHistory(args.reverse_escape, args.directional_clearance)
         previous_run = None
         deadline = time.monotonic() + args.seconds - 1
         next_tick = time.monotonic()
@@ -461,6 +473,8 @@ def main():
     parser.add_argument("--max-speed", type=float, default=0.05)
     parser.add_argument("--reverse-escape", action="store_true",
                         help="file-only engineered reverse readout for forward obstacle and >=75%% covered clear rear sector")
+    parser.add_argument("--directional-clearance", action="store_true",
+                        help="use >=75%% measured forward-sector coverage and 0.25 m clearance after scan/body alignment")
     parser.add_argument("--port", type=int, default=8092)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)

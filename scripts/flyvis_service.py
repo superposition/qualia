@@ -47,12 +47,18 @@ def main():
     parser.add_argument("--role", choices=("vision", "shadow"), required=True)
     parser.add_argument("--keep-completed", type=int, default=2)
     parser.add_argument("--reverse-escape", action="store_true")
+    parser.add_argument("--directional-clearance", action="store_true")
+    parser.add_argument("--max-speed", type=float, default=0.05)
     args = parser.parse_args()
     root = args.root.resolve(strict=True)
     if not 1 <= args.keep_completed <= 8:
         parser.error("keep-completed must be in 1..8")
     if args.reverse_escape and args.role != "shadow":
         parser.error("reverse-escape belongs only to the file-only shadow role")
+    if args.directional_clearance and args.role != "shadow":
+        parser.error("directional-clearance belongs only to the file-only shadow role")
+    if not 0 <= args.max_speed <= 0.05:
+        parser.error("max-speed must be finite in 0..0.05 m/s")
     run_root = root / "service-runs"
     run_root.mkdir(mode=0o700, exist_ok=True)
     if run_root.is_symlink() or run_root.resolve().parent != root:
@@ -90,6 +96,8 @@ def main():
                 "port": port, "interval_seconds": 1800, "transport_attached_by_service": False,
                 "credentials_forwarded": False, "launcher_pid": os.getpid(), "supervisor_pid": None}
     metadata["reverse_escape_enabled"] = args.reverse_escape
+    metadata["directional_clearance_enabled"] = args.directional_clearance
+    metadata["max_speed_mps"] = args.max_speed
     status_path = root / ("service-" + args.role + ".json")
     command = ["/usr/bin/python3", str(script), "--run-dir", str(run), "--seconds", "1800",
                "--period-ms", "200", "--port", str(port)]
@@ -97,9 +105,11 @@ def main():
         command += ["--model-dir", str(root / "model"), "--base-url", "http://127.0.0.1:8000"]
     else:
         command += ["--base-url", "http://127.0.0.1:8000", "--vision-url", "http://127.0.0.1:8091/cells?type=T4a",
-                    "--max-speed", "0.05"]
+                    "--max-speed", str(args.max_speed)]
         if args.reverse_escape:
             command.append("--reverse-escape")
+        if args.directional_clearance:
+            command.append("--directional-clearance")
     # Build a small environment from public constants rather than copying login
     # or operator token variables. No physical transport is launched here.
     environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(Path.home()), "LANG": "C.UTF-8",
