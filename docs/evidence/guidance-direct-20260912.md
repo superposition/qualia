@@ -25,3 +25,15 @@ sanitized capture is `console-runtime/guidance-direct-integration.json`.
 
 This is evidence of successful advisory requests and source handling, not
 learning, motor execution, metric VSLAM, or the three driving demonstrations.
+
+A later live integration exposed intermittent direct-HTTP source failures while
+an independently fetched mirror was current. The observer now falls back to that
+mirror only after the identical source-identity, image-pairing and1500ms age
+validation. `acquisition_source` records which path supplied each request; robot
+timestamps are retained. Persistent input failure remains `waiting_input`.
+
+The revised broker production build passed as part of the combined console/broker
+build. Installed SHA256:
+`9529fa08d24fbcff30354c7cb42be4d3ef01634b97827b4525d535fc40176099`.
+Live status at21:27EDT held17 actual replies, latest1291ms, status`ok`, and no
+current error. This is bounded advisory execution, not semantic-prior dispatch.

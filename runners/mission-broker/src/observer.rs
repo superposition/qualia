@@ -108,10 +108,10 @@ fn compact_context(context: &Value) -> Value {
         "camera_aim":context["camera_aim"]})
 }
 
-fn read_snapshot(path: &Path, http: &reqwest::blocking::Client, source_url: Option<&str>) -> Result<Value, String> {
+fn read_snapshot_once(path: &Path, http: &reqwest::blocking::Client, source_url: Option<&str>) -> Result<Value, String> {
     let mut bytes = Vec::new();
     if let Some(url) = source_url {
-        let response = http.get(url).send().map_err(|e| format!("Visual source transport: {e:#}"))?;
+        let response = http.get(url).send().map_err(|e| format!("Visual source transport: {e:?}"))?;
         if !response.status().is_success() { return Err(format!("Visual source HTTP {}", response.status().as_u16())); }
         response.take(65537).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     } else {
@@ -119,6 +119,24 @@ fn read_snapshot(path: &Path, http: &reqwest::blocking::Client, source_url: Opti
     }
     if bytes.len() > 65536 { return Err("Sensor status exceeds 64 KiB".into()); }
     snapshot(serde_json::from_slice(&bytes).map_err(|e| format!("Sensor status: {e}"))?, now_ms() as u64)
+}
+
+fn read_snapshot(path: &Path, http: &reqwest::blocking::Client, source_url: Option<&str>) -> Result<Value, String> {
+    match read_snapshot_once(path, http, source_url) {
+        Ok(mut value) => {
+            value["acquisition_source"] = json!(if source_url.is_some() {"direct_robot_http"} else {"validated_local_mirror"});
+            Ok(value)
+        }
+        Err(direct_error) if source_url.is_some() => {
+            // The mirror retains the robot's timestamps. Apply exactly the same
+            // identity, image pairing and age validation; never freshen its data.
+            match read_snapshot_once(path, http, None) {
+                Ok(mut value) => { value["acquisition_source"] = json!("validated_local_mirror"); Ok(value) }
+                Err(_) => Err(direct_error),
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn advice_text(value: &Value) -> Result<String, String> {
@@ -132,8 +150,8 @@ pub fn run(mut config: CoachConfig, source: &Path, evidence: &Path, ticks: u32, 
     let key = config.api_key.as_deref().ok_or("DeepSeek credential is unavailable; no model request was sent")?.to_owned();
     config.timeout = config.timeout.clamp(Duration::from_millis(1000), Duration::from_secs(15));
     let http = reqwest::blocking::Client::builder().connect_timeout(Duration::from_secs(3)).timeout(config.timeout).build().map_err(|e| e.to_string())?;
-    let source_http = reqwest::blocking::Client::builder().connect_timeout(Duration::from_millis(500))
-        .timeout(Duration::from_millis(1000)).redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
+    let source_http = reqwest::blocking::Client::builder().connect_timeout(Duration::from_millis(700))
+        .timeout(Duration::from_millis(1500)).redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
     let source_url = std::env::var("QUALIA_COACH_SOURCE_URL").ok();
     let mut journal = OpenOptions::new().write(true).create_new(true).open(evidence).map_err(|e| format!("New observer evidence file: {e}"))?;
     let status = StatusHandle::new(ModelState {configured:true, model_id:config.model.clone(), base_url:config.base_url.clone(),
