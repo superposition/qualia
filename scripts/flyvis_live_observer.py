@@ -239,7 +239,7 @@ def publish_file(shared, path):
 
 
 def observe_context(shared, base_url):
-    endpoints = {"telemetry": "/telemetry/compact", "camera_lights": "/camera/lights"}
+    endpoints = {"telemetry": "/telemetry/compact", "camera_lights": "/camera/lights", "camera_aim": "/camera/aim"}
     while not shared.stop.is_set():
         for name, path in endpoints.items():
             if shared.stop.is_set():

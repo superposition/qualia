@@ -76,8 +76,11 @@ No HTTP method or endpoint controls the robot.
 The same status is published atomically to the run's `status.json`, and computed
 updates are appended to `activity.jsonl`. These runtime files and camera data
 remain outside git. A separate two-second read-only context lane polls
-`/telemetry/compact` and `/camera/lights`. Their payloads are explicitly
+`/telemetry/compact`, `/camera/lights`, and `/camera/aim`. Their payloads are explicitly
 `measured_context`; they do **not** enter the pretrained visual network.
+The `camera_aim` context remains unavailable with its HTTP error until the camera
+service supplies that read-only endpoint; it does not fabricate head authority
+or requested angles.
 
 CPU execution is fixed to two threads. Loading requires at least 700 MiB
 available; observation pauses below 350 MiB available or above 1,100 MiB model
