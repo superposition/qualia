@@ -88,3 +88,18 @@ responses, increasing host L3–L6 sequences, and a connected **zero-only** brid
 No nonzero motion, learned driving policy, optimizer update to the pretrained
 model, or DeepSeek weight update is established by this checkpoint. The driving
 demonstrations and broader console parity retain their separate acceptance work.
+
+
+The Windows read-only observer supervisor (`scripts/console_observers.py`)
+adopts the existing coach, visual frontend and status mirror, and replaces them
+when their bounded runs finish while the console remains open. It starts no
+physical transport and has no operator credential. DeepSeek credentials are
+loaded from the existing credential tool directly into a replacement coach's
+environment. Closing the console for 30 seconds stops these host observers.
+A per-runtime lock prevents duplicate supervisors.
+
+Live lifecycle integration at 21:34 EDT: supervisor 44336 adopted the three
+existing observers. After the owned read-only mirror 66072 was stopped, it
+started replacement 44688 and retained the robot's original publication times.
+The coach and visual frontend were not restarted. The supervisor reports process
+liveness separately from the application endpoints' actual data freshness.
