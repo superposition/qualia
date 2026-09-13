@@ -234,11 +234,9 @@ fn paint_connectome(
     // The ids arrive sorted, so a plain `take` would draw the lowest node
     // indices — one corner of the brain. Stride instead, so the highlighted set
     // is spread over the whole cloud, and report what was dropped.
-    let stride = frame.firing.len().div_ceil(MAX_FIRING_DRAWN).max(1);
-    for node in frame.firing.iter().step_by(stride) {
-        let Some(point) = cloud.point_of(*node) else {
-            continue;
-        };
+    let placed: Vec<_> = frame.firing.iter().filter_map(|node| cloud.point_of(*node)).collect();
+    let stride = placed.len().div_ceil(MAX_FIRING_DRAWN).max(1);
+    for point in placed.iter().step_by(stride) {
         let (position, depth) = projector.project(point.position);
         if !rect.contains(position) {
             continue;

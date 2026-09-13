@@ -151,7 +151,7 @@ impl HttpSource {
 /// error: the request then fails verification and the Mission banner names it,
 /// which is the honest state for an agent whose certificate this host has not
 /// been given.
-fn agent_certificate() -> Option<reqwest::Certificate> {
+pub(crate) fn agent_certificate() -> Option<reqwest::Certificate> {
     let directory = std::env::var_os(AGENT_TLS_DIR_ENV)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)

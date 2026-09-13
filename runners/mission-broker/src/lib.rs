@@ -31,6 +31,7 @@ pub mod broker;
 pub mod coach;
 pub mod config;
 pub mod envelope;
+pub mod observer;
 pub mod redact;
 pub mod status;
 

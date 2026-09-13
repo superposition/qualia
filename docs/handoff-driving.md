@@ -1,5 +1,40 @@
 # Handoff — getting the fly driving the WaveShare
 
+## Current integration update ? 2026-09-12
+
+The original acknowledgement refusal below is historical. Deployed Leash now
+accepts zero-speed drive requests through the exact verified safety receipt;
+HTTP 200, verified stop and closed pilot lease were measured. Companion source
+and evidence: specdog/leash PR #221. Qualia console PR #271 and frozen visual
+model/readout PR #273 carry the current integration. None is a claim that the
+three physical demonstrations are complete; #262 remains open.
+
+The live wheel bridge now forwards fresh producer ticks into the existing
+transport, with one outstanding tick and the original arrival-clock deadman.
+The active session remains **zero-only**. Live lidar repeatedly measures about
+0.16 m, inside the 0.25 m clearance hold. Nonzero exploration awaits resolved
+clearance and the operator beside the robot; do not ask again whether the old
+zero-acknowledgement defect was repaired. The first 193-frame integration and a
+subsequent 2308-frame session ended with verified zero and an inactive lease.
+A new producer run requires a new bounded transport attachment.
+
+The frozen visual observer and file-only readout now run as separate Jetson
+user services. They renew their bounded workers without granting motor
+credentials or starting the physical transport. Actual model voltages,
+connectivity matrices and recurrence terms are published, with no fake spikes
+or optimizer. Robot L0?L2 and host L3?L6 belief updates are advancing after the
+cognition boundary repair; the host currently uses CPU fallback. DeepSeek is
+answering as an advisory observer, not updating model weights. Acceptance of
+host feedback by the robot remains unverified: Windows canceled the protected
+credential comparison prompt. Metric VSLAM and the three driving demonstrations
+are still not established.
+
+Current process/service receipts and recovery details are in the operator's
+`C:/Users/ericm/.local/state/qualia/console-runtime/HANDOFF-current.md`.
+
+## Original transport handoff
+
+
 You are taking over a specific, short piece of work: the fly's wheel commands already reach a transport that
 can drive the robot; the three demonstrations that prove it are owed, and one small shim is missing between
 the fly and the transport. Read `docs/agents.md` (the operating model: breadcrumbs, claims, the board lease,

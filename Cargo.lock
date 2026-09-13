@@ -5895,6 +5895,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "image",
  "qualia-connectome-stream",
  "qualia-fly-circuit",
  "qualia-mcap",
@@ -6332,8 +6333,10 @@ name = "qualia-vslam"
 version = "0.1.0"
 dependencies = [
  "cudarc 0.19.9",
+ "qualia-camera",
  "qualia-shm",
  "qualia-types",
+ "serde_json",
 ]
 
 [[package]]

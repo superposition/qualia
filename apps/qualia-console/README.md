@@ -30,11 +30,13 @@ five existing front ends taught; every design decision in the source cites the l
 cargo run -p qualia-console
 ```
 
-Configuration is ten environment variables and nothing else:
+Configuration comes from the environment:
 
 |Variable|Meaning|Unset behaviour|
 |---|---|---|
 |`QUALIA_AGENT_URL`|the agent base URL; `https://` is accepted|`http://127.0.0.1:8080`|
+|`QUALIA_FLY_STATUS`|Live helper status JSON for the independent Fly inputs dialog|No local fusion evidence|
+|`QUALIA_LEASH_BASE_URL`|Enable direct robot camera, lidar, occupancy, telemetry and cognition dialogs alongside host views|Internal braid/shared-memory console only|
 |`QUALIA_AGENT_TLS_DIR`|the directory holding the agent's own `cert.pem`, added as a root when the URL is `https://`|`$HOME/.qualia_tls`, where the agent generates it|
 |`QUALIA_SHM_NAME`|the shared region to attach|`/qualia_body`, the arena the manifest and every region-opening runner name|
 |`QUALIA_STATS_SHM_NAME`|the runner-telemetry region the HUD reads|`QUALIA_SHM_NAME` plus `_stats`|
@@ -73,11 +75,44 @@ loopback surface `GET /coach` (`qualia.coach-state.v1`, default `http://127.0.0.
 `QUALIA_COACH_URL` to move it). A broker that is not running degrades the panel with one named line
 ("coach broker not running at …") — the console never draws a decision it did not receive.
 
-This is deliberately the console's **only** second source beside the agent, and it is temporary. The
+The Coach source is separate from the optional direct robot readings described below. The
 agent owns missions; the durable home of a coach decision should be the agent's world-model surface
 (`/world-model/decisions`, a `503` stub in this build), and `runners/mission-broker/README.md`
 records the same direction from the broker's side. When the agent grows that stream, the Coach panel
 should read it and `GET /coach` should be retired — do not grow a third way to see the same thing.
+
+## Direct robot dialogs
+
+With `QUALIA_LEASH_BASE_URL` set, camera, lidar, current-scan occupancy, brain,
+seven-layer readings, belief matrices, world/routes, perception, mission,
+fly input provenance, action evidence, compute, robot telemetry, diagnostics, braid and recordings
+are separate movable, resizable dialogs. They open together. The Dialogs menu
+reopens individual windows; Show all and Arrange dialogs restore the layout.
+Network errors remain in the collapsed Issues drawer.
+
+Robot readings come from `/sensors`, `/camera/snapshot`, `/telemetry/compact`,
+`/cognition/status`, `/health`, `/agent/state` and `/action-evidence`. Host views
+read the earlier agent's world, costmap, belief/sketch, arena and perception
+contracts. Host TLS uses the same certificate resolver as the braid client.
+Sensor and camera polling do not wait for unavailable host routes.
+
+JPEG age means retrieval age, because this endpoint provides no capture
+timestamp. Lidar age uses the scan timestamp and also requires advancing
+samples. Its grid starts unknown on every scan and marks only measured rays
+and endpoints; it is not a persistent map. Failed readings are retained with
+stale status. The action ledger requests a recent sequence window rather than
+showing the oldest retained records.
+
+The live brain dialog highlights only published CNS spike IDs. It does not
+use the internal prior's belief-to-type visualization as neural firing. A
+disconnected TCP stream retries; stale frames do not keep highlighting spikes.
+Camera-only input is not sensor fusion and model spikes do not prove wheel
+movement. Motion controls are locked pending the operator's acknowledgement
+repair confirmation. Observe invokes only the host's observation tool.
+
+This recovery does **not** establish full pre-rewrite parity. Missing host
+producers and still-unimplemented rewritten routes are tracked in
+`docs/console-restoration-audit.md`; visible dialogs are not completion evidence.
 
 The binary's wgpu backends (`dx12`, `gles`, `metal`, `vulkan`) are declared on this crate's own
 `wgpu` dependency, not only on the `egui_kittest` dev-dependency: `cargo test` unifies dev-dependency
