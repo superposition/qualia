@@ -1,4 +1,4 @@
-"""Bounded zero-only attachment of fresh wheel decisions to the existing transport.
+"""Bounded attachment of fresh wheel decisions; zero-only unless explicitly enabled.
 
 Only the child qualia-leash-transport reads the operator credential or writes to
 the robot. This bridge has no authorization, drive, stop, or estop HTTP client.
@@ -19,13 +19,30 @@ import subprocess
 import threading
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 import uuid
 
-from wheel_shadow import NoRedirect, integer, number
+from wheel_shadow import CHECKPOINT, EXPORT, NoRedirect, integer, number
 
 
 FRESH_MS = 500
+
+
+class InterlockViolation(ValueError):
+    pass
+
+
+def named_error(error):
+    if isinstance(error, urllib.error.HTTPError):
+        return f"source HTTP {error.code}"
+    if isinstance(error, urllib.error.URLError):
+        return f"source connection failed ({type(error.reason).__name__})"
+    if isinstance(error, (ValueError, KeyError, TypeError, RuntimeError)):
+        return f"{type(error).__name__}: {str(error)[:200]}"
+    if isinstance(error, OSError):
+        return f"{type(error).__name__} errno={error.errno}"
+    return type(error).__name__
 
 
 def get_json(url):
@@ -70,6 +87,75 @@ def current_frame(value):
     return frame
 
 
+def permitted_frame(value, motion_authorized):
+    frame = current_frame(value)
+    if frame["L"] == 0 and frame["R"] == 0:
+        return frame
+    if not motion_authorized:
+        raise InterlockViolation("zero-only interlock rejected a nonzero frame; no substitution")
+    if max(abs(frame["L"]), abs(frame["R"])) > 0.05:
+        raise InterlockViolation("motion interlock rejected a wheel speed above 0.05 m/s")
+    if value["state"] != "shadow_proposal" or value["hold_reasons"]:
+        raise InterlockViolation("motion interlock rejected nonzero output with producer holds")
+    if value.get("clearance_hold_m") != 0.25 or not 0 < number(value.get("max_speed_mps"), "producer speed cap") <= 0.05:
+        raise InterlockViolation("producer clearance or wheel cap differs from the approved envelope")
+    body, vision, proposal = value.get("body"), value.get("vision"), value.get("proposed")
+    if not all(isinstance(item, dict) for item in (body, vision, proposal)):
+        raise ValueError("motion requires original body, vision, and proposal evidence")
+    if frame["L"] != proposal.get("left_mps") or frame["R"] != proposal.get("right_mps"):
+        raise InterlockViolation("nonzero frame differs from its original proposal")
+    now = time.time_ns()
+    transit_ms = max(0, (now - value["published_unix_ns"]) / 1e6)
+
+    def stamp_age(stamp, limit, label, nanos=False):
+        age = (now - integer(stamp, label) * (1 if nanos else 1000000)) / 1e6
+        if not -100 <= age <= limit:
+            raise ValueError(label + " is stale or clock-skewed")
+
+    stamps = [body.get(key) for key in ("imu_ts_ms", "lidar_ts_ms", "odometry_ts_ms")]
+    for stamp, label in zip(stamps, ("original IMU", "original lidar", "original odometry")):
+        stamp_age(stamp, 1000, label)
+    if max(stamps) - min(stamps) > 500 or not 0 <= number(body.get("oldest_age_ms"), "body age") + transit_ms <= 1000:
+        raise ValueError("body source age or sensor skew exceeds its budget")
+    gyro, odom = number(body.get("gyro_yaw_radps"), "gyro yaw"), number(body.get("odom_yaw_radps"), "odometry yaw")
+    if abs(gyro) > 100 or abs(odom) > 20 or abs(gyro - odom) > 0.5 or not 0 <= number(body.get("odom_speed_mps"), "odometry speed") <= 5:
+        raise InterlockViolation("body yaw agreement or odometry speed is outside envelope")
+    if not 4 <= number(body.get("acceleration_norm_mps2"), "acceleration norm") <= 16:
+        raise InterlockViolation("body acceleration is outside gravity-inclusive envelope")
+    valid = integer(body.get("valid_ranges"), "valid lidar ranges")
+    total = integer(body.get("total_ranges"), "total lidar ranges")
+    if not valid <= total <= 10000 or valid * 2 < total:
+        raise InterlockViolation("lidar has insufficient valid measurements")
+    if "nearest_return_m" not in body:
+        raise ValueError("nearest lidar observation is absent")
+    nearest = body["nearest_return_m"]
+    if nearest is not None and number(nearest, "nearest lidar return") < 0.25:
+        raise InterlockViolation("nearest lidar return is inside the unchanged 0.25 m hold")
+    if (vision.get("checkpoint_sha256") != CHECKPOINT or vision.get("export_sha256") != EXPORT
+            or vision.get("cell_type") != "T4a" or not vision.get("run_id")
+            or vision.get("camera_timestamp_basis") != "v4l2-monotonic"):
+        raise InterlockViolation("vision identity or actual camera timestamp basis differs")
+    image_hash = vision.get("input_sha256")
+    if not isinstance(image_hash, str) or re.fullmatch("[0-9a-f]{64}", image_hash) is None:
+        raise ValueError("original neural input hash is absent")
+    for key in ("input_received_unix_ns", "output_completed_unix_ns"):
+        stamp_age(vision.get(key), 1500, key, nanos=True)
+    for key in ("camera_acquisition_unix_ms", "camera_dequeued_unix_ms"):
+        stamp_age(vision.get(key), 1500, key)
+    if not vision["camera_acquisition_unix_ms"] <= vision["camera_dequeued_unix_ms"] <= vision["input_received_unix_ns"] / 1e6:
+        raise ValueError("camera acquisition and neural input are not causally ordered")
+    if vision["input_received_unix_ns"] > vision["output_completed_unix_ns"]:
+        raise ValueError("neural output predates its input")
+    for key in ("input_age_ms", "output_age_ms", "camera_acquisition_age_ms"):
+        if not 0 <= number(vision.get(key), key) + transit_ms <= 1500:
+            raise ValueError("original " + key + " exceeds its budget")
+    if stamps[0] + 500 < vision["input_received_unix_ns"] / 1e6:
+        raise ValueError("body source predates the neural input by more than 500 ms")
+    if number(vision.get("mean_abs_delta"), "measured neural change") <= 1e-9:
+        raise InterlockViolation("no measured neural change supports the nonzero proposal")
+    return frame
+
+
 class State:
     def __init__(self, args):
         self.lock = threading.RLock()
@@ -81,7 +167,9 @@ class State:
         self.data = {
             "schema": "qualia.wheel-transport.v1", "run_id": str(uuid.uuid4()), "state": "starting",
             "published_unix_ns": time.time_ns(), "deadline_unix_ns": time.time_ns() + int(args.seconds * 1e9),
-            "zero_only": True, "nonzero_enabled": False, "transport_attached": False, "error": None,
+            "zero_only": not args.motion_authorized, "nonzero_enabled": args.motion_authorized,
+            "max_wheel_speed_mps": 0.05, "transport_attached": False, "error": None,
+            "source_failures": 0, "source_recoveries": 0, "last_source_error": None,
             "transport": {"pid": None, "process_alive": False, "stdin_open": False,
                           "binary_sha256": hashlib.sha256(args.transport.read_bytes()).hexdigest(),
                           "session_label": None, "last_consumed_tick": None, "last_event": None},
@@ -177,7 +265,8 @@ def read_transport(state):
                     state.pending = None
                     state.last_consumed_mono = time.monotonic()
                     state.data["transport"]["last_consumed_tick"] = event["tick"]
-                    state.data["state"] = "connected_zero_only"
+                    if state.data["state"] != "source_reacquiring":
+                        state.data["state"] = "connected_zero_only" if state.data["zero_only"] else "connected_bounded_motion"
                 else:
                     state.data["error"] = "transport consumed an unexpected producer tick"
                     state.abort.set()
@@ -233,6 +322,8 @@ def main():
     parser.add_argument("--arena", default="/qualia_observe_20260912")
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--port", type=int, default=8093)
+    parser.add_argument("--motion-authorized", action="store_true",
+                        help="enable <=0.05 m/s only after explicit operator presence and clearance approval")
     args = parser.parse_args()
     if not 10 <= args.seconds <= 1800 or not 1024 <= args.port <= 65535:
         parser.error("duration or port outside bounded range")
@@ -247,9 +338,10 @@ def main():
         parser.error("operator must provide the transport's protected token-file path")
     # Verify a live producer before launching any child that can contact the actuator.
     first = get_json(args.producer_url)
-    first_frame = current_frame(first)
-    if first_frame["L"] != 0 or first_frame["R"] != 0:
-        parser.error("zero-only interlock refuses before starting transport: " + json.dumps(first_frame))
+    try:
+        permitted_frame(first, args.motion_authorized)
+    except InterlockViolation as error:
+        parser.error(str(error) + ": " + json.dumps(first.get("emitted_frame")))
     args.run_dir.mkdir(parents=True, exist_ok=False)
     state = State(args)
     server = serve(state, args.port)
@@ -261,6 +353,7 @@ def main():
                        QUALIA_LEASH_TRANSPORT_LOG_EVERY="1", QUALIA_LEASH_SENSORS_TIMEOUT_MS="2000")
     process = None
     result = 0
+    phase = "transport startup"
     try:
         process = subprocess.Popen([str(args.transport.resolve())], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1,
@@ -274,19 +367,43 @@ def main():
         previous_tick = None
         producer_run = first["run_id"]
         pending_since = None
+        source_failure_since = None
         with (args.run_dir / "forwarded.jsonl").open("x", buffering=1) as journal:
             while time.monotonic() < deadline and not state.abort.is_set():
                 if process.poll() is not None:
                     raise RuntimeError("owned transport exited")
-                value = get_json(args.producer_url)
-                frame = current_frame(value)
+                phase = "source acquisition"
+                try:
+                    value = get_json(args.producer_url)
+                    frame = permitted_frame(value, args.motion_authorized)
+                    if source_failure_since is not None and previous_tick is not None and frame["T"] <= previous_tick:
+                        raise ValueError("reacquisition requires a genuinely newer producer tick")
+                    if source_failure_since is not None and time.monotonic() - source_failure_since >= 3:
+                        raise RuntimeError("source reacquisition exceeded its 3-second bound")
+                except InterlockViolation as error:
+                    with state.lock:
+                        state.data.update(state="interlock_rejected", rejected_frame=value.get("emitted_frame"),
+                                          producer=value, error=str(error))
+                    result = 2
+                    break
+                except Exception as error:
+                    if source_failure_since is None:
+                        source_failure_since = time.monotonic()
+                    with state.lock:
+                        state.data.update(state="source_reacquiring", error=named_error(error),
+                                          last_source_error=named_error(error), source_failures=state.data["source_failures"] + 1)
+                    publish(state, args.run_dir / "status.json")
+                    if time.monotonic() - source_failure_since >= 3:
+                        raise RuntimeError("source unavailable for 3 seconds: " + named_error(error))
+                    # Write nothing: the existing transport's deadman owns this gap.
+                    time.sleep(0.1)
+                    continue
                 with state.lock:
                     state.data["producer"] = value
-                    if frame["L"] != 0 or frame["R"] != 0:
-                        state.data.update(state="interlock_rejected", rejected_frame=frame,
-                                          error="zero-only interlock rejected a nonzero frame; no substitution")
-                        result = 2
-                        break
+                    if source_failure_since is not None:
+                        state.data.update(source_recoveries=state.data["source_recoveries"] + 1, error=None,
+                                          state="connecting")
+                        source_failure_since = None
                     if value["run_id"] != producer_run or (previous_tick is not None and frame["T"] < previous_tick):
                         raise RuntimeError("producer run changed or tick moved backwards; explicit new attachment required")
                     if state.pending is not None:
@@ -294,7 +411,20 @@ def main():
                             raise RuntimeError("transport did not report the single outstanding tick within 5 seconds")
                     elif previous_tick != frame["T"]:
                         # One fresh decision only. No tail, buffered replay, or multi-frame queue.
-                        current_frame(value)
+                        phase = "final frame freshness"
+                        try:
+                            permitted_frame(value, args.motion_authorized)
+                        except InterlockViolation as error:
+                            state.data.update(state="interlock_rejected", rejected_frame=frame, error=str(error))
+                            result = 2
+                            break
+                        except (ValueError, KeyError, TypeError) as error:
+                            source_failure_since = source_failure_since or time.monotonic()
+                            state.data.update(state="source_reacquiring", error=named_error(error),
+                                              last_source_error=named_error(error), source_failures=state.data["source_failures"] + 1)
+                            publish(state, args.run_dir / "status.json")
+                            continue
+                        phase = "transport stdin write"
                         process.stdin.write(json.dumps(frame, separators=(",", ":"), allow_nan=False) + "\n")
                         process.stdin.flush()
                         state.pending = frame
@@ -302,13 +432,14 @@ def main():
                         previous_tick = frame["T"]
                         state.data.update(forwarded_frame=frame, forwarded_unix_ns=time.time_ns(),
                                           forwarded_count=state.data["forwarded_count"] + 1)
+                        phase = "forwarding evidence write"
                         journal.write(json.dumps(state.snapshot(), allow_nan=False) + "\n")
                 publish(state, args.run_dir / "status.json")
                 time.sleep(0.1)
-    except Exception:
+    except Exception as error:
         result = 1
         with state.lock:
-            state.data.update(state="source_hold", error="source, transport, or evidence failed; closing transport stdin")
+            state.data.update(state="source_hold", error=phase + ": " + named_error(error) + "; closing transport stdin")
     finally:
         if process is not None:
             with state.lock:

@@ -1,9 +1,11 @@
-# Zero-only live transport attachment
+# Bounded live transport attachment
 
 `wheel_transport.py` connects fresh wheel-shadow decisions to the existing
-`qualia-leash-transport` binary. It is a **zero-only** integration: any nonzero
-frame is explicitly rejected, retained in status, and closes transport stdin.
-There is no enable-motion flag and no silent substitution of a nonzero frame.
+`qualia-leash-transport` binary. It defaults to **zero-only**: any nonzero frame
+is explicitly rejected, retained in status, and closes transport stdin. The
+separate `--motion-authorized` launch flag enables bounded nonzero forwarding
+only after the operator explicitly confirms presence and clear space. It has
+not been enabled in the recorded run. There is no silent frame substitution.
 
 The bridge does not read credential contents or implement a drive, stop,
 authorization, or estop client. The existing transport retains one session,
@@ -24,7 +26,7 @@ python scripts/wheel_transport.py --transport C:/Users/ericm/qualia/target/debug
 ```
 
 The run directory must be new. Port 8093 is bound to host loopback. A current
-zero frame is required before the transport starts; only one owned transport
+permitted frame is required before the transport starts; only one owned transport
 is launched, with no automatic restart. Root must ensure no other instance
 already owns this integration. Do not run a second bridge or transport.
 
@@ -33,6 +35,16 @@ publication and original frame-write age must be at most 500 ms, with at most
 100 ms of future clock skew; the producer's own decision age and deadline
 must also be valid. Frames preserve exactly `T`, `L`, and `R`. A changed run or
 backwards tick closes the connection and requires explicit reattachment.
+
+A transient HTTP or freshness failure changes state to `source_reacquiring`
+and writes **nothing**. The existing arrival-clock deadman owns the gap and
+stops the robot. Reacquisition lasts at most three seconds, requires the same
+producer run and a genuinely newer current tick, and never changes an old
+frame's timestamp. A fresh source can resume within this interval using the
+transport's existing verified-stop and lease-refresh logic. Persistent source
+failure closes stdin. `last_source_error`, `source_failures`, and
+`source_recoveries` preserve named failures and recovery counts; transport or
+evidence-write failures still close input immediately.
 
 Only one forwarded tick can be outstanding. The bridge waits for the owned
 transport's applied or refused record for that exact tick before accepting a
@@ -73,5 +85,49 @@ record is unavailable, status says so and the bridge returns failure; it does
 not invent a verified receipt. This zero-only connection does not demonstrate
 nonzero physical motion, learned driving, or estop recovery.
 
-Prepared for root-controlled live deployment after the Leash compatibility
-repair. No transport or actuator request was launched while implementing it.
+## Actual zero integration
+
+The operator's completed run used bridge PID 47324, transport PID 15120, and
+stable session label `bbc9334b`. It forwarded 193 fresh zero frames, from T405
+through T613, with no historical replay. The retained exact applied log for
+T612 reports requested/applied left and right zero, `speed_mode=low`, and
+`ok=true`. The final transport-consumed tick is T613. This is an acknowledged
+live transport connection, not just an unattached proposal.
+
+The original bridge exited 1 after a transient source failure at approximately
+44 seconds; its generic error did not identify the exact failed operation.
+The revised source preserves named errors and bounded reacquisition. The
+original run's final EOF record is global leash sequence 1197, valid and
+unarmed, with zero applied speeds and verified-zero flag 16. The operator
+reported the pilot inactive and the temporary credential deleted. The saved
+evidence explicitly distinguishes those operator reports from the copied
+JSON and journal fields:
+`docs/evidence/flyvis-camera-probe/wheel-transport-zero-live.json`.
+
+The recorded run used bridge commit `99e06a6`; it does not validate the later
+reacquisition or optional motion mode. No new test cycle or nonzero run was
+performed while preparing these changes.
+
+## Disabled next motion configuration
+
+The minimal next path uses this same fresh-decision bridge and existing
+transport, adding `--motion-authorized` only after operator approval. The
+configuration in `wheel-motion-pending.json` remains disabled and is a
+reviewable launch recipe, not an automatically loaded permission.
+
+Nonzero frames independently require no producer holds, exact correspondence
+to the proposal, absolute wheel speed at most 0.05 m/s, the original pinned
+vision model and camera acquisition timestamps within 1500 ms, all original
+body sensor timestamps within 1000 ms and 500 ms of each other, finite
+odometry/gyro agreement, the existing acceleration envelope, sufficient lidar
+coverage, and nearest valid return at least 0.25 m. No threshold is lowered to
+obtain movement. Zero hold frames remain permitted when perception is absent.
+
+`wheel_shadow.py --frames-out -` already supports the transport's stdout
+protocol. A direct shell pipe would bypass this bridge's one-outstanding-tick
+guard, and the unchanged transport does not reject queued aged frames before
+applying them. Therefore the next live configuration keeps the measured
+fresh-decision reader and child stdin connection already demonstrated here;
+it does not replace it with a potentially buffered historical stdout burst.
+The original producer continues to emit one zero for each hold. The bridge
+forwards current sampled ticks without replaying missed decisions.
