@@ -112,6 +112,44 @@ with null observation fields before the first camera input, so startup/error
 states remain inspectable. Graded values can be negative and nonzero resting
 activity is expected; neither implies a spike or an established wheel command.
 
+## Selected cell-type visualization data
+
+`GET /cells?type=T4a` returns the actual per-cell response for one model cell
+type, with at most 721 cells per response. The selector can use real names from
+`/status`'s `output.per_type` or `GET /cell-types`; examples include `R1` through
+`R8`, `T4a` through `T4d`, and `T5a` through `T5d`. `/cell-types` supplies the
+model/run identity and an array of `cell_type`/`count` pairs supported by this
+bounded endpoint.
+
+The response schema is `qualia.flyvis-cells.v1`. It includes `cell_type`,
+`run_id`, `tick`, `state`, `published_unix_ns`, `activity_kind`, `identity_space`,
+`parameters_frozen`, `controls_locked`, `model`, `source`, `output`, `error`, and:
+
+```text
+cells: [{model_index, u, v, voltage, delta_voltage}, ...]
+```
+
+`model_index` is the real index in this exported flyvis network. `u,v` are its
+actual hexagonal model coordinates, not invented anatomical positions.
+`voltage` is the current float32 model value; `delta_voltage` is the signed
+change from the immediately preceding computed neural update. Neither is a
+spike event. A view can show graded intensity or signed change on a clearly
+labeled scale without synthesizing pulses or random activity.
+
+One lock covers the current JPEG identity, source/output metadata, voltage
+array, signed-change array, and update tick. The handler copies one selected
+layer and its matching metadata under that same lock before serialization.
+It does not retrieve independent status and neural snapshots from different
+updates. The full cell arrays remain internal; neither `/status` nor the
+activity journal gains a 45,669-cell JSON payload.
+
+A 200 response contains fresh cells only. Unavailable, warming, failed, or stale
+states return HTTP 503 with `cells: []`; an unknown type returns 404, and a
+malformed/multiple-type query returns 400. Clients still check the source/output
+timestamps and monotonic ages on receipt, since network delay can age any
+response after publication. Existing 1,500 ms freshness thresholds and frozen
+model equations remain unchanged.
+
 ## Reproducing the deployment artifact
 
 From the isolated host CPU environment described in `README.md`:

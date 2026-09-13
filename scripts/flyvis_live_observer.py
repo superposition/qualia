@@ -73,9 +73,13 @@ def camera_input(url):
 
 class SharedStatus:
     def __init__(self, args):
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.stop = threading.Event()
         self.latest_input = None
+        self.cell_geometry = {}
+        self.cell_values = None
+        self.cell_deltas = None
+        self.cell_tick = None
         self.started = time.monotonic()
         started_ns = time.time_ns()
         self.data = {
@@ -98,6 +102,57 @@ class SharedStatus:
     def update(self, **fields):
         with self.lock:
             self.data.update(fields)
+
+    def install_cell_geometry(self, model):
+        geometry = {
+            name: {"indices": indices.copy(), "u": model.u[indices].copy(), "v": model.v[indices].copy()}
+            for name, indices in model.groups.items()
+        }
+        with self.lock:
+            self.cell_geometry = geometry
+
+    def cell_types_snapshot(self):
+        with self.lock:
+            return {
+                "schema": "qualia.flyvis-cell-types.v1", "run_id": self.data["run_id"],
+                "model": copy.deepcopy(self.data["model"]), "max_cells": 721,
+                "types": [{"cell_type": name, "count": len(geometry["indices"])}
+                          for name, geometry in self.cell_geometry.items()
+                          if len(geometry["indices"]) <= 721],
+            }
+
+    def cells_snapshot(self, cell_type):
+        # The nested snapshot uses the same reentrant lock: image provenance,
+        # aggregate statistics, geometry, and voltage arrays belong to one tick.
+        with self.lock:
+            status = self.snapshot()
+            result = {key: status[key] for key in (
+                "run_id", "state", "tick", "published_unix_ns", "activity_kind", "identity_space",
+                "parameters_frozen", "controls_locked", "model", "source", "output", "error",
+            )}
+            result.update(schema="qualia.flyvis-cells.v1", cell_type=cell_type, cells=[])
+            if not self.cell_geometry:
+                result["error"] = "model cell metadata is not available yet"
+                return 503, result
+            geometry = self.cell_geometry.get(cell_type)
+            if geometry is None or len(geometry["indices"]) > 721:
+                result["error"] = "unknown or unsupported cell type; see /cell-types"
+                return 404, result
+            if (status["state"] != "running" or status["error"] is not None or status["output"] is None
+                    or self.cell_values is None or self.cell_deltas is None
+                    or self.cell_tick != status["tick"]):
+                result["error"] = status["error"] or "no fresh cell response is available"
+                return 503, result
+            indices = geometry["indices"]
+            values = self.cell_values[indices].tolist()
+            deltas = self.cell_deltas[indices].tolist()
+            coordinates = list(zip(indices.tolist(), geometry["u"].tolist(), geometry["v"].tolist()))
+        result["cells"] = [
+            {"model_index": int(index), "u": int(u), "v": int(v),
+             "voltage": float(voltage), "delta_voltage": float(delta)}
+            for (index, u, v), voltage, delta in zip(coordinates, values, deltas)
+        ]
+        return 200, result
 
     def snapshot(self):
         with self.lock:
@@ -126,8 +181,22 @@ class SharedStatus:
 def serve_status(shared, port):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            status_code = 200
             if self.path == "/status":
                 raw = json.dumps(shared.snapshot(), allow_nan=False).encode()
+                content_type = "application/json"
+            elif self.path == "/cell-types":
+                raw = json.dumps(shared.cell_types_snapshot(), allow_nan=False).encode()
+                content_type = "application/json"
+            elif urllib.parse.urlsplit(self.path).path == "/cells":
+                parsed = urllib.parse.urlsplit(self.path)
+                query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                requested = query.get("type", [])
+                if len(self.path) > 256 or set(query) != {"type"} or len(requested) != 1 or not 1 <= len(requested[0]) <= 128:
+                    self.send_error(400, "requires /cells?type=one_actual_cell_type")
+                    return
+                status_code, payload = shared.cells_snapshot(requested[0])
+                raw = json.dumps(payload, allow_nan=False).encode()
                 content_type = "application/json"
             elif self.path == "/input.jpg":
                 with shared.lock:
@@ -140,7 +209,7 @@ def serve_status(shared, port):
                 self.send_error(404)
                 return
             try:
-                self.send_response(200)
+                self.send_response(status_code)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(raw)))
                 self.send_header("Cache-Control", "no-store")
@@ -207,6 +276,7 @@ def worker(args):
         model = FrozenVisualModel(args.model_dir)
         if model.metadata.get("status") != "complete" or not model.metadata.get("parity", {}).get("parameters_unchanged"):
             raise ValueError("export has no completed frozen reference-parity evidence")
+        shared.install_cell_geometry(model)
         process = psutil.Process()
         previous_input, previous_record, previous_jpeg = None, None, None
         previous_boundary = None
@@ -263,8 +333,13 @@ def worker(args):
                                   model_time_s=model_time, input_received_unix_ns=previous_record["received_unix_ns"],
                                   input_sha256=previous_record["jpeg_sha256"], _input_mono=previous_record["_received_mono"])
                     tick += 1
+                    cell_values = model.activity.numpy().copy()
+                    cell_deltas = cell_values - previous_activity
                     with shared.lock:
                         shared.latest_input = previous_jpeg
+                        shared.cell_values = cell_values
+                        shared.cell_deltas = cell_deltas
+                        shared.cell_tick = tick
                         shared.data.update(state="running", source=previous_record, output=output, tick=tick,
                                            compute_ms=compute_ms, error=None)
                     snapshot = shared.snapshot()
