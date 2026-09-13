@@ -158,6 +158,27 @@ class SharedStatus:
         ]
         return 200, result
 
+    def retina_snapshot(self):
+        # The drive and its camera provenance are captured under the same lock.
+        # This avoids shipping fixed connectivity for every eye-input repaint.
+        with self.lock:
+            code, result = self.cells_snapshot("R1")
+            result.update(schema="qualia.flyvis-retina.v1", input_kind="retinal_luminance", cells=[])
+            if code != 200:
+                return code, result
+            if self.recurrence_values is None or self.recurrence_tick != result["tick"]:
+                result["error"] = "no retinal drive aligned to this output"
+                return 503, result
+            geometry = self.cell_geometry["R1"]
+            indices = geometry["indices"]
+            values = self.recurrence_values["input_drive"][indices].tolist()
+            coordinates = list(zip(indices.tolist(), geometry["u"].tolist(), geometry["v"].tolist()))
+        result["cells"] = [
+            {"model_index": int(index), "u": int(u), "v": int(v), "input_drive": float(value)}
+            for (index, u, v), value in zip(coordinates, values)
+        ]
+        return 200, result
+
     def matrices_snapshot(self, cell_type):
         with self.lock:
             code, result = self.cells_snapshot(cell_type)
@@ -218,6 +239,10 @@ def serve_status(shared, port):
             elif self.path == "/cell-types":
                 raw = json.dumps(shared.cell_types_snapshot(), allow_nan=False).encode()
                 content_type = "application/json"
+            elif self.path == "/retina":
+                status_code, payload = shared.retina_snapshot()
+                raw = json.dumps(payload, allow_nan=False).encode()
+                content_type = "application/json"
             elif urllib.parse.urlsplit(self.path).path in ("/cells", "/matrices"):
                 parsed = urllib.parse.urlsplit(self.path)
                 query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
@@ -270,7 +295,8 @@ def publish_file(shared, path):
 
 
 def observe_context(shared, base_url):
-    endpoints = {"telemetry": "/telemetry/compact", "camera_lights": "/camera/lights", "camera_aim": "/camera/aim"}
+    endpoints = {"telemetry": "/telemetry/compact", "camera_lights": "/camera/lights", "camera_aim": "/camera/aim",
+                 "motor_clearance": "/motors/clearance"}
     while not shared.stop.is_set():
         for name, path in endpoints.items():
             if shared.stop.is_set():

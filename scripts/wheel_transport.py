@@ -87,17 +87,17 @@ def current_frame(value):
     return frame
 
 
-def permitted_frame(value, motion_authorized):
+def permitted_frame(value, motion_authorized, max_speed=0.05):
     frame = current_frame(value)
     if frame["L"] == 0 and frame["R"] == 0:
         return frame
     if not motion_authorized:
         raise InterlockViolation("zero-only interlock rejected a nonzero frame; no substitution")
-    if max(abs(frame["L"]), abs(frame["R"])) > 0.05:
-        raise InterlockViolation("motion interlock rejected a wheel speed above 0.05 m/s")
+    if max(abs(frame["L"]), abs(frame["R"])) > max_speed:
+        raise InterlockViolation("motion interlock rejected a wheel speed above the configured cap")
     if value["state"] != "shadow_proposal" or value["hold_reasons"]:
         raise InterlockViolation("motion interlock rejected nonzero output with producer holds")
-    if value.get("clearance_hold_m") != 0.25 or not 0 < number(value.get("max_speed_mps"), "producer speed cap") <= 0.05:
+    if value.get("clearance_hold_m") != 0.25 or not 0 < number(value.get("max_speed_mps"), "producer speed cap") <= max_speed:
         raise InterlockViolation("producer clearance or wheel cap differs from the approved envelope")
     body, vision, proposal = value.get("body"), value.get("vision"), value.get("proposed")
     if not all(isinstance(item, dict) for item in (body, vision, proposal)):
@@ -129,8 +129,45 @@ def permitted_frame(value, motion_authorized):
     if "nearest_return_m" not in body:
         raise ValueError("nearest lidar observation is absent")
     nearest = body["nearest_return_m"]
-    if nearest is not None and number(nearest, "nearest lidar return") < 0.25:
-        raise InterlockViolation("nearest lidar return is inside the unchanged 0.25 m hold")
+    if proposal.get("clearance_sector") == "forward":
+        if (value.get("directional_clearance_enabled") is not True or body.get("forward_directional_eligible") is not True
+                or proposal.get("direction") != "forward" or not 0 <= frame["L"] <= max_speed
+                or not 0 <= frame["R"] <= max_speed):
+            raise InterlockViolation("directional forward requires positive wheels within the configured cap")
+        front = body.get("forward_sector")
+        if not isinstance(front, dict) or front.get("center_deg") != 0 or front.get("half_width_deg") != 60:
+            raise InterlockViolation("forward scan sector geometry differs")
+        beams = integer(front.get("total_beams"), "forward beam count")
+        seen = integer(front.get("valid_beams"), "forward valid count", positive=False)
+        coverage = number(front.get("coverage_fraction"), "forward coverage")
+        if (not 0 <= seen <= beams <= total or abs(coverage - seen / beams) > 1e-6 or coverage < 0.75
+                or number(front.get("min_return_m"), "forward nearest return") < 0.25
+                or proposal.get("selected_clearance_m") != front["min_return_m"]):
+            raise InterlockViolation("forward motion lacks sufficient measured directional clearance")
+    elif proposal.get("direction") == "reverse_escape":
+        # Preserve the producer's emitted frame; a held zero stays zero.
+        if (value.get("reverse_escape_enabled") is not True or body.get("reverse_escape_eligible") is not True
+                or proposal.get("clearance_sector") != "reverse" or not -0.02 <= frame["L"] <= 0
+                or not -0.02 <= frame["R"] <= 0):
+            raise InterlockViolation("reverse escape requires both wheels reverse within 0.02 m/s")
+        forward, rear = body.get("forward_sector"), body.get("reverse_sector")
+        if not isinstance(forward, dict) or not isinstance(rear, dict):
+            raise InterlockViolation("reverse escape lacks measured directional clearance")
+        for sector, center in ((forward, 0), (rear, 180)):
+            if sector.get("center_deg") != center or sector.get("half_width_deg") != 60:
+                raise InterlockViolation("directional scan sector geometry differs")
+            beams = integer(sector.get("total_beams"), "sector beam count")
+            seen = integer(sector.get("valid_beams"), "sector valid count", positive=False)
+            coverage = number(sector.get("coverage_fraction"), "sector coverage")
+            if not 0 <= seen <= beams <= total or abs(coverage - seen / beams) > 1e-6:
+                raise InterlockViolation("directional lidar coverage is inconsistent")
+        if (number(forward.get("min_return_m"), "forward nearest return") >= 0.25
+                or rear["coverage_fraction"] < 0.75
+                or number(rear.get("min_return_m"), "reverse nearest return") < 0.25
+                or proposal.get("selected_clearance_m") != rear["min_return_m"]):
+            raise InterlockViolation("reverse escape is not supported by current directional clearance")
+    elif nearest is not None and number(nearest, "nearest lidar return") < 0.25:
+        raise InterlockViolation("nearest lidar return is inside the 0.25 m forward hold")
     if (vision.get("checkpoint_sha256") != CHECKPOINT or vision.get("export_sha256") != EXPORT
             or vision.get("cell_type") != "T4a" or not vision.get("run_id")
             or vision.get("camera_timestamp_basis") != "v4l2-monotonic"):
@@ -168,7 +205,8 @@ class State:
             "schema": "qualia.wheel-transport.v1", "run_id": str(uuid.uuid4()), "state": "starting",
             "published_unix_ns": time.time_ns(), "deadline_unix_ns": time.time_ns() + int(args.seconds * 1e9),
             "zero_only": not args.motion_authorized, "nonzero_enabled": args.motion_authorized,
-            "max_wheel_speed_mps": 0.05, "transport_attached": False, "error": None,
+            "max_wheel_speed_mps": args.max_speed, "transport_attached": False, "error": None,
+            "frame_source": "producer emitted frame",
             "source_failures": 0, "source_recoveries": 0, "last_source_error": None,
             "transport": {"pid": None, "process_alive": False, "stdin_open": False,
                           "binary_sha256": hashlib.sha256(args.transport.read_bytes()).hexdigest(),
@@ -240,6 +278,7 @@ def read_transport(state):
             consumed = re.search(r"drive refused \(T=(\d+)", line)
             event["reason"] = next((text for text in (
                 "runtime v2 Waveshare acknowledgement timed out", "invalid pilot token", "legacy physical control is disabled",
+                "drive blocked by the configured lidar collision threshold",
                 "Connection refused", "timed out") if text in line), "transport reported drive refusal")
         elif "refused T=" in line:
             event["kind"] = "locally_refused"
@@ -323,8 +362,12 @@ def main():
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--port", type=int, default=8093)
     parser.add_argument("--motion-authorized", action="store_true",
-                        help="enable <=0.05 m/s only after explicit operator presence and clearance approval")
+                        help="enable bounded motion after explicit operator presence and clearance approval")
+    parser.add_argument("--max-speed", type=float, default=0.05,
+                        help="explicit wheel cap, default 0.05 and at most 0.1 m/s")
     args = parser.parse_args()
+    if not math.isfinite(args.max_speed) or not 0 < args.max_speed <= 0.1:
+        parser.error("max-speed must be finite in (0, 0.1] m/s")
     if not 10 <= args.seconds <= 1800 or not 1024 <= args.port <= 65535:
         parser.error("duration or port outside bounded range")
     for url in (args.base_url, args.producer_url):
@@ -337,11 +380,18 @@ def main():
     if not token_path or not Path(token_path).is_file():
         parser.error("operator must provide the transport's protected token-file path")
     # Verify a live producer before launching any child that can contact the actuator.
-    first = get_json(args.producer_url)
-    try:
-        permitted_frame(first, args.motion_authorized)
-    except InterlockViolation as error:
-        parser.error(str(error) + ": " + json.dumps(first.get("emitted_frame")))
+    acquisition_deadline = time.monotonic() + 3
+    while True:
+        try:
+            first = get_json(args.producer_url)
+            permitted_frame(first, args.motion_authorized, args.max_speed)
+            break
+        except InterlockViolation as error:
+            parser.error(str(error) + ": " + json.dumps(first.get("emitted_frame")))
+        except (ValueError, KeyError, TypeError, OSError) as error:
+            if time.monotonic() >= acquisition_deadline:
+                parser.error("no fresh producer within 3 seconds: " + named_error(error))
+            time.sleep(0.1)
     args.run_dir.mkdir(parents=True, exist_ok=False)
     state = State(args)
     server = serve(state, args.port)
@@ -375,7 +425,7 @@ def main():
                 phase = "source acquisition"
                 try:
                     value = get_json(args.producer_url)
-                    frame = permitted_frame(value, args.motion_authorized)
+                    frame = permitted_frame(value, args.motion_authorized, args.max_speed)
                     if source_failure_since is not None and previous_tick is not None and frame["T"] <= previous_tick:
                         raise ValueError("reacquisition requires a genuinely newer producer tick")
                     if source_failure_since is not None and time.monotonic() - source_failure_since >= 3:
@@ -413,7 +463,7 @@ def main():
                         # One fresh decision only. No tail, buffered replay, or multi-frame queue.
                         phase = "final frame freshness"
                         try:
-                            permitted_frame(value, args.motion_authorized)
+                            permitted_frame(value, args.motion_authorized, args.max_speed)
                         except InterlockViolation as error:
                             state.data.update(state="interlock_rejected", rejected_frame=frame, error=str(error))
                             result = 2

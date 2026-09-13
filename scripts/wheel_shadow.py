@@ -383,7 +383,6 @@ def run(args):
         vision_poll = InputPoller(args.vision_url, stop)
         body_poll = InputPoller(args.base_url + "/telemetry/compact", stop)
         history = BodyHistory(args.reverse_escape, args.directional_clearance)
-        previous_run = None
         deadline = time.monotonic() + args.seconds - 1
         next_tick = time.monotonic()
         with (args.run_dir / "decisions.jsonl").open("x", buffering=1) as evidence:
@@ -394,12 +393,10 @@ def run(args):
                 holds = []
                 try:
                     vision, vision_expiry = parse_vision(vision_poll.get(), now)
-                    if previous_run != vision["run_id"]:
-                        history.reset()
-                        previous_run = vision["run_id"]
                 except Exception as error:
                     holds.append(str(error))
-                    history.reset()
+                    # Camera continuity does not invalidate independently fresh
+                    # encoder history. Body failures reset their own history below.
                 try:
                     body, body_expiry, body_holds = history.parse(body_poll.get(), now)
                     holds.extend(body_holds)

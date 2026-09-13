@@ -1,0 +1,320 @@
+{
+  "run": "wheel-transport-20260912-223106",
+  "bridge_run_id": "0c2603f7-877c-404e-b846-7506aa461307",
+  "session_label": "5d5fb36c",
+  "transport_binary_sha256": "50c55311a369af6897f1a5a34f7c81c30d4a6497bb2b1f4ed0279a1c823cc749",
+  "forwarded_count": 16,
+  "nonzero_forwarded_count": 4,
+  "first_forwarded": {
+    "T": 129,
+    "L": 0.049298827159879814,
+    "R": 0.048657974571759584
+  },
+  "first_source": {
+    "schema": "qualia.wheel-shadow.v1",
+    "run_id": "16089d2c-70c9-48ee-8dcb-0dccda89ef95",
+    "state": "shadow_proposal",
+    "tick": 129,
+    "published_unix_ns": 1789266667826750608,
+    "deadline_unix_ns": 1789268441943389261,
+    "policy_kind": "engineered_frozen_vision_readout",
+    "motion_output": false,
+    "transport_attached": false,
+    "max_speed_mps": 0.1,
+    "clearance_hold_m": 0.25,
+    "cruise_speed_mps": 0.08,
+    "reverse_escape_enabled": false,
+    "directional_clearance_enabled": true,
+    "vision": {
+      "run_id": "49458c95-e2fd-4d0a-839b-27d884316c21",
+      "tick": 807,
+      "cell_type": "T4a",
+      "input_sha256": "12956fe52e840139b97d241e058d83f1faf931f0324cbdf28366ab4218ded213",
+      "input_received_unix_ns": 1789266666816876459,
+      "input_age_ms": 1010.7531879868475,
+      "output_completed_unix_ns": 1789266667610941032,
+      "output_age_ms": 216.75318798684748,
+      "camera_sequence": 441,
+      "camera_acquisition_unix_ms": 1789266666483,
+      "camera_dequeued_unix_ms": 1789266666683,
+      "camera_acquisition_age_ms": 1343.7531879868475,
+      "camera_exposure_unix_ns": null,
+      "camera_timestamp_basis": "v4l2-monotonic",
+      "centroid_horizontal": 0.012359077366681303,
+      "mean_abs_delta": 0.0005788483583315401,
+      "checkpoint_sha256": "d0e42857e738d0315897c2d50fde9eb3fb1a3fb1f071d55dfc13d53d72bccc3f",
+      "export_sha256": "38264020d56f16dabca42af3ff1d0dbf6bc88c5384e34ce5b31b7062461541d1"
+    },
+    "body": {
+      "imu_ts_ms": 1789266667568,
+      "lidar_ts_ms": 1789266667570,
+      "odometry_ts_ms": 1789266667568,
+      "oldest_age_ms": 258.75465167488437,
+      "sensor_skew_ms": 2,
+      "gyro_yaw_radps": 0.0014311699866353502,
+      "odom_yaw_radps": 0.0,
+      "odom_speed_mps": 0.0,
+      "acceleration_norm_mps2": 9.953871734766956,
+      "nearest_return_m": 0.142,
+      "forward_sector": {
+        "center_deg": 0,
+        "half_width_deg": 60,
+        "total_beams": 121,
+        "valid_beams": 121,
+        "unknown_beams": 0,
+        "coverage_fraction": 1.0,
+        "min_return_m": 1.418
+      },
+      "reverse_sector": {
+        "center_deg": 180,
+        "half_width_deg": 60,
+        "total_beams": 121,
+        "valid_beams": 27,
+        "unknown_beams": 94,
+        "coverage_fraction": 0.2231404958677686,
+        "min_return_m": 0.142
+      },
+      "reverse_escape_eligible": false,
+      "forward_directional_eligible": true,
+      "direction_convention": "Leash logical positive forward, negative reverse; configured wire inversion applied by Leash",
+      "valid_ranges": 260,
+      "total_ranges": 360
+    },
+    "proposed": {
+      "left_mps": 0.049298827159879814,
+      "right_mps": 0.048657974571759584,
+      "neural_turn_mps": 0.0003089769341670326,
+      "gyro_damping_mps": 1.1449359893082802e-05,
+      "forward_mps": 0.0489784008658197,
+      "direction": "forward",
+      "clearance_sector": "forward",
+      "selected_clearance_m": 1.418
+    },
+    "emitted_frame": {
+      "T": 129,
+      "L": 0.049298827159879814,
+      "R": 0.048657974571759584
+    },
+    "frame_written_unix_ns": 1789266667755202852,
+    "hold_reasons": [],
+    "decision_age_ms": 76.23730600244016,
+    "error": null
+  },
+  "first_transport_applied": {
+    "received_unix_ns": 1789266667860423100,
+    "kind": "applied",
+    "tick": 129,
+    "line": "qualia-leash-transport: applied T=129 requested_left=0.049 requested_right=0.049 applied_left=0.049 applied_right=0.049 max_speed=0.220 speed_mode=low flags=0x0 ok=true session=5d5fb36c\u2026",
+    "requested_left": 0.049,
+    "requested_right": 0.049,
+    "applied_left": 0.049,
+    "applied_right": 0.049,
+    "max_speed": 0.22,
+    "ok": true,
+    "speed_mode": "low"
+  },
+  "first_leash_applied": {
+    "schema_version": "leash.applied-action.v1",
+    "authority": "leash",
+    "producer_epoch": 1789266577300682691,
+    "action_sequence": 897,
+    "interval_start_ns": 1789266667869853859,
+    "interval_end_ns": 1789266667891629107,
+    "requested_left": 0.04929882660508156,
+    "requested_right": 0.04865797609090805,
+    "clamped_left": 0.04929882660508156,
+    "clamped_right": 0.04865797609090805,
+    "applied_left": 0.04929882660508156,
+    "applied_right": 0.04865797609090805,
+    "speed_scale": 0.22,
+    "safety_flags": 0,
+    "valid": true,
+    "armed": true,
+    "deadman_active": false,
+    "collision_clamped": false
+  },
+  "last_leash_applied": {
+    "schema_version": "leash.applied-action.v1",
+    "authority": "leash",
+    "producer_epoch": 1789266577300682691,
+    "action_sequence": 912,
+    "interval_start_ns": 1789266669025252042,
+    "interval_end_ns": 1789266669045813269,
+    "requested_left": 0.050816647708415985,
+    "requested_right": 0.053228069096803665,
+    "clamped_left": 0.050816647708415985,
+    "clamped_right": 0.053228069096803665,
+    "applied_left": 0.050816647708415985,
+    "applied_right": 0.053228069096803665,
+    "speed_scale": 0.22,
+    "safety_flags": 0,
+    "valid": true,
+    "armed": true,
+    "deadman_active": false,
+    "collision_clamped": false
+  },
+  "leash_nonzero_rows": 16,
+  "final_stop": {
+    "stdin_closed_unix_ns": 1789266671860324300,
+    "robot_verified_zero_after_close": true,
+    "record": {
+      "schema_version": "leash.applied-action.v1",
+      "authority": "leash",
+      "producer_epoch": 1789266577300682691,
+      "action_sequence": 1018,
+      "interval_start_ns": 1789266676346049113,
+      "interval_end_ns": 1789266676400000914,
+      "requested_left": 0.0,
+      "requested_right": 0.0,
+      "clamped_left": 0.0,
+      "clamped_right": 0.0,
+      "applied_left": 0.0,
+      "applied_right": 0.0,
+      "speed_scale": 0.22,
+      "safety_flags": 16,
+      "valid": true,
+      "armed": false,
+      "deadman_active": false,
+      "collision_clamped": false
+    },
+    "attribution": "global leash ledger; not session-specific"
+  },
+  "source_failures": 9,
+  "last_source_error": "ValueError: camera_acquisition_unix_ms is stale or clock-skewed",
+  "telemetry_before": {
+    "observed_ns": 1789266666583571900,
+    "ts_ms": 1789266666588,
+    "odometry": {
+      "covariance": [
+        0.0102,
+        0.0,
+        0.0,
+        0.0,
+        0.0102,
+        0.0,
+        0.0,
+        0.0,
+        0.0204
+      ],
+      "pose": {
+        "frame_id": "odom",
+        "ts_ms": 1789266666566,
+        "x_m": 0.0,
+        "y_m": 0.0,
+        "yaw_rad": 0.0
+      }
+    },
+    "imu": {
+      "error": null,
+      "last_ms": 1789266666566,
+      "sample": {
+        "angular_velocity_radps": {
+          "x": -0.006297147941195541,
+          "y": 0.0034348079679248408,
+          "z": 0.0014311699866353502
+        },
+        "frame_id": "base_link",
+        "linear_acceleration_mps2": {
+          "x": -0.0430956298828125,
+          "y": -0.1005564697265625,
+          "z": 9.868899243164062
+        },
+        "orientation_xyzw": null,
+        "ts_ms": 1789266666566
+      },
+      "source": "waveshare-ugv",
+      "status": "available"
+    },
+    "raw_frame": {
+      "last_ms": 1789266666566,
+      "payload": {
+        "L": 0,
+        "R": 0,
+        "T": 1001,
+        "ax": -36,
+        "ay": -84,
+        "az": 8244,
+        "gx": -22,
+        "gy": 12,
+        "gz": 5,
+        "mx": -545,
+        "my": 330,
+        "mz": 1084,
+        "odl": -2,
+        "odr": 0,
+        "v": 1186
+      },
+      "source": "waveshare-ugv",
+      "status": "available"
+    },
+    "lidar_ts_ms": 1789266666570
+  },
+  "telemetry_after": {
+    "observed_ns": 1789266676742632000,
+    "ts_ms": 1789266676749,
+    "odometry": {
+      "covariance": [
+        0.010700000000000001,
+        0.0,
+        0.0,
+        0.0,
+        0.010700000000000001,
+        0.0,
+        0.0,
+        0.0,
+        0.021400000000000002
+      ],
+      "pose": {
+        "frame_id": "odom",
+        "ts_ms": 1789266676723,
+        "x_m": -0.02497032576250059,
+        "y_m": -0.0008742840523009825,
+        "yaw_rad": 0.04999999999999982
+      }
+    },
+    "imu": {
+      "error": null,
+      "last_ms": 1789266676723,
+      "sample": {
+        "angular_velocity_radps": {
+          "x": 0.009159487914466241,
+          "y": 0.0054384459492143305,
+          "z": 0.0017174039839624204
+        },
+        "frame_id": "base_link",
+        "linear_acceleration_mps2": {
+          "x": 0.0,
+          "y": -0.047884033203124995,
+          "z": 9.832986218261718
+        },
+        "orientation_xyzw": null,
+        "ts_ms": 1789266676723
+      },
+      "source": "waveshare-ugv",
+      "status": "available"
+    },
+    "raw_frame": {
+      "last_ms": 1789266676723,
+      "payload": {
+        "L": 0,
+        "R": 0,
+        "T": 1001,
+        "ax": 0,
+        "ay": -40,
+        "az": 8214,
+        "gx": 32,
+        "gy": 19,
+        "gz": 6,
+        "mx": -591,
+        "my": 341,
+        "mz": 1142,
+        "odl": -5,
+        "odr": -2,
+        "v": 1188
+      },
+      "source": "waveshare-ugv",
+      "status": "available"
+    },
+    "lidar_ts_ms": 1789266676677
+  }
+}
