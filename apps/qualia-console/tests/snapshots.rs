@@ -119,15 +119,56 @@ fn mission_degraded() {
         Sample::degraded(&fixture, "tcp connect failed", now),
     ));
 
-    // The degraded state still renders the committed braid: no empty window,
-    // and the reason sits in the banner at the top of the panel.
+    // Unavailable sources share a collapsed drawer, without fixture panels
+    // crowding the working views. Details remain available on demand.
+    harness.get_by_label("Issues (3)");
+    assert!(harness.query_by_label("open missions").is_none());
+    assert!(harness.query_by_label("tcp connect failed").is_none());
+    snapshot(&mut harness, "mission_degraded");
+
+    harness.get_by_label("Issues (3)").click();
+    harness.run();
+    harness.get_by_label("tcp connect failed");
+    assert_eq!(harness.query_all_by_label("agent unreachable: tcp connect failed").count(), 1);
+    harness.get_by_label("Show unavailable panels").click();
+    harness.run();
+    harness.get_by_label("mission degraded").click();
+    harness.run();
     harness.get_by_label("mission degraded: tcp connect failed");
     harness.get_by_label("rendering committed fixture braid-state.json");
     harness.get_by_label("open missions");
     harness.get_by_label("1");
     harness.get_by_label("degraded");
 
-    snapshot(&mut harness, "mission_degraded");
+    // Recovery returns the live view without changing the operator's window
+    // selection, even if unavailable panels were subsequently hidden.
+    harness.get_by_label("Show unavailable panels").click();
+    harness.run();
+    harness.state_mut().apply(healthy(&fixture, now));
+    harness.run();
+    harness.get_by_label("connected");
+    harness.get_by_label("open missions");
+}
+
+#[test]
+fn failures_leave_usable_data_visible() {
+    let fixture = fixture();
+    let now = ms_after_promotion(&fixture, 20);
+    let mut sample = healthy(&fixture, now);
+    sample.connection = qualia_console::Connection::Unreachable { reason: "agent offline".into() };
+    sample.belief = qualia_console::views::belief::BeliefView::unattached(None, "region unavailable");
+    sample.telemetry = qualia_console::views::telemetry::TelemetryView::unattached("region unavailable");
+    // A failed directory scan must not hide the independently available ledger.
+    sample.evidence.error = Some("directory unavailable".into());
+    let mut harness = harness(ConsoleState::from_sample(sample, "http://127.0.0.1:8080"));
+    assert!(harness.query_by_label("open missions").is_none());
+    assert!(harness.query_by_label("compression").is_none());
+    assert!(harness.query_by_label("no telemetry frames").is_none());
+    harness.get_by_label("pose confidence");
+    harness.get_by_label("evidence root");
+    harness.get_by_label("evidence read error");
+    assert!(harness.query_by_label("evidence read error: directory unavailable").is_none());
+    snapshot(&mut harness, "mixed_availability");
 }
 
 #[test]

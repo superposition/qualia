@@ -68,8 +68,8 @@ pub const DASH: &str = "—";
 ///
 /// The six panels are a 3×2 grid below the strip: two rows of three at 24 px
 /// margins and 24 px gutters, which fits 1280x820 — the window the console opens
-/// with — and leaves the same absolute gaps at 1920x1080. Every panel is open on
-/// start-up and none overlaps another, so the operator reads the whole stack at
+/// with — and leaves the same absolute gaps at 1920x1080. When every source is
+/// available, none overlaps another, so the operator reads the whole stack at
 /// once instead of paging between tabs; each is still movable and resizable, and
 /// the Brain panel (the 3D scene) sits bottom-right at [856, 432, 392, 364].
 pub const PANEL_LAYOUT: [[f32; 4]; 6] = [
@@ -188,19 +188,15 @@ fn label_width(width: f32) -> f32 {
     LABEL_W.min((width - UNIT_W - MIN_VALUE_W).max(MIN_LABEL_W))
 }
 
-/// The one error surface: a full-width band at the top of a window body, so a
-/// failure sits in the same place in every panel.
+/// Partial failures stay compact so the panel's usable data remains visible.
 pub fn error_banner(ui: &mut Ui, message: &str) {
-    let width = ui.available_width();
-    egui::Frame::NONE
-        .fill(tint(FAIL, 0.15))
-        .corner_radius(CornerRadius::same(4))
-        .inner_margin(Margin::symmetric(12, 8))
+    let summary = message.split_once(": ").map_or("Error details", |(label, _)| label);
+    egui::CollapsingHeader::new(text(summary, SIZE_BODY, FAIL))
+        .id_salt(ui.next_auto_id())
+        .default_open(false)
         .show(ui, |ui| {
-            ui.set_min_width((width - 24.0).max(0.0));
             ui.label(text(message, SIZE_BODY, FAIL));
         });
-    ui.add_space(GAP_S);
 }
 
 /// A named state or an absent reading: one line, in a colour that carries the
@@ -488,18 +484,37 @@ pub fn panel(
     open: &mut bool,
     add_contents: impl FnOnce(&mut Ui),
 ) {
+    arranged_panel(ctx, view, open, None, false, ctx.content_rect(), add_contents);
+}
+
+/// Fill the space released by unavailable panels; operator adjustments persist
+/// until the set of visible panels changes again.
+pub(crate) fn arranged_panel(
+    ctx: &egui::Context,
+    view: crate::View,
+    open: &mut bool,
+    placement: Option<[f32; 4]>,
+    rearrange: bool,
+    bounds: egui::Rect,
+    add_contents: impl FnOnce(&mut Ui),
+) {
     let index = crate::VIEWS
         .iter()
         .position(|candidate| *candidate == view)
         .unwrap_or(0);
-    let [x, y, width, height] = PANEL_LAYOUT[index];
-    egui::Window::new(view.label())
+    let [x, y, width, height] = placement.unwrap_or(PANEL_LAYOUT[index]);
+    let mut window = egui::Window::new(view.label())
         .id(egui::Id::new(("qualia_console_panel", view.label())))
         .default_pos(egui::pos2(x, y))
         .default_size(egui::vec2(width, height))
         .resizable(true)
         .collapsible(true)
         .open(open)
+        .constrain_to(bounds);
+    if rearrange {
+        window = window.current_pos(egui::pos2(x, y)).fixed_size(egui::vec2(width, height));
+    }
+    window.max_size((bounds.size() - egui::vec2(32.0, 56.0)).max(egui::vec2(120.0, 80.0)))
         .show(ctx, |ui| {
             egui::ScrollArea::both()
                 .auto_shrink([false, false])

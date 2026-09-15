@@ -38,6 +38,7 @@
 
 pub mod client;
 pub mod hud;
+mod issues;
 pub mod poller;
 pub mod sample;
 /// The region read path, public so an evidence run (and the console's own
@@ -102,9 +103,8 @@ impl Connection {
     }
 }
 
-/// Which floating panels are showing. Every panel starts open at its grid place, so
-/// the console opens on the whole picture; the `Windows` menu re-opens one the
-/// operator closed.
+/// Which floating panels the operator selected. Unavailable panels are grouped
+/// in Issues without changing this selection, so recovery restores them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowSet {
     pub mission: bool,
@@ -252,7 +252,7 @@ pub fn now_ns() -> u64 {
         .unwrap_or(0)
 }
 
-/// Draw the console: the one strip, then the six floating panels.
+/// Draw the console: the strip, collapsed issues and available floating panels.
 ///
 /// This is the whole surface, so the snapshot tests drive the same code the
 /// window does; [`app_ui`] only wraps it in a panel.
@@ -260,27 +260,51 @@ pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
     theme::apply(ui.ctx());
     ui.painter().rect_filled(ui.max_rect(), 0.0, theme::BG);
     theme::menu_strip(ui, state);
+    issues::render(ui, state);
 
     let mut windows = state.windows;
     let ctx = ui.ctx().clone();
-    theme::panel(&ctx, View::Mission, &mut windows.mission, |ui| {
-        views::mission::render(ui, state)
+    let visible: Vec<_> = VIEWS.into_iter().filter(|view| {
+        windows.is_open(*view)
+            && (!issues::unavailable(state, *view) || issues::show_unavailable_panels(&ctx))
+    }).collect();
+    let compact = !issues::show_unavailable_panels(&ctx)
+        && VIEWS.into_iter().any(|view| windows.is_open(view) && issues::unavailable(state, view));
+    let arrangement = (compact, visible.clone());
+    let rearrange = ctx.data_mut(|data| {
+        let id = egui::Id::new("qualia_visible_panels");
+        let previous = data.get_temp::<(bool, Vec<View>)>(id);
+        let changed = previous.as_ref() != Some(&arrangement);
+        data.insert_temp(id, arrangement);
+        changed
     });
-    theme::panel(&ctx, View::Belief, &mut windows.belief, |ui| {
-        views::belief::render(ui, state)
-    });
-    theme::panel(&ctx, View::World, &mut windows.world, |ui| {
-        views::world::render(ui, state)
-    });
-    theme::panel(&ctx, View::Evidence, &mut windows.evidence, |ui| {
-        views::evidence::render(ui, state)
-    });
-    theme::panel(&ctx, View::Telemetry, &mut windows.telemetry, |ui| {
-        views::telemetry::render(ui, state)
-    });
-    theme::panel(&ctx, View::Brain, &mut windows.brain, |ui| {
-        views::brain::render(ui, state)
-    });
+    let bounds = ui.available_rect_before_wrap();
+    for view in VIEWS {
+        if issues::unavailable(state, view) && !issues::show_unavailable_panels(&ctx) {
+            continue;
+        }
+        let mut open = windows.is_open(view);
+        let placement = if compact {
+            visible.iter().position(|candidate| *candidate == view).map(|index| {
+                let columns = visible.len().min(3);
+                let rows = visible.len().div_ceil(columns);
+                let cell = egui::vec2(bounds.width() / columns as f32, bounds.height() / rows as f32);
+                let pos = bounds.min + egui::vec2(cell.x * (index % columns) as f32, cell.y * (index / columns) as f32);
+                [pos.x + 16.0, pos.y + 16.0, cell.x - 48.0, cell.y - 72.0]
+            })
+        } else {
+            None
+        };
+        theme::arranged_panel(&ctx, view, &mut open, placement, rearrange, bounds, |ui| match view {
+            View::Mission => views::mission::render(ui, state),
+            View::Belief => views::belief::render(ui, state),
+            View::World => views::world::render(ui, state),
+            View::Evidence => views::evidence::render(ui, state),
+            View::Telemetry => views::telemetry::render(ui, state),
+            View::Brain => views::brain::render(ui, state),
+        });
+        windows.set(view, open);
+    }
     state.windows = windows;
 
     // The operator's HUD, additive to the views: `Ctrl+H` shows or hides the
@@ -294,7 +318,9 @@ pub fn render_view(ui: &mut egui::Ui, state: &mut ConsoleState) {
 
     // The coach's decisions, beside the HUD: the broker's own surface (T63),
     // not a seventh view over the agent's state.
-    views::coach::render_panel(ui.ctx(), state);
+    if issues::coach_visible(ui.ctx(), state) {
+        views::coach::render_panel(ui.ctx(), state);
+    }
 }
 
 /// One frame of the console: panels around [`render_view`].
