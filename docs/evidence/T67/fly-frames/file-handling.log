@@ -1,0 +1,4 @@
+existing trace: exit 1 before artifact load; all prior file bytes preserved
+existing spikes: exit 1 before artifact load; all prior file bytes preserved
+existing independent: exit 1 before artifact load; all prior file bytes preserved
+new frame file with --max-wheel-speed 0: exit 0; 6 ticks recorded, all wheels zero, stdout empty

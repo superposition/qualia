@@ -1,0 +1,7 @@
+gpu-stream: 30 JSON-only frames, tick/CSV/spike readout agree; left=17 hold=4 right=9; |wheel|<=0.04
+gpu-stream: first frame unblocked the second camera response; injected gap 0.969s emitted no extra frame
+cpu-stream: 12 JSON-only frames, tick/CSV/spike readout agree; left=5 hold=4 right=3; |wheel|<=0.04
+cpu-stream: first frame unblocked the second camera response
+camera-failure: exit 1, exactly one frame then EOF; stderr quotes HTTP 503
+broken-pipe: exit 1, write failure reported, loop terminates
+invalid limits: NaN, inf, -0.1, 1.1 refused before emitting frames

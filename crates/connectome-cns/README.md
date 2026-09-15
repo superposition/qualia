@@ -144,6 +144,61 @@ They are not fitted to anything and not claimed to be the fly's.
 The run writes `spikes.bin` (every tick's firing set) and a CSV trace of tick, luminance, firing input
 count, both output rates, command and throttle.
 
+### Wheel frames for the leash transport
+
+`loop --frames-out -` emits one newline-terminated JSON frame on stdout **during each tick**, before
+fetching the next image. The CSV row is written and flushed before that frame. Loop status goes to
+stderr. Without `--frames-out`, the loop only records the run. A path instead of `-` records the JSON
+lines in a new file (an existing destination is refused); use stdout for the live pipe, since replaying
+a completed file would deliver old decisions in a burst.
+
+The CSV's `rate_l` and `rate_r` are neural firing fractions, not wheel speeds. The bridge uses the
+same `command` and `throttle` values that write the trace, before decimal rounding:
+
+| Decision | Wheel frame |
+| --- | --- |
+| `-1`, steer left | `L = -throttle * limit`, `R = throttle * limit` |
+| `+1`, steer right | `L = throttle * limit`, `R = -throttle * limit` |
+| `0`, hold | `L = 0`, `R = 0`, even with nonzero throttle |
+
+`T` is the loop's tick, starting at zero. `--max-wheel-speed` sets `limit` (default `0.04`, finite,
+between zero and one). This is a bounded pivot mapping in the transport's wheel-command units, not a
+measurement of physical speed or a calibrated steering law. Leash separately applies the operator's
+`speed_mode: low`. No transport lease, deadman, stop acknowledgement or session-label logic changes.
+
+Build both programs **sequentially before** opening a motion window; do not pipe two `cargo run`
+commands together. Once the operator confirms the acknowledgement fix, is present, and the zero-speed
+drive probe succeeds, a bounded live command in a shell with native pipes is:
+
+```sh
+export QUALIA_LEASH_BASE_URL=http://192.168.55.1:8000
+export QUALIA_LEASH_OPERATOR_TOKEN_FILE=/private/path/to/operator.token
+export QUALIA_LEASH_TRANSPORT_ROUTE=http
+export QUALIA_LEASH_TRANSPORT_DEADMAN_MS=500
+export QUALIA_LEASH_TRANSPORT_LEASE_TTL_SECS=20
+export QUALIA_LEASH_SPEED_MODE=low
+export QUALIA_SHM_NAME=/qualia_body  # an existing init-owned arena
+
+qualia-connectome-cns loop --artifact /path/to/artifact \
+  --camera http://192.168.55.1:8000/camera/snapshot --ticks 20 --device gpu \
+  --spikes run/spikes.bin --trace run/trace.csv --session fly-driving \
+  --frames-out - --max-wheel-speed 0.04 2>run/loop.log |
+  qualia-leash-transport 2>run/transport.log
+```
+
+Use a fresh run directory and exactly one transport. Set an operator-agreed wall-clock deadline as
+well as the tick cap; camera fetches and acknowledgement latency affect duration. On end of input,
+the transport requests a verified stop and continues publishing stop records. Observe that receipt
+before ending it. A stalled camera produces no substitute commands, so the transport's existing
+arrival-based deadman sees the gap. A frame-write failure exits the loop with an error; it never
+silently skips a hold or substitutes a previous command. A deadman demonstration must hold the pipe
+open without frames: closing it exercises the end-of-input stop instead.
+
+The operator bearer must be supplied privately and removed after the window, as described in
+[`handoff-driving.md`](../../docs/handoff-driving.md). This command is a recipe, not evidence of a live
+run. #262 still needs leash's own applied-action evidence and telemetry for all three demonstrations;
+the estop demonstration additionally waits for the operator's decision about clearing the latch.
+
 ## Commands
 
 ```console
